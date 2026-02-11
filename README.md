@@ -1,86 +1,41 @@
 # Wumpus Archiver
 
-A lightweight, self-hosted Discord server archival system with an exploration portal.
+Self-hosted Discord server archival with a web exploration portal.
 
-## Features
-
-- **Complete Server Archival**: Scrape messages, channels, threads, users, attachments
-- **Incremental Updates**: Resume from last position, update edited messages
-- **Exploration Portal**: Discord-like web interface for browsing archives
-- **Full-Text Search**: Search across all messages with filters
-- **Data Visualization**: Activity timelines, user statistics, channel analytics
-- **Export Options**: SQLite, JSON, HTML, CSV formats
+Scrape messages, channels, users, and attachments into a SQLite database, then browse everything through a SvelteKit UI served by FastAPI.
 
 ## Quick Start
 
-### Prerequisites
-
-- Python 3.12+
-- Discord Bot Token (see [Discord Developer Portal](https://discord.com/developers/applications))
-
-### Installation
-
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/wumpus-archiver.git
-cd wumpus-archiver
-
-# Install dependencies
 pip install -e ".[dev]"
-
-# Copy environment template
-cp .env.example .env
-# Edit .env with your tokens
+cp .env.example .env          # set DISCORD_BOT_TOKEN
 ```
 
-### Discord Bot Setup
-
-1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
-2. Create New Application → Bot
-3. Enable Privileged Intents:
-   - MESSAGE CONTENT INTENT (required)
-   - SERVER MEMBERS INTENT (recommended)
-4. Copy Bot Token to `.env`
-5. Invite bot to your server with permissions:
-   - Read Messages/View Channels
-   - Read Message History
-
-### Usage
+Your Discord bot needs **Message Content** and **Server Members** privileged intents, plus Read Messages and Read Message History permissions.
 
 ```bash
 # Scrape a server
-wumpus-archiver scrape --guild-id 123456789 --output ./my_archive.db
+wumpus-archiver scrape --guild-id 123456789
 
-# Start exploration portal
-wumpus-archiver serve ./my_archive.db --port 8080
+# Download image attachments locally
+wumpus-archiver download ./archive.db
 
-# Update existing archive
-wumpus-archiver update ./my_archive.db
+# Start the portal
+wumpus-archiver serve ./archive.db --attachments-dir ./attachments
 ```
-
-## Architecture
-
-```
-Discord API (discord.py) → SQLite Database → FastAPI → SvelteKit Portal
-```
-
-## Documentation
-
-- [Research Report](./docs/RESEARCH_REPORT.md) - Technical research findings
-- [Architecture](./docs/ARCHITECTURE.md) - System design
-- [Implementation Plan](./docs/IMPLEMENTATION_PLAN.md) - Development roadmap
 
 ## Tech Stack
 
-- **Backend**: Python 3.12, discord.py, FastAPI, SQLAlchemy 2.0
-- **Database**: SQLite (default), PostgreSQL (optional)
-- **Frontend**: SvelteKit, TypeScript, Tailwind CSS
-- **Search**: SQLite FTS5, FlexSearch
+Python 3.12 · discord.py · FastAPI · SQLAlchemy 2.0 (async) · SvelteKit · SQLite
+
+## Development
+
+```bash
+black src/ tests/ && ruff check src/ tests/ && mypy src/
+pytest --cov=src/wumpus_archiver
+cd portal && npm run dev       # frontend hot-reload
+```
 
 ## License
 
-MIT License - See LICENSE file
-
-## Acknowledgments
-
-- Inspired by [DiscordChatExporter](https://github.com/Tyrrrz/DiscordChatExporter)
+MIT
