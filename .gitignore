@@ -1,0 +1,68 @@
+# ========================
+# Python
+# ========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Type checking / linting / testing caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ========================
+# Node / SvelteKit portal
+# ========================
+portal/node_modules/
+portal/.svelte-kit/
+portal/build/
+
+# ========================
+# Environment & secrets
+# ========================
+.env
+.env.*
+!.env.example
+
+# ========================
+# Runtime data
+# ========================
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+attachments/
+
+# ========================
+# IDE / editor
+# ========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ========================
+# OS junk
+# ========================
+.DS_Store
+Thumbs.db
+
+# ========================
+# Misc artifacts
+# ========================
+packages.microsoft.gpg
+.claude/

@@ -1,0 +1,188 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap');
+
+:root {
+	/* Archive-dark palette — ink-black with warm paper tones */
+	--bg-base: #0c0c0f;
+	--bg-surface: #141418;
+	--bg-raised: #1c1c22;
+	--bg-overlay: #24242c;
+	--bg-hover: rgba(255, 255, 255, 0.04);
+	--bg-active: rgba(255, 255, 255, 0.07);
+
+	/* Accent: warm amber — archival, like aged paper under light */
+	--accent: #e8a838;
+	--accent-dim: #c4882a;
+	--accent-glow: rgba(232, 168, 56, 0.12);
+	--accent-text: #f0c060;
+
+	/* Semantic */
+	--success: #4ade80;
+	--warning: #fbbf24;
+	--error: #f87171;
+	--info: #60a5fa;
+
+	/* Text hierarchy */
+	--text-primary: #e8e4de;
+	--text-secondary: #9e9a92;
+	--text-muted: #5c5952;
+	--text-faint: #3a3832;
+
+	/* Borders */
+	--border: rgba(255, 255, 255, 0.06);
+	--border-strong: rgba(255, 255, 255, 0.12);
+	--border-accent: rgba(232, 168, 56, 0.2);
+
+	/* Shadows */
+	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+	--shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+	--shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+
+	/* Typography */
+	--font-sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+	--font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+	--font-serif: 'Source Serif 4', Georgia, serif;
+
+	/* Spacing scale */
+	--sp-1: 4px;
+	--sp-2: 8px;
+	--sp-3: 12px;
+	--sp-4: 16px;
+	--sp-5: 20px;
+	--sp-6: 24px;
+	--sp-8: 32px;
+	--sp-10: 40px;
+	--sp-12: 48px;
+	--sp-16: 64px;
+
+	/* Radii */
+	--radius-sm: 4px;
+	--radius-md: 8px;
+	--radius-lg: 12px;
+	--radius-xl: 16px;
+
+	/* Layout */
+	--nav-height: 56px;
+	--sidebar-width: 280px;
+	--max-content: 960px;
+
+	/* Scrollbar */
+	--scrollbar-track: transparent;
+	--scrollbar-thumb: rgba(255, 255, 255, 0.08);
+	--scrollbar-thumb-hover: rgba(255, 255, 255, 0.14);
+
+	/* Transitions */
+	--ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+	--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+html, body {
+	height: 100%;
+	font-family: var(--font-sans);
+	background: var(--bg-base);
+	color: var(--text-primary);
+	font-size: 15px;
+	line-height: 1.6;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	overflow: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+
+::selection {
+	background: var(--accent);
+	color: var(--bg-base);
+}
+
+a {
+	color: var(--accent-text);
+	text-decoration: none;
+	transition: color 0.15s var(--ease-out);
+}
+a:hover { color: var(--accent); }
+
+button {
+	font-family: inherit;
+	cursor: pointer;
+	border: none;
+	background: none;
+	color: inherit;
+	font-size: inherit;
+}
+
+input, textarea {
+	font-family: inherit;
+	font-size: inherit;
+	border: none;
+	outline: none;
+	background: none;
+	color: inherit;
+}
+
+/* Mono accent text */
+.mono {
+	font-family: var(--font-mono);
+	font-size: 0.85em;
+	letter-spacing: -0.02em;
+}
+
+/* Serif headings */
+.serif {
+	font-family: var(--font-serif);
+}
+
+/* Badge utility */
+.badge {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--sp-1);
+	padding: 2px 8px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+	border-radius: var(--radius-sm);
+	background: var(--bg-overlay);
+	color: var(--text-secondary);
+	border: 1px solid var(--border);
+	white-space: nowrap;
+}
+
+.badge.accent {
+	background: var(--accent-glow);
+	color: var(--accent-text);
+	border-color: var(--border-accent);
+}
+
+/* Truncate */
+.truncate {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Fade-in animation */
+@keyframes fadeIn {
+	from { opacity: 0; transform: translateY(8px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInScale {
+	from { opacity: 0; transform: scale(0.96); }
+	to { opacity: 1; transform: scale(1); }
+}
+
+.fade-in {
+	animation: fadeIn 0.4s var(--ease-out) both;
+}
+
