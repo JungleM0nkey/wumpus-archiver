@@ -85,7 +85,7 @@ def create_app(
     app.state.attachments_path = resolved_attachments
 
     # Register API routes
-    from wumpus_archiver.api.routes import router as api_router
+    from wumpus_archiver.api.routes import router as api_router  # noqa: PLC0415
 
     app.include_router(api_router, prefix="/api")
 

@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from typing import cast
 
+from importlib.metadata import version as pkg_version
+
 import click
 
 from wumpus_archiver.bot.scraper import ArchiverBot
@@ -13,7 +15,7 @@ from wumpus_archiver.storage.database import Database
 
 
 @click.group()
-@click.version_option(version="0.1.0")
+@click.version_option(version=pkg_version("wumpus-archiver"))
 def cli() -> None:
     """Wumpus Archiver - Discord server archival system."""
     pass
@@ -23,8 +25,8 @@ def cli() -> None:
 @click.option(
     "--guild-id",
     type=int,
-    required=True,
-    help="Discord guild ID to scrape",
+    default=None,
+    help="Discord guild ID to scrape (default: GUILD_ID from .env)",
 )
 @click.option(
     "--output",
@@ -40,7 +42,7 @@ def cli() -> None:
     help="Enable verbose output",
 )
 def scrape(
-    guild_id: int,
+    guild_id: int | None,
     output: Path,
     verbose: bool,
 ) -> None:
@@ -54,6 +56,16 @@ def scrape(
             err=True,
         )
         sys.exit(1)
+
+    if guild_id is None:
+        guild_id = settings.guild_id
+    if guild_id is None:
+        click.echo(
+            "Error: --guild-id is required (or set GUILD_ID in .env).",
+            err=True,
+        )
+        sys.exit(1)
+
     token = settings.discord_bot_token
 
     # Validate output path — resolve and ensure parent exists, reject traversal
@@ -140,17 +152,30 @@ def scrape(
     default=Path("./attachments"),
     help="Path to downloaded attachments directory",
 )
+@click.option(
+    "--build-portal",
+    is_flag=True,
+    help="Build the SvelteKit portal before starting (requires npm)",
+)
 def serve(
     database: Path,
     port: int,
     host: str,
     attachments_dir: Path,
+    build_portal: bool,
 ) -> None:
-    """Start the exploration portal."""
+    """Start the exploration portal (production mode).
+
+    Serves the API and the pre-built SvelteKit portal as static files.
+    Use --build-portal to automatically build the frontend first.
+    """
     import uvicorn
 
     from wumpus_archiver.api.app import create_app
     from wumpus_archiver.storage.database import Database as DB
+
+    if build_portal:
+        _build_portal_static()
 
     db_path = database.resolve()
     db_url = f"sqlite+aiosqlite:///{db_path}"
@@ -168,6 +193,51 @@ def serve(
     uvicorn.run(app, host=host, port=port)
 
 
+def _build_portal_static() -> None:
+    """Build the SvelteKit portal into static files.
+
+    Raises:
+        SystemExit: If npm is not found or the build fails.
+    """
+    import subprocess
+
+    from wumpus_archiver.utils.process_manager import find_npm, resolve_portal_dir
+
+    try:
+        npm = find_npm()
+        portal_dir = resolve_portal_dir()
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    # Install dependencies if needed
+    node_modules = portal_dir / "node_modules"
+    if not node_modules.exists():
+        click.echo("Installing portal dependencies...")
+        result = subprocess.run(
+            [npm, "install"],
+            cwd=str(portal_dir),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            click.echo(f"Error installing portal dependencies:\n{result.stderr}", err=True)
+            sys.exit(1)
+
+    click.echo("Building portal...")
+    result = subprocess.run(
+        [npm, "run", "build"],
+        cwd=str(portal_dir),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        click.echo(f"Portal build failed:\n{result.stderr}\n{result.stdout}", err=True)
+        sys.exit(1)
+
+    click.echo("Portal built successfully.")
+
+
 @cli.command()
 @click.argument(
     "database",
@@ -177,7 +247,7 @@ def serve(
     "--guild-id",
     type=int,
     default=None,
-    help="Only download images for this guild",
+    help="Only download images for this guild (default: GUILD_ID from .env)",
 )
 @click.option(
     "--output",
@@ -238,6 +308,12 @@ def download(
             concurrency=concurrency,
         )
 
+        if guild_id is None:
+            try:
+                guild_id = Settings().guild_id  # type: ignore[call-arg]
+            except Exception:
+                pass
+
         def progress(channel_name: str, done: int, total: int) -> None:
             click.echo(f"  #{channel_name}: {done}/{total} processed")
 
@@ -287,16 +363,163 @@ def download(
 @click.option(
     "--guild-id",
     type=int,
-    required=True,
-    help="Guild ID to update",
+    default=None,
+    help="Guild ID to update (default: GUILD_ID from .env)",
 )
 def update(
     database: Path,
-    guild_id: int,
+    guild_id: int | None,
 ) -> None:
     """Update an existing archive with new messages. (Not yet implemented)"""
     click.echo("Error: The 'update' command is not yet implemented (Phase 2).", err=True)
     sys.exit(2)
+
+
+@cli.command()
+@click.argument(
+    "database",
+    type=click.Path(exists=True, path_type=Path),
+)
+@click.option(
+    "--port",
+    "-p",
+    type=int,
+    default=8000,
+    help="Backend API port",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    help="Backend host to bind to",
+)
+@click.option(
+    "--frontend-port",
+    type=int,
+    default=5173,
+    help="Vite dev server port",
+)
+@click.option(
+    "--attachments-dir",
+    "-a",
+    type=click.Path(path_type=Path),
+    default=Path("./attachments"),
+    help="Path to downloaded attachments directory",
+)
+def dev(
+    database: Path,
+    port: int,
+    host: str,
+    frontend_port: int,
+    attachments_dir: Path,
+) -> None:
+    """Start development environment (backend + frontend with hot-reload)."""
+    from wumpus_archiver.utils.process_manager import (
+        ManagedProcess,
+        find_npm,
+        resolve_portal_dir,
+        run_concurrently,
+    )
+
+    # Resolve paths
+    db_path = database.resolve()
+    att_dir = attachments_dir.resolve() if attachments_dir.exists() else None
+
+    # Find npm and portal directory
+    try:
+        npm = find_npm()
+        portal_dir = resolve_portal_dir()
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    # Check that portal dependencies are installed
+    node_modules = portal_dir / "node_modules"
+    if not node_modules.exists():
+        click.echo("Installing portal dependencies...")
+        import subprocess
+
+        result = subprocess.run(
+            [npm, "install"],
+            cwd=str(portal_dir),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            click.echo(f"Error installing dependencies: {result.stderr}", err=True)
+            sys.exit(1)
+
+    # Build CLI args for the backend
+    backend_cmd = [
+        sys.executable, "-m", "uvicorn",
+        "wumpus_archiver.api._dev_app:app",
+        "--host", host,
+        "--port", str(port),
+        "--reload",
+        "--reload-dir", "src",
+    ]
+
+    # Build Vite dev server command
+    frontend_cmd = [npm, "run", "dev", "--", "--port", str(frontend_port)]
+
+    # Create a thin app module for uvicorn --reload
+    # We need a module-level app instance for uvicorn to reload
+    _write_dev_app_module(db_path, att_dir)
+
+    processes = [
+        ManagedProcess(
+            label="backend",
+            cmd=backend_cmd,
+            cwd=Path.cwd(),
+        ),
+        ManagedProcess(
+            label="frontend",
+            cmd=frontend_cmd,
+            cwd=portal_dir,
+        ),
+    ]
+
+    click.echo("Starting development environment...")
+    click.echo(f"  Backend:  http://{host}:{port} (API + uvicorn reload)")
+    click.echo(f"  Frontend: http://localhost:{frontend_port} (Vite HMR)")
+    click.echo(f"  Database: {db_path}")
+    if att_dir:
+        click.echo(f"  Attachments: {att_dir}")
+    click.echo("\nPress Ctrl+C to stop both servers.\n")
+
+    try:
+        exit_code = asyncio.run(run_concurrently(processes, stop_on_first_exit=True))
+        sys.exit(exit_code)
+    except KeyboardInterrupt:
+        click.echo("\nDevelopment servers stopped.")
+        sys.exit(0)
+
+
+def _write_dev_app_module(db_path: Path, attachments_path: Path | None) -> None:
+    """Write a temporary module that uvicorn can import for --reload.
+
+    Creates src/wumpus_archiver/api/_dev_app.py with a module-level `app`
+    instance configured for the given database.
+
+    Args:
+        db_path: Resolved path to the SQLite database.
+        attachments_path: Resolved path to attachments directory, or None.
+    """
+    dev_module = Path(__file__).parent / "api" / "_dev_app.py"
+    att_line = f'    attachments_path=Path("{attachments_path}"),' if attachments_path else ""
+    content = f'''"""Auto-generated dev app instance for uvicorn --reload. DO NOT EDIT."""
+
+from pathlib import Path
+
+from wumpus_archiver.api.app import create_app
+from wumpus_archiver.storage.database import Database
+
+_db = Database("sqlite+aiosqlite:///{db_path}")
+app = create_app(
+    _db,
+{att_line}
+)
+'''
+    dev_module.write_text(content)
 
 
 @cli.command()

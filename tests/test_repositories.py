@@ -1,6 +1,6 @@
 """Tests for repository classes."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -205,7 +205,7 @@ class TestMessageRepository:
         channel_id = await self._setup_channel(session)
         repo = MessageRepository(session)
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         msg = Message(
             id=5000,
             channel_id=channel_id,
@@ -222,7 +222,7 @@ class TestMessageRepository:
         channel_id = await self._setup_channel(session)
         repo = MessageRepository(session)
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         msg = Message(
             id=5001,
             channel_id=channel_id,
@@ -253,7 +253,7 @@ class TestMessageRepository:
         channel_id = await self._setup_channel(session)
         repo = MessageRepository(session)
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         for i in range(5):
             msg = Message(
                 id=5100 + i,
@@ -274,7 +274,7 @@ class TestMessageRepository:
         channel_id = await self._setup_channel(session)
         repo = MessageRepository(session)
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         for i in range(5):
             msg = Message(
                 id=5200 + i,
@@ -297,7 +297,7 @@ class TestMessageRepository:
         channel_id = await self._setup_channel(session)
         repo = MessageRepository(session)
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         messages = [
             Message(
                 id=5300 + i,
@@ -326,7 +326,7 @@ class TestAttachmentRepository:
         session.add(channel)
         await session.flush()
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         msg = Message(
             id=6002,
             channel_id=6001,
@@ -399,7 +399,7 @@ class TestReactionRepository:
         session.add(channel)
         await session.flush()
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         msg = Message(
             id=8002,
             channel_id=8001,

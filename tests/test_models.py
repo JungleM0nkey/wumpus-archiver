@@ -1,6 +1,6 @@
 """Tests for database models."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -135,7 +135,7 @@ class TestMessageModel:
         session.add(user)
         await session.flush()
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         message = Message(
             id=500,
             channel_id=401,
@@ -161,8 +161,8 @@ class TestMessageModel:
             channel_id=1,
             content="Hi",
             clean_content="Hi",
-            created_at=datetime.utcnow(),
-            scraped_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            scraped_at=datetime.now(UTC),
         )
         assert "Hi" in repr(msg)
 
@@ -173,8 +173,8 @@ class TestMessageModel:
             channel_id=1,
             content="x" * 100,
             clean_content="x" * 100,
-            created_at=datetime.utcnow(),
-            scraped_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            scraped_at=datetime.now(UTC),
         )
         assert "..." in repr(msg)
 
@@ -192,7 +192,7 @@ class TestAttachmentModel:
         session.add(channel)
         await session.flush()
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         message = Message(
             id=602,
             channel_id=601,
@@ -249,7 +249,7 @@ class TestReactionModel:
         session.add(channel)
         await session.flush()
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         message = Message(
             id=802,
             channel_id=801,

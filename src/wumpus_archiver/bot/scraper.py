@@ -295,7 +295,7 @@ class ArchiverBot:
                 else None
             ),
             reference_id=message.reference.message_id if message.reference else None,
-            scraped_at=datetime.utcnow(),
+            scraped_at=datetime.now(UTC),
         )
 
         message_repo = MessageRepository(session)

@@ -1,177 +1,108 @@
-# Wumpus Archiver - Implementation Plan
+# Wumpus Archiver — Implementation Plan
 
-## Phase 1: Core Scraper (Weeks 1-2)
+## Status Summary
 
-### Week 1: Project Setup & Bot Foundation
+| Phase | Status | Description |
+|-------|--------|-------------|
+| 1. Core Scraper | ✅ Complete | Models, repositories, bot scraper, CLI |
+| 2. Storage & API | ✅ Complete | FastAPI app, 17 REST endpoints, schemas |
+| 3. Portal Foundation | ✅ Complete | SvelteKit SPA, 10 pages, 7 components |
+| 3.5. DevOps & Tooling | ✅ Complete | Unified dev/serve commands, Makefile |
+| 4. Advanced Features | 🟡 Partial | Search working (SQL LIKE), gallery, downloads done; FTS5, exports, charts remaining |
 
-**Day 1-2: Project Structure**
-```bash
-wumpus-archiver/
-├── pyproject.toml
-├── wumpus_archiver/
-│   ├── __init__.py
-│   ├── config.py
-│   ├── models/
-│   ├── bot/
-│   ├── storage/
-│   └── utils/
-└── tests/
-```
+---
 
-**Day 3-4: Database Models**
-- Set up SQLAlchemy 2.0 with async support
-- Create models: Guild, Channel, Message, User, Attachment, Reaction
-- Implement SQLite FTS5 virtual table for search
-- Create Alembic migrations
+## Phase 1: Core Scraper ✅
 
-**Day 5-7: Discord Bot Client**
-- Implement `ArchiverBot` class with discord.py
-- Configure intents (MESSAGE_CONTENT required)
-- Add basic commands: `!archive`, `!status`
-- Implement connection handling and error recovery
+- SQLAlchemy 2.0 async models: Guild, Channel, User, Message, Attachment, Reaction
+- `TimestampMixin` base class, `BigInteger` snowflake PKs
+- Async database manager with session context manager
+- Repository pattern: one class per entity with `upsert()` / `get_by_id()`
+- `ArchiverBot` with discord.py — paginated history fetching
+- Click CLI: `scrape`, `init` commands
+- Pydantic settings with `.env` support
 
-### Week 2: Scraping Logic
+## Phase 2: Storage & API ✅
 
-**Day 8-10: Message Fetching**
-- Implement pagination with `before`/`after` cursors
-- Handle rate limits with proper backoff
-- Batch insert messages (1000 at a time)
-- Track progress per channel
+- FastAPI application factory (`create_app()`) with async lifespan
+- 17 REST endpoints across 9 domain-split route modules
+- Pydantic response schemas (~348 lines)
+- CORS for dev server
+- Background scrape job manager (start/cancel/status/history)
+- Attachment download system (`ImageDownloader`) with progress tracking
+- CLI: `serve`, `download` commands
 
-**Day 11-12: Attachment Handling**
-- Download attachment files
-- Hash-based deduplication
-- Store local paths in database
-- Progress tracking for large files
+## Phase 3: Portal Foundation ✅
 
-**Day 13-14: Incremental Updates**
-- Store `last_scraped_at` timestamps
-- Resume from last position
-- Update edited messages
-- Handle deleted messages (optional)
+- SvelteKit 2 with adapter-static (builds to `portal/build/`)
+- Typed API client (`lib/api.ts`) with all endpoint functions
+- TypeScript interfaces matching backend schemas
+- Pages: Dashboard, Channels, Channel Messages, Channel Gallery, Guild Gallery, Timeline, Search, Users, User Profile, Control Panel
+- Components: MessageCard, GalleryGrid, Lightbox, Nav, SearchBar, StatCard, TimelineFeed
+- Vite proxy for development, SPA fallback serving in production
 
-## Phase 2: Storage & API (Weeks 3-4)
+## Phase 3.5: DevOps & Tooling ✅
 
-### Week 3: Repository Pattern & API
+- `wumpus-archiver dev` — starts FastAPI + Vite dev server concurrently
+- `wumpus-archiver serve --build-portal` — builds SPA then serves
+- Async process manager with colored output, signal handling, graceful shutdown
+- Makefile with targets: install, dev, serve, build, lint, format, test, clean
+- Auto-generated `_dev_app.py` for uvicorn `--reload` support
 
-**Day 15-17: Repository Layer**
-```python
-class MessageRepository:
-    async def get_messages(channel_id, cursor, limit)
-    async def search_messages(query, guild_id, filters)
-    async def get_statistics(guild_id)
-    async def upsert_guild(guild_data)
-```
+---
 
-**Day 18-21: FastAPI Setup**
-- Create FastAPI application
-- Implement `/api/guilds`, `/api/channels`, `/api/messages`
-- Add pagination with cursor-based navigation
-- CORS configuration for portal
+## Phase 4: Advanced Features (Remaining Work)
 
-### Week 4: Background Jobs & Optimization
+### Search Enhancement
+- [ ] Implement SQLite FTS5 virtual table for proper full-text search
+- [ ] Add search filters (date range, user, channel)
+- [ ] Search result highlighting
+- [ ] Search suggestions / autocomplete
 
-**Day 22-24: Background Processing**
-- Implement `arq` for job queue
-- Create `scrape_guild_task` for large servers
-- Create `download_attachments_task`
-- Add job status tracking
+### Analytics & Visualization
+- [ ] Message activity timeline chart
+- [ ] User contribution statistics chart
+- [ ] Channel activity heatmap
+- [ ] Word frequency / word cloud
 
-**Day 25-28: Performance**
-- Connection pooling for database
-- Batch processing optimization
-- Memory profiling for large servers
-- Caching layer for metadata
+### Export Functionality
+- [ ] JSON Lines exporter
+- [ ] Static HTML generator (self-contained archive)
+- [ ] CSV export for analysis
+- [ ] Markdown export
 
-## Phase 3: Portal Foundation (Weeks 5-6)
+### Incremental Updates
+- [ ] Implement `update` command (currently a stub)
+- [ ] Resume from `last_scraped_at` timestamp
+- [ ] Handle edited / deleted messages
+- [ ] Thread and forum channel support
 
-### Week 5: Frontend Setup
+### Database & Infrastructure
+- [ ] Alembic migration framework
+- [ ] SQLite → PostgreSQL migration tooling
+- [ ] Database indexes on foreign keys (performance)
+- [ ] True bulk upsert (replace sequential loop)
 
-**Day 29-31: SvelteKit Project**
-```
-portal/
-├── src/
-│   ├── routes/
-│   │   ├── +layout.svelte
-│   │   ├── +page.svelte
-│   │   ├── guild/[id]/
-│   │   ├── channel/[id]/
-│   │   └── search/
-│   ├── lib/
-│   │   ├── components/
-│   │   ├── stores/
-│   │   └── api.ts
-│   └── app.html
-└── package.json
-```
-
-**Day 32-35: Core Components**
-- Layout with Discord-like sidebar
-- Channel list component
-- Message list with virtual scrolling
-- User avatar and mention components
-
-### Week 6: UI Features
-
-**Day 36-38: Navigation**
-- Guild/channel routing
-- Jump-to-date functionality
-- Breadcrumb navigation
-- Search input with filters
-
-**Day 39-42: Message Display**
-- Message rendering (text, embeds, attachments)
-- Thread display (inline or panel)
-- Reaction display
-- Message actions (copy link, etc.)
-
-## Phase 4: Advanced Features (Weeks 7-8)
-
-### Week 7: Search & Visualization
-
-**Day 43-45: Full-Text Search**
-- Implement SQLite FTS5 queries
-- Client-side search with FlexSearch
-- Search filters (date, channel, user)
-- Search result highlighting
-
-**Day 46-49: Analytics**
-- Message activity timeline (ECharts)
-- User contribution statistics
-- Channel activity heatmap
-- Word frequency analysis
-
-### Week 8: Export & Integration
-
-**Day 50-52: Export Formats**
-- JSON Lines exporter
-- Static HTML generator
-- CSV export for analysis
-- Markdown export
+---
 
 ## Testing Strategy
 
-### Unit Tests
-- Model serialization
-- Repository queries
-- Rate limiter logic
+### Unit Tests (partially implemented)
+- [x] Model creation and relationships
+- [x] Repository operations (CRUD, upsert)
+- [x] Database connection lifecycle
+- [x] Configuration loading and validation
+- [x] CLI command registration
+- [ ] API endpoint response shapes
+- [ ] Scrape manager state machine
 
-### Integration Tests
-- Discord API mocking
-- Database operations
-- API endpoint testing
+### Integration Tests (TODO)
+- [ ] Full scrape → query roundtrip
+- [ ] API ↔ database integration
+- [ ] SPA serving and fallback
+- [ ] Attachment download pipeline
 
-### Load Tests
-- Large message batch processing
-- Virtual scrolling performance
-- Search query performance
-
-## Deployment Checklist
-
-- [ ] Environment variables configured
-- [ ] Database migrations run
-- [ ] Discord bot token secured
-- [ ] Static files built
-- [ ] Health checks implemented
-- [ ] Logging configured
-- [ ] Backup strategy defined
+### Load Tests (TODO)
+- [ ] Large message batch processing
+- [ ] Gallery pagination performance
+- [ ] Search query performance at scale

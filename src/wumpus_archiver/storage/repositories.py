@@ -1,6 +1,6 @@
 """Repository pattern implementations."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +32,7 @@ class GuildRepository:
             existing.icon_url = guild.icon_url
             existing.owner_id = guild.owner_id
             existing.member_count = guild.member_count
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = datetime.now(UTC)
             return existing
         else:
             self.session.add(guild)
@@ -44,7 +44,7 @@ class GuildRepository:
 
         guild = await self.get_by_id(guild_id)
         if guild:
-            now = datetime.utcnow()
+            now = datetime.now(UTC)
             if not guild.first_scraped_at:
                 guild.first_scraped_at = now
             guild.last_scraped_at = now
@@ -95,7 +95,7 @@ class ChannelRepository:
         if channel:
             channel.last_message_id = last_message_id
             channel.message_count += increment
-            channel.last_scraped_at = datetime.utcnow()
+            channel.last_scraped_at = datetime.now(UTC)
 
 
 class MessageRepository:
@@ -142,7 +142,7 @@ class MessageRepository:
             existing.edited_at = message.edited_at
             existing.embeds = message.embeds
             existing.pinned = message.pinned
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = datetime.now(UTC)
             return existing
         else:
             self.session.add(message)

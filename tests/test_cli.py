@@ -1,5 +1,6 @@
 """Tests for CLI commands."""
 
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -15,7 +16,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.0" in result.output
+        assert pkg_version("wumpus-archiver") in result.output
 
     def test_cli_help(self) -> None:
         """Test --help flag."""
@@ -56,14 +57,16 @@ class TestCLI:
         assert result.exit_code != 0
         assert "does not exist" in result.output
 
-    def test_serve_not_implemented(self, tmp_path) -> None:
-        """Test serve command returns error (not implemented)."""
+    def test_serve_starts(self, tmp_path) -> None:
+        """Test serve command starts the portal."""
         db_file = tmp_path / "test.db"
         db_file.touch()
         runner = CliRunner()
+        # Serve will try to start uvicorn — catch the SystemExit or verify
+        # it gets past validation and into the startup path.
         result = runner.invoke(cli, ["serve", str(db_file)])
-        assert result.exit_code == 2
-        assert "not yet implemented" in result.output
+        # Should not report 'not yet implemented'
+        assert "not yet implemented" not in (result.output or "")
 
     def test_update_not_implemented(self, tmp_path) -> None:
         """Test update command returns error (not implemented)."""

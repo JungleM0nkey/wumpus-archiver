@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000, validation_alias="API_PORT")
     api_debug: bool = Field(default=False, validation_alias="API_DEBUG")
 
+    # Target server
+    guild_id: int | None = Field(default=None, validation_alias="GUILD_ID")
+
     # Scraper
     batch_size: int = Field(default=1000, validation_alias="BATCH_SIZE")
     rate_limit_delay: float = Field(default=0.5, validation_alias="RATE_LIMIT_DELAY")
