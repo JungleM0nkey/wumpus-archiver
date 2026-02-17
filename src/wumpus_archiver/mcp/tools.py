@@ -1,6 +1,8 @@
 """MCP tool definitions for wumpus-archiver."""
 
+import asyncio
 import json
+import logging
 from typing import Annotated
 
 from fastmcp import FastMCP
@@ -14,6 +16,8 @@ from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.reaction import Reaction
 from wumpus_archiver.models.user import User
+
+logger = logging.getLogger(__name__)
 
 
 def register_tools(mcp: FastMCP) -> None:
@@ -353,8 +357,7 @@ def register_tools(mcp: FastMCP) -> None:
         Requires a Discord bot token to be configured.
         Only one scrape can run at a time.
         """
-        from wumpus_archiver.api.scrape_manager import ScrapeJobManager
-        from wumpus_archiver.mcp.server import get_db, get_discord_token
+        from wumpus_archiver.mcp.server import get_app_context, get_discord_token
 
         token = get_discord_token()
         if not token:
@@ -363,8 +366,8 @@ def register_tools(mcp: FastMCP) -> None:
                 "Set DISCORD_BOT_TOKEN in environment."
             })
 
-        db = get_db()
-        manager = ScrapeJobManager(db)
+        ctx = get_app_context()
+        manager = ctx.scrape_manager
 
         try:
             job = manager.start_scrape(guild_id, token, channel_ids)
@@ -381,11 +384,9 @@ def register_tools(mcp: FastMCP) -> None:
     @mcp.tool
     async def cancel_scrape() -> str:
         """Cancel the currently running scrape job."""
-        from wumpus_archiver.api.scrape_manager import ScrapeJobManager
-        from wumpus_archiver.mcp.server import get_db
+        from wumpus_archiver.mcp.server import get_app_context
 
-        db = get_db()
-        manager = ScrapeJobManager(db)
+        manager = get_app_context().scrape_manager
 
         if manager.cancel():
             return json.dumps({"status": "cancelled"})
@@ -394,11 +395,9 @@ def register_tools(mcp: FastMCP) -> None:
     @mcp.tool
     async def get_scrape_status() -> str:
         """Check the status of the current or most recent scrape job."""
-        from wumpus_archiver.api.scrape_manager import ScrapeJobManager
-        from wumpus_archiver.mcp.server import get_db, get_discord_token
+        from wumpus_archiver.mcp.server import get_app_context, get_discord_token
 
-        db = get_db()
-        manager = ScrapeJobManager(db)
+        manager = get_app_context().scrape_manager
 
         job = manager.current_job
         if job:
@@ -433,12 +432,11 @@ def register_tools(mcp: FastMCP) -> None:
 
         Downloads run in the background. Check download stats to monitor progress.
         """
-        import asyncio
-
-        from wumpus_archiver.mcp.server import get_attachments_path, get_db
+        from wumpus_archiver.mcp.server import get_app_context, get_attachments_path
         from wumpus_archiver.utils.downloader import ImageDownloader
 
-        db = get_db()
+        ctx = get_app_context()
+        db = ctx.db
         att_path = get_attachments_path()
         if not att_path:
             return json.dumps({
@@ -463,8 +461,17 @@ def register_tools(mcp: FastMCP) -> None:
                 "total_mb": round(stats.total_bytes / 1024 / 1024, 1),
             }
 
-        # Run download as a background task
-        asyncio.create_task(_run())
+        # Run download as a background task with proper lifecycle tracking
+        task = asyncio.create_task(_run())
+        ctx.download_tasks.add(task)
+
+        def _on_done(t: asyncio.Task) -> None:
+            ctx.download_tasks.discard(t)
+            if not t.cancelled() and t.exception():
+                logger.error("MCP download task failed: %s", t.exception())
+
+        task.add_done_callback(_on_done)
+
         return json.dumps({
             "status": "download_started",
             "guild_id": guild_id,

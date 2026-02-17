@@ -1,14 +1,16 @@
 """FastMCP server factory for wumpus-archiver."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastmcp import FastMCP
 
-from wumpus_archiver.storage.database import Database
+from wumpus_archiver.api.scrape_manager import ScrapeJobManager
+from wumpus_archiver.storage.database import Database, DatabaseRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -22,18 +24,25 @@ class AppContext:
     """Lifespan context holding shared resources."""
 
     db: Database
+    scrape_manager: ScrapeJobManager
+    download_tasks: set[asyncio.Task] = field(default_factory=set)
 
 
-def get_db() -> Database:
-    """Get the Database from the current MCP request's lifespan context."""
+def get_app_context() -> AppContext:
+    """Get the AppContext from the current MCP request's lifespan context."""
     from fastmcp.server.dependencies import get_context
 
     ctx = get_context()
     rc = ctx.request_context
     if rc is None or rc.lifespan_context is None:
-        raise RuntimeError("No active MCP request context — database unavailable")
+        raise RuntimeError("No active MCP request context — app context unavailable")
     app_ctx: AppContext = rc.lifespan_context
-    return app_ctx.db
+    return app_ctx
+
+
+def get_db() -> Database:
+    """Get the Database from the current MCP request's lifespan context."""
+    return get_app_context().db
 
 
 def get_attachments_path() -> Path | None:
@@ -73,9 +82,20 @@ def create_mcp_server(
         db = Database(db_url)
         await db.connect()
         logger.info("MCP server connected to database: %s", db_url)
+
+        # Create a DatabaseRegistry so ScrapeJobManager can access the DB
+        registry = DatabaseRegistry()
+        registry.register("sqlite", db, db_url)
+
+        scrape_manager = ScrapeJobManager(registry)
+
+        app_ctx = AppContext(db=db, scrape_manager=scrape_manager)
         try:
-            yield AppContext(db=db)
+            yield app_ctx
         finally:
+            # Cancel any lingering download tasks
+            for task in list(app_ctx.download_tasks):
+                task.cancel()
             await db.disconnect()
             logger.info("MCP server disconnected from database")
 

@@ -1,10 +1,11 @@
 """Download statistics and job management API route handlers."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from sqlalchemy import func, select
 
+from wumpus_archiver.api.auth import require_auth
 from wumpus_archiver.api.download_manager import DownloadManager
 from wumpus_archiver.api.routes._helpers import get_attachments_path, get_db, image_filter
 from wumpus_archiver.api.schemas import DownloadChannelStats, DownloadJobStatus, DownloadStatsResponse
@@ -116,7 +117,7 @@ def _job_to_schema(job) -> dict:
 
 
 @router.post("/downloads/start")
-async def download_start(request: Request) -> JSONResponse:
+async def download_start(request: Request, _: None = Depends(require_auth)) -> JSONResponse:
     """Start a background image download job."""
     manager = _get_download_manager(request)
 
@@ -148,7 +149,7 @@ async def download_job_status(request: Request) -> JSONResponse:
 
 
 @router.post("/downloads/cancel")
-async def download_cancel(request: Request) -> JSONResponse:
+async def download_cancel(request: Request, _: None = Depends(require_auth)) -> JSONResponse:
     """Cancel the current download job."""
     manager = _get_download_manager(request)
 

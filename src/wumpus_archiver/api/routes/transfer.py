@@ -1,8 +1,9 @@
 """Data transfer API route handlers."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from wumpus_archiver.api.auth import require_auth
 from wumpus_archiver.api.schemas import TransferStatusSchema
 from wumpus_archiver.api.transfer_manager import TransferManager
 
@@ -29,7 +30,7 @@ def _job_to_schema(job) -> dict:
 
 
 @router.post("/transfer/start")
-async def transfer_start(request: Request) -> JSONResponse:
+async def transfer_start(request: Request, _: None = Depends(require_auth)) -> JSONResponse:
     """Start a data transfer from SQLite to PostgreSQL."""
     manager = _get_transfer_manager(request)
     registry = request.app.state.db_registry
@@ -75,7 +76,7 @@ async def transfer_status(request: Request) -> JSONResponse:
 
 
 @router.post("/transfer/cancel")
-async def transfer_cancel(request: Request) -> JSONResponse:
+async def transfer_cancel(request: Request, _: None = Depends(require_auth)) -> JSONResponse:
     """Cancel the current transfer."""
     manager = _get_transfer_manager(request)
 

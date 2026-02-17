@@ -2,9 +2,10 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from wumpus_archiver.api.auth import require_auth
 from wumpus_archiver.api.schemas import (
     DataSourceInfo,
     DataSourceResponse,
@@ -39,7 +40,9 @@ async def get_datasource(request: Request) -> DataSourceResponse:
 
 
 @router.put("/datasource")
-async def set_datasource(request: Request, body: DataSourceSetRequest) -> JSONResponse:
+async def set_datasource(
+    request: Request, body: DataSourceSetRequest, _: None = Depends(require_auth)
+) -> JSONResponse:
     """Switch the active data source."""
     registry = _get_registry(request)
     try:

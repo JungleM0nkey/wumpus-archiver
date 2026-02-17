@@ -58,6 +58,10 @@ EXPOSE 8000 9100
 
 VOLUME ["/data"]
 
+# Run as non-root user for security
+RUN useradd -m -u 1000 archiver && chown -R archiver:archiver /app /data
+USER archiver
+
 # Use tini as init to handle signals properly
 ENTRYPOINT ["tini", "--", "wumpus-archiver"]
 

@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
@@ -17,6 +17,7 @@ from wumpus_archiver.api.schemas import (
     ScrapeStartRequest,
     ScrapeStatusResponse,
 )
+from wumpus_archiver.api.auth import require_auth
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.guild import Guild as GuildModel
 
@@ -77,7 +78,9 @@ async def scrape_status(request: Request) -> ScrapeStatusResponse:
 
 
 @router.post("/scrape/start")
-async def scrape_start(request: Request, body: ScrapeStartRequest) -> JSONResponse:
+async def scrape_start(
+    request: Request, body: ScrapeStartRequest, _: None = Depends(require_auth)
+) -> JSONResponse:
     """Start a new scrape job."""
     manager = _get_scrape_manager(request)
     token = getattr(request.app.state, "discord_token", None)
@@ -107,7 +110,7 @@ async def scrape_start(request: Request, body: ScrapeStartRequest) -> JSONRespon
 
 
 @router.post("/scrape/cancel")
-async def scrape_cancel(request: Request) -> JSONResponse:
+async def scrape_cancel(request: Request, _: None = Depends(require_auth)) -> JSONResponse:
     """Cancel the current scrape job."""
     manager = _get_scrape_manager(request)
 

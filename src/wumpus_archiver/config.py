@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     api_host: str = Field(default="127.0.0.1", validation_alias="API_HOST")
     api_port: int = Field(default=8000, validation_alias="API_PORT")
     api_debug: bool = Field(default=False, validation_alias="API_DEBUG")
+    api_secret: str | None = Field(default=None, validation_alias="API_SECRET")
 
     # Target server
     guild_id: int | None = Field(default=None, validation_alias="GUILD_ID")

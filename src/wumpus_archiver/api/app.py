@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -87,6 +87,21 @@ def create_app(
             logger.info("No Discord bot token found — scrape control panel will be read-only")
     app.state.discord_token = resolved_token
 
+    # API authentication secret
+    api_secret = None
+    try:
+        from wumpus_archiver.config import Settings as AuthSettings
+
+        auth_s = AuthSettings()  # type: ignore[call-arg]
+        api_secret = auth_s.api_secret
+    except Exception:
+        pass
+    app.state.api_secret = api_secret
+    if api_secret:
+        logger.info("API authentication enabled")
+    else:
+        logger.info("API authentication disabled — set API_SECRET in .env to enable")
+
     # Store and serve local attachments if path provided
     resolved_attachments: Path | None = None
     if attachments_path:
@@ -103,6 +118,17 @@ def create_app(
     from wumpus_archiver.api.routes import router as api_router  # noqa: PLC0415
 
     app.include_router(api_router, prefix="/api")
+
+    @app.get("/api/auth/check")
+    async def auth_check(request: Request) -> dict:
+        """Check if auth is configured and if the request has a valid token."""
+        secret = getattr(request.app.state, "api_secret", None)
+        if secret is None:
+            return {"authenticated": True, "auth_required": False}
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer ") and auth_header[7:] == secret:
+            return {"authenticated": True, "auth_required": True}
+        return {"authenticated": False, "auth_required": True}
 
     # Serve portal static files if built (SPA with fallback to index.html)
     portal_dist = Path(__file__).parent.parent.parent.parent / "portal" / "build"

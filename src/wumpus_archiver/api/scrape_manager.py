@@ -176,8 +176,8 @@ class ScrapeJobManager:
         if self._bot is not None:
             try:
                 await self._bot.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Bot close failed: %s", e)
             self._bot = None
 
     async def _run_scrape(self, job: ScrapeJob, token: str) -> None:
@@ -284,8 +284,8 @@ class ScrapeJobManager:
             if self._bot is not None:
                 try:
                     await self._bot.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Bot cleanup failed: %s", e)
                 self._bot = None
 
             # Archive to history
