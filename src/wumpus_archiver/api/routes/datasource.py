@@ -46,7 +46,7 @@ async def set_datasource(
     """Switch the active data source."""
     registry = _get_registry(request)
     try:
-        registry.set_active(body.active)
+        await registry.set_active_safe(body.active)
     except KeyError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     return JSONResponse(content={"active": registry.active})

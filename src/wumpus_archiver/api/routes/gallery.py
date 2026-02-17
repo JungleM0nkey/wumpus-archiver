@@ -3,7 +3,7 @@
 import datetime as dt
 from collections import OrderedDict
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Path, Query, Request
 
 from sqlalchemy import func, select
 
@@ -28,7 +28,7 @@ router = APIRouter()
 @router.get("/channels/{channel_id}/gallery", response_model=GalleryResponse)
 async def channel_gallery(
     request: Request,
-    channel_id: int,
+    channel_id: int = Path(gt=0),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     limit: int = Query(60, ge=1, le=200, description="Number of images to return"),
 ) -> GalleryResponse:
@@ -84,7 +84,7 @@ async def channel_gallery(
 @router.get("/guilds/{guild_id}/gallery", response_model=GalleryResponse)
 async def guild_gallery(
     request: Request,
-    guild_id: int,
+    guild_id: int = Path(gt=0),
     offset: int = Query(0, ge=0),
     limit: int = Query(60, ge=1, le=200),
     channel_id: int | None = Query(None, description="Filter by channel"),
@@ -176,7 +176,7 @@ def _period_label(date: dt.datetime, group_by: str) -> tuple[str, str]:
 @router.get("/guilds/{guild_id}/gallery/timeline", response_model=TimelineGalleryResponse)
 async def guild_gallery_timeline(
     request: Request,
-    guild_id: int,
+    guild_id: int = Path(gt=0),
     offset: int = Query(0, ge=0),
     limit: int = Query(120, ge=1, le=500),
     channel_id: int | None = Query(None, description="Filter by channel"),

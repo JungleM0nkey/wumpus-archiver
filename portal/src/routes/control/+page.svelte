@@ -61,6 +61,9 @@
 	let downloadError = $state('');
 	let downloadPollTimer: ReturnType<typeof setInterval> | null = null;
 
+	// --- Poll failure tracking ---
+	let pollFailures = $state(0);
+
 	// --- Utilities drawer ---
 	let utilitiesOpen = $state(false);
 
@@ -258,9 +261,17 @@
 		channelFilter = '';
 	}
 
+	function schedulePoll() {
+		if (pollTimer) clearInterval(pollTimer);
+		const delay = pollFailures >= 3
+			? Math.min(2000 * Math.pow(2, pollFailures - 2), 30000)
+			: 2000;
+		pollTimer = setInterval(pollStatus, delay);
+	}
+
 	onMount(async () => {
 		await loadAll();
-		pollTimer = setInterval(pollStatus, 2000);
+		schedulePoll();
 	});
 
 	onDestroy(() => {
@@ -301,6 +312,11 @@
 		try {
 			const prev = status;
 			status = await getScrapeStatus();
+			// Reset failures on success and restore normal interval if recovering
+			if (pollFailures > 0) {
+				pollFailures = 0;
+				schedulePoll();
+			}
 			// Refresh history when scrape finishes (busy → not busy) or when idle
 			if (status && !status.busy && (prev?.busy || history.length === 0)) {
 				const hist = await getScrapeHistory();
@@ -309,7 +325,11 @@
 				dlStats = await getDownloadStats().catch(() => dlStats);
 			}
 		} catch {
-			// Silently fail polling
+			pollFailures++;
+			// Apply exponential backoff after repeated failures
+			if (pollFailures >= 3) {
+				schedulePoll();
+			}
 		}
 	}
 
@@ -398,7 +418,7 @@
 		downloadPollTimer = setInterval(async () => {
 			try {
 				downloadJob = await getDownloadJobStatus();
-				if (downloadJob && !isDownloading) {
+				if (downloadJob && !['pending', 'running'].includes(downloadJob.status)) {
 					stopDownloadPolling();
 					// Refresh download stats when done
 					dlStats = await getDownloadStats().catch(() => dlStats);
@@ -492,6 +512,12 @@
 			{#if !hasToken}
 				<div class="panel-alert">
 					No Discord bot token configured. Set <code>DISCORD_BOT_TOKEN</code> in .env and restart.
+				</div>
+			{/if}
+
+			{#if pollFailures >= 3}
+				<div class="panel-alert poll-warning">
+					Unable to reach the server (failed {pollFailures} times). Polling slowed down &mdash; will keep retrying.
 				</div>
 			{/if}
 
@@ -1092,6 +1118,12 @@
 		padding: 1px 4px;
 		background: var(--bg-overlay);
 		border-radius: var(--radius-sm);
+	}
+
+	.poll-warning {
+		color: var(--error);
+		background: rgba(248, 113, 113, 0.06);
+		border-color: rgba(248, 113, 113, 0.12);
 	}
 
 	/* ─── Idle phase ─── */

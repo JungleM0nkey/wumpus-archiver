@@ -1,6 +1,6 @@
 """Message API route handlers."""
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Path, Query, Request
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -19,7 +19,7 @@ router = APIRouter()
 @router.get("/channels/{channel_id}/messages", response_model=MessageListResponse)
 async def list_messages(
     request: Request,
-    channel_id: int,
+    channel_id: int = Path(gt=0),
     before: int | None = Query(None, description="Get messages before this ID"),
     after: int | None = Query(None, description="Get messages after this ID"),
     limit: int = Query(50, ge=1, le=200, description="Number of messages to return"),

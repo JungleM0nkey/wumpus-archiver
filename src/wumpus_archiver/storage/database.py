@@ -1,5 +1,6 @@
 """Database connection and session management."""
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -88,26 +89,39 @@ class DatabaseRegistry:
     def __init__(self) -> None:
         self.sources: dict[str, Database] = {}
         self.source_urls: dict[str, str] = {}
-        self.active: str = "sqlite"
+        self._active: str = "sqlite"
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     def register(self, name: str, database: Database, url: str) -> None:
         """Register a named database source."""
         self.sources[name] = database
         self.source_urls[name] = url
         if len(self.sources) == 1:
-            self.active = name
+            self._active = name
+
+    @property
+    def active(self) -> str:
+        """Get the name of the active source."""
+        return self._active
 
     def get_active(self) -> Database:
         """Get the currently active database."""
-        if self.active not in self.sources:
-            raise RuntimeError(f"Active data source '{self.active}' not registered")
-        return self.sources[self.active]
+        if self._active not in self.sources:
+            raise RuntimeError(f"Active data source '{self._active}' not registered")
+        return self.sources[self._active]
 
     def set_active(self, name: str) -> None:
-        """Switch the active data source."""
+        """Switch the active data source (sync, for initial setup)."""
         if name not in self.sources:
             raise KeyError(f"Unknown data source: '{name}'. Available: {list(self.sources.keys())}")
-        self.active = name
+        self._active = name
+
+    async def set_active_safe(self, name: str) -> None:
+        """Switch the active data source (async, lock-protected for runtime use)."""
+        async with self._lock:
+            if name not in self.sources:
+                raise KeyError(f"Unknown data source: '{name}'. Available: {list(self.sources.keys())}")
+            self._active = name
 
     @property
     def available_sources(self) -> list[str]:

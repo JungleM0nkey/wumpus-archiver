@@ -171,18 +171,27 @@ class TransferManager:
                 for row in rows:
                     src_session.expunge(row)
 
-            # Write batch to target
+            # Write batch to target (merge = upsert: insert new, update existing)
+            inserted = 0
+            updated = 0
             async with tgt_db.session() as tgt_session:
                 for row in rows:
+                    existing = await tgt_session.get(type(row), row.id)
+                    if existing is not None:
+                        updated += 1
+                    else:
+                        inserted += 1
                     await tgt_session.merge(row)
 
             job.rows_transferred += len(rows)
             offset += len(rows)
 
             logger.debug(
-                "  %s: transferred %d rows (batch at offset %d)",
+                "  %s: transferred %d rows (inserted=%d, updated=%d, offset %d)",
                 model.__tablename__,
                 len(rows),
+                inserted,
+                updated,
                 offset - len(rows),
             )
 

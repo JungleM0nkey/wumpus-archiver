@@ -316,9 +316,16 @@ def register_tools(mcp: FastMCP) -> None:
             ]
 
             cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=365)
+            # Use dialect-compatible date formatting:
+            # SQLite uses strftime, PostgreSQL uses to_char
+            db_url = str(db.engine.url)
+            if "postgresql" in db_url:
+                period_expr = func.to_char(Message.created_at, "YYYY-MM").label("period")
+            else:
+                period_expr = func.strftime("%Y-%m", Message.created_at).label("period")
             monthly_r = await session.execute(
                 select(
-                    func.strftime("%Y-%m", Message.created_at).label("period"),
+                    period_expr,
                     func.count(Message.id).label("cnt"),
                 )
                 .where(Message.author_id == user_id, msg_scope, Message.created_at >= cutoff)

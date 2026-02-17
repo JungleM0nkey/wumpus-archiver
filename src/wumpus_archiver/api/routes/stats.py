@@ -1,6 +1,6 @@
 """Stats API route handlers."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Path, Request
 
 from sqlalchemy import func, select
 
@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 @router.get("/guilds/{guild_id}/stats", response_model=StatsSchema)
-async def get_guild_stats(request: Request, guild_id: int) -> StatsSchema:
+async def get_guild_stats(request: Request, guild_id: int = Path(gt=0)) -> StatsSchema:
     """Get statistics for a guild."""
     db = get_db(request)
     async with db.session() as session:

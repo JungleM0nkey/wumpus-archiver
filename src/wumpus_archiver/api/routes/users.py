@@ -2,7 +2,7 @@
 
 import datetime as dt
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Path, Query, Request
 
 from sqlalchemy import func, select
 
@@ -25,7 +25,7 @@ router = APIRouter()
 
 
 @router.get("/users/{user_id}", response_model=UserSchema)
-async def get_user(request: Request, user_id: int) -> UserSchema:
+async def get_user(request: Request, user_id: int = Path(gt=0)) -> UserSchema:
     """Get user details."""
     db = get_db(request)
     async with db.session() as session:

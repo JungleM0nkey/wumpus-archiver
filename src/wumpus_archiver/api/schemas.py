@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, PlainSerializer
+from pydantic import BaseModel, ConfigDict, PlainSerializer, field_validator
 
 # Discord snowflake IDs exceed JavaScript's Number.MAX_SAFE_INTEGER (2^53-1).
 # Serialize them as strings so the frontend doesn't lose precision.
@@ -220,6 +220,29 @@ class ScrapeStartRequest(BaseModel):
 
     guild_id: str
     channel_ids: list[str] | None = None  # None = full guild scrape
+
+    @field_validator("guild_id")
+    @classmethod
+    def validate_guild_id(cls, v: str) -> str:
+        """Validate guild_id is a valid integer string."""
+        try:
+            int(v)
+        except ValueError:
+            raise ValueError(f"guild_id must be a numeric string, got '{v}'")
+        return v
+
+    @field_validator("channel_ids")
+    @classmethod
+    def validate_channel_ids(cls, v: list[str] | None) -> list[str] | None:
+        """Validate all channel_ids are valid integer strings."""
+        if v is None:
+            return v
+        for cid in v:
+            try:
+                int(cid)
+            except ValueError:
+                raise ValueError(f"channel_ids must be numeric strings, got '{cid}'")
+        return v
 
 
 class ScrapeProgressSchema(BaseModel):

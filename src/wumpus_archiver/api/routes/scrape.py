@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
@@ -151,7 +151,7 @@ _CHANNEL_TYPE_NAMES: dict[int, str] = {
 )
 async def list_scrapeable_channels(
     request: Request,
-    guild_id: int,
+    guild_id: int = Path(gt=0),
 ) -> JSONResponse:
     """List channels available for scraping.
 
@@ -265,7 +265,7 @@ async def list_scrapeable_channels(
 @router.get("/scrape/guilds/{guild_id}/analyze")
 async def analyze_guild(
     request: Request,
-    guild_id: int,
+    guild_id: int = Path(gt=0),
 ) -> JSONResponse:
     """Analyze a guild to find new/updated channels before scraping.
 

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -24,6 +25,8 @@ from wumpus_archiver.storage.repositories import (
     ReactionRepository,
     UserRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ArchiverBot:
@@ -58,7 +61,7 @@ class ArchiverBot:
     async def on_ready(self) -> None:
         """Called when bot is ready."""
         if self.client.user:
-            print(f"Logged in as {self.client.user} (ID: {self.client.user.id})")
+            logger.info("Logged in as %s (ID: %s)", self.client.user, self.client.user.id)
         self._ready_event.set()
 
     async def scrape_guild(
@@ -127,11 +130,11 @@ class ArchiverBot:
                 except discord.Forbidden:
                     error_msg = f"No permission to scrape #{channel.name}"
                     errors.append(error_msg)
-                    print(error_msg)
+                    logger.warning(error_msg)
                 except Exception as e:
                     error_msg = f"Error scraping channel {channel.name}: {e}"
                     errors.append(error_msg)
-                    print(error_msg)
+                    logger.error(error_msg)
 
             # Scrape active threads
             for thread in guild.threads:
@@ -147,7 +150,7 @@ class ArchiverBot:
                 except Exception as e:
                     error_msg = f"Error scraping thread {thread.name}: {e}"
                     errors.append(error_msg)
-                    print(error_msg)
+                    logger.error(error_msg)
 
             # Scrape archived threads (public)
             try:
@@ -168,7 +171,7 @@ class ArchiverBot:
                         except Exception as e:
                             error_msg = f"Error scraping archived thread {thread.name}: {e}"
                             errors.append(error_msg)
-                            print(error_msg)
+                            logger.error(error_msg)
             except discord.Forbidden:
                 errors.append("No permission to list archived threads")
 
@@ -262,11 +265,11 @@ class ArchiverBot:
                 except discord.Forbidden:
                     error_msg = f"No permission to scrape #{channel.name}"
                     errors.append(error_msg)
-                    print(error_msg)
+                    logger.warning(error_msg)
                 except Exception as e:
                     error_msg = f"Error scraping channel {channel.name}: {e}"
                     errors.append(error_msg)
-                    print(error_msg)
+                    logger.error(error_msg)
 
             # Scrape threads inside selected text channels
             scraped_thread_ids: set[int] = set()
@@ -342,19 +345,19 @@ class ArchiverBot:
         bot_member = guild.me
         guild_perms = bot_member.guild_permissions
 
-        print(f"\n{'='*60}")
-        print(f"  Channel Diagnostics for: {guild.name}")
-        print(f"{'='*60}")
+        logger.info("=" * 60)
+        logger.info("  Channel Diagnostics for: %s", guild.name)
+        logger.info("=" * 60)
 
         # Check Administrator permission
         if guild_perms.administrator:
-            print("[OK] Bot has Administrator permission — all channels visible")
+            logger.info("Bot has Administrator permission — all channels visible")
         else:
-            print(
-                "[WARNING] Bot does NOT have Administrator permission.\n"
-                "  Private channels where the bot's role lacks VIEW_CHANNEL\n"
-                "  will be completely invisible and silently skipped.\n"
-                "  Grant the bot Administrator to ensure full archival."
+            logger.warning(
+                "Bot does NOT have Administrator permission. "
+                "Private channels where the bot's role lacks VIEW_CHANNEL "
+                "will be completely invisible and silently skipped. "
+                "Grant the bot Administrator to ensure full archival."
             )
 
         # Count visible channels by type
@@ -365,10 +368,11 @@ class ArchiverBot:
         category_count = len(guild.categories)
         total_visible = text_count + voice_count + stage_count + forum_count
 
-        print(f"\nVisible channels: {total_visible} total")
-        print(f"  Text: {text_count}, Voice: {voice_count}, "
-              f"Stage: {stage_count}, Forum: {forum_count}, "
-              f"Categories: {category_count}")
+        logger.info("Visible channels: %d total", total_visible)
+        logger.info(
+            "  Text: %d, Voice: %d, Stage: %d, Forum: %d, Categories: %d",
+            text_count, voice_count, stage_count, forum_count, category_count,
+        )
 
         # Per-channel permission audit
         read_blocked: list[str] = []
@@ -394,20 +398,22 @@ class ArchiverBot:
                 history_blocked.append(f"  #{channel.name} (id={channel.id})")
 
         if history_blocked:
-            print(f"\n[WARNING] {len(history_blocked)} channel(s) visible but "
-                  "missing READ_MESSAGE_HISTORY:")
+            logger.warning(
+                "%d channel(s) visible but missing READ_MESSAGE_HISTORY:",
+                len(history_blocked),
+            )
             for ch_name in history_blocked:
-                print(ch_name)
+                logger.warning(ch_name)
 
         if not guild_perms.administrator:
-            print(
-                "\n[INFO] To see private channels, either:\n"
-                "  1. Give the bot 'Administrator' permission, OR\n"
-                "  2. Add the bot's role to each private channel's permissions\n"
-                "     with VIEW_CHANNEL + READ_MESSAGE_HISTORY enabled."
+            logger.info(
+                "To see private channels, either: "
+                "1. Give the bot 'Administrator' permission, OR "
+                "2. Add the bot's role to each private channel's permissions "
+                "with VIEW_CHANNEL + READ_MESSAGE_HISTORY enabled."
             )
 
-        print(f"{'='*60}\n")
+        logger.info("=" * 60)
 
     async def _save_guild(self, session: AsyncSession, guild: discord.Guild) -> Guild:
         """Save guild data to database."""
@@ -481,11 +487,11 @@ class ArchiverBot:
                 "after": discord.Object(id=existing_last_id),
                 "oldest_first": True,
             }
-            print(f"  Incremental scrape for #{channel.name} (after message {existing_last_id})")
+            logger.info("Incremental scrape for #%s (after message %s)", channel.name, existing_last_id)
         else:
             # Full scrape: fetch everything
             history_kwargs = {"limit": None, "oldest_first": False}
-            print(f"  Full scrape for #{channel.name} (no prior data)")
+            logger.info("Full scrape for #%s (no prior data)", channel.name)
 
         async for message in channel.history(**history_kwargs):
             try:
@@ -518,7 +524,7 @@ class ArchiverBot:
             except Exception as e:
                 # Rollback the failed transaction so subsequent saves aren't poisoned
                 await session.rollback()
-                print(f"Error saving message {message.id}: {e}")
+                logger.error("Error saving message %s: %s", message.id, e)
 
         # Final commit for remaining messages
         await session.commit()

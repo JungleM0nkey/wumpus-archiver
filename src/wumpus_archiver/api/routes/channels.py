@@ -1,6 +1,6 @@
 """Channel API route handlers."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Path, Request
 
 from sqlalchemy import select
 
@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.get("/guilds/{guild_id}/channels", response_model=ChannelListResponse)
-async def list_channels(request: Request, guild_id: int) -> ChannelListResponse:
+async def list_channels(request: Request, guild_id: int = Path(gt=0)) -> ChannelListResponse:
     """List channels for a guild."""
     db = get_db(request)
     async with db.session() as session:
