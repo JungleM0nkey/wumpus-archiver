@@ -131,7 +131,7 @@ def scrape(
 @cli.command()
 @click.argument(
     "database",
-    type=click.Path(exists=True, path_type=Path),
+    type=click.Path(path_type=Path),
 )
 @click.option(
     "--port",
@@ -157,12 +157,18 @@ def scrape(
     is_flag=True,
     help="Build the SvelteKit portal before starting (requires npm)",
 )
+@click.option(
+    "--postgres-url",
+    default=None,
+    help="PostgreSQL connection URL (e.g. postgresql+asyncpg://user:pass@host/db)",
+)
 def serve(
     database: Path,
     port: int,
     host: str,
     attachments_dir: Path,
     build_portal: bool,
+    postgres_url: str | None,
 ) -> None:
     """Start the exploration portal (production mode).
 
@@ -178,11 +184,24 @@ def serve(
         _build_portal_static()
 
     db_path = database.resolve()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     db_url = f"sqlite+aiosqlite:///{db_path}"
     db = DB(db_url)
 
-    att_path = attachments_dir.resolve() if attachments_dir.exists() else None
-    app = create_app(db, attachments_path=att_path)
+    att_resolved = attachments_dir.resolve()
+    att_resolved.mkdir(parents=True, exist_ok=True)
+    att_path = att_resolved
+
+    # Resolve postgres_url from settings if not provided
+    pg_url = postgres_url
+    if not pg_url:
+        try:
+            settings = Settings()  # type: ignore[call-arg]
+            pg_url = settings.postgres_url
+        except Exception:
+            pass
+
+    app = create_app(db, attachments_path=att_path, postgres_url=pg_url)
 
     click.echo(f"Starting portal at http://{host}:{port}")
     click.echo(f"Database: {db_path}")
@@ -190,6 +209,8 @@ def serve(
         click.echo(f"Attachments: {att_path}")
     else:
         click.echo("Attachments: not found (images served from Discord CDN)")
+    if pg_url:
+        click.echo("PostgreSQL: configured")
     uvicorn.run(app, host=host, port=port)
 
 
@@ -293,6 +314,14 @@ def download(
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=True)
 
+    # Resolve guild_id before the async function to avoid scope issues
+    resolved_guild_id = guild_id
+    if resolved_guild_id is None:
+        try:
+            resolved_guild_id = Settings().guild_id  # type: ignore[call-arg]
+        except Exception:
+            pass
+
     click.echo(f"Database: {db_path}")
     click.echo(f"Output:   {output}")
     click.echo(f"Concurrency: {concurrency}")
@@ -308,19 +337,13 @@ def download(
             concurrency=concurrency,
         )
 
-        if guild_id is None:
-            try:
-                guild_id = Settings().guild_id  # type: ignore[call-arg]
-            except Exception:
-                pass
-
         def progress(channel_name: str, done: int, total: int) -> None:
             click.echo(f"  #{channel_name}: {done}/{total} processed")
 
         try:
-            if guild_id:
-                click.echo(f"Downloading images for guild {guild_id}...")
-                stats = await downloader.download_guild_images(guild_id, progress)
+            if resolved_guild_id:
+                click.echo(f"Downloading images for guild {resolved_guild_id}...")
+                stats = await downloader.download_guild_images(resolved_guild_id, progress)
             else:
                 click.echo("Downloading all images...")
                 stats = await downloader.download_all_images(progress)
@@ -378,7 +401,7 @@ def update(
 @cli.command()
 @click.argument(
     "database",
-    type=click.Path(exists=True, path_type=Path),
+    type=click.Path(path_type=Path),
 )
 @click.option(
     "--port",
@@ -405,12 +428,18 @@ def update(
     default=Path("./attachments"),
     help="Path to downloaded attachments directory",
 )
+@click.option(
+    "--postgres-url",
+    default=None,
+    help="PostgreSQL connection URL (e.g. postgresql+asyncpg://user:pass@host/db)",
+)
 def dev(
     database: Path,
     port: int,
     host: str,
     frontend_port: int,
     attachments_dir: Path,
+    postgres_url: str | None,
 ) -> None:
     """Start development environment (backend + frontend with hot-reload)."""
     from wumpus_archiver.utils.process_manager import (
@@ -422,7 +451,16 @@ def dev(
 
     # Resolve paths
     db_path = database.resolve()
-    att_dir = attachments_dir.resolve() if attachments_dir.exists() else None
+    att_dir = attachments_dir.resolve()
+    att_dir.mkdir(parents=True, exist_ok=True)
+
+    pg_url = postgres_url
+    if not pg_url:
+        try:
+            settings = Settings()  # type: ignore[call-arg]
+            pg_url = settings.postgres_url
+        except Exception:
+            pass
 
     # Find npm and portal directory
     try:
@@ -463,7 +501,7 @@ def dev(
 
     # Create a thin app module for uvicorn --reload
     # We need a module-level app instance for uvicorn to reload
-    _write_dev_app_module(db_path, att_dir)
+    _write_dev_app_module(db_path, att_dir, pg_url)
 
     processes = [
         ManagedProcess(
@@ -484,6 +522,8 @@ def dev(
     click.echo(f"  Database: {db_path}")
     if att_dir:
         click.echo(f"  Attachments: {att_dir}")
+    if pg_url:
+        click.echo("  PostgreSQL: configured")
     click.echo("\nPress Ctrl+C to stop both servers.\n")
 
     try:
@@ -494,7 +534,7 @@ def dev(
         sys.exit(0)
 
 
-def _write_dev_app_module(db_path: Path, attachments_path: Path | None) -> None:
+def _write_dev_app_module(db_path: Path, attachments_path: Path | None, postgres_url: str | None = None) -> None:
     """Write a temporary module that uvicorn can import for --reload.
 
     Creates src/wumpus_archiver/api/_dev_app.py with a module-level `app`
@@ -503,9 +543,11 @@ def _write_dev_app_module(db_path: Path, attachments_path: Path | None) -> None:
     Args:
         db_path: Resolved path to the SQLite database.
         attachments_path: Resolved path to attachments directory, or None.
+        postgres_url: Optional PostgreSQL connection URL.
     """
     dev_module = Path(__file__).parent / "api" / "_dev_app.py"
     att_line = f'    attachments_path=Path("{attachments_path}"),' if attachments_path else ""
+    pg_line = f'    postgres_url="{postgres_url}",' if postgres_url else ""
     content = f'''"""Auto-generated dev app instance for uvicorn --reload. DO NOT EDIT."""
 
 from pathlib import Path
@@ -517,9 +559,88 @@ _db = Database("sqlite+aiosqlite:///{db_path}")
 app = create_app(
     _db,
 {att_line}
+{pg_line}
 )
 '''
     dev_module.write_text(content)
+
+
+@cli.command("mcp")
+@click.argument(
+    "database",
+    type=click.Path(exists=True, path_type=Path),
+)
+@click.option(
+    "--http",
+    "transport",
+    flag_value="streamable-http",
+    default=False,
+    help="Run as HTTP server instead of stdio",
+)
+@click.option(
+    "--port",
+    "-p",
+    type=int,
+    default=9100,
+    help="HTTP server port (only used with --http)",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    help="HTTP server host (only used with --http)",
+)
+@click.option(
+    "--attachments-dir",
+    "-a",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to downloaded attachments directory",
+)
+def mcp_command(
+    database: Path,
+    transport: str | bool,
+    port: int,
+    host: str,
+    attachments_dir: Path | None,
+) -> None:
+    """Start the MCP server for AI agent integration.
+
+    Runs in stdio mode (default) for Claude Desktop / Copilot, or
+    use --http for network-accessible HTTP transport.
+    """
+    import logging
+
+    from wumpus_archiver.mcp.server import create_mcp_server
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    )
+
+    db_path = database.resolve()
+    att_path = attachments_dir.resolve() if attachments_dir else None
+
+    # Try to load Discord token from settings
+    discord_token: str | None = None
+    try:
+        settings = Settings()  # type: ignore[call-arg]
+        discord_token = settings.discord_bot_token
+    except Exception:
+        pass
+
+    server = create_mcp_server(
+        db_path=db_path,
+        attachments_path=att_path,
+        discord_token=discord_token,
+    )
+
+    if transport:
+        click.echo(f"Starting MCP server (HTTP) at http://{host}:{port}")
+        click.echo(f"Database: {db_path}")
+        server.run(transport="streamable-http", host=host, port=port)
+    else:
+        # stdio mode — no echo, just run
+        server.run(transport="stdio")
 
 
 @cli.command()
