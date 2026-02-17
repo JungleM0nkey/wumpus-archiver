@@ -1,0 +1,54 @@
+# Version control
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+.venv/
+venv/
+ENV/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node / SvelteKit (rebuilt in Docker)
+portal/node_modules/
+portal/.svelte-kit/
+portal/build/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+!.env.docker.example
+
+# Data (mounted as volumes, not baked into image)
+*.db
+attachments/
+logs/
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Documentation & tests (not needed in production image)
+docs/
+tests/
+CHANGELOG.md
+CONTRIBUTING.md
+Makefile
