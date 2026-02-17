@@ -43,6 +43,8 @@
 	}
 
 	function thumbUrl(att: GalleryAttachment): string {
+		// For local attachments, use the URL directly
+		if (att.url.startsWith('/attachments')) return att.url;
 		// Use proxy URL for thumbnails and add size params if CDN supports it
 		const base = att.proxy_url || att.url;
 		if (base.includes('cdn.discordapp.com') || base.includes('media.discordapp.net')) {

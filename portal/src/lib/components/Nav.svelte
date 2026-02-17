@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { getDataSource, setDataSource } from '$lib/api';
+	import type { DataSourceResponse } from '$lib/types';
 
 	const links = [
 		{ href: '/', label: 'Dashboard', icon: '◈' },
 		{ href: '/timeline', label: 'Timeline', icon: '▤' },
 		{ href: '/search', label: 'Search', icon: '⌕' },
 		{ href: '/channels', label: 'Channels', icon: '≡' },
-		{ href: '/gallery', label: 'Gallery', icon: '⊞' },
 		{ href: '/users', label: 'Users', icon: '◉' },
 		{ href: '/control', label: 'Control', icon: '⚙' },
 	];
@@ -14,6 +15,34 @@
 	function isActive(href: string): boolean {
 		if (href === '/') return page.url.pathname === '/';
 		return page.url.pathname.startsWith(href);
+	}
+
+	let datasource: DataSourceResponse | null = $state(null);
+	let switching = $state(false);
+
+	// Fetch data source info on mount
+	$effect(() => {
+		getDataSource().then(ds => { datasource = ds; }).catch(() => {});
+	});
+
+	const availableSources = $derived(
+		datasource ? Object.entries(datasource.sources).filter(([, info]) => info.available !== false) : []
+	);
+	const showToggle = $derived(availableSources.length > 1);
+
+	async function switchSource(name: string) {
+		if (!datasource || datasource.active === name || switching) return;
+		switching = true;
+		try {
+			await setDataSource(name);
+			datasource = await getDataSource();
+			// Reload current page data
+			window.location.reload();
+		} catch (e) {
+			console.error('Failed to switch data source:', e);
+		} finally {
+			switching = false;
+		}
 	}
 </script>
 
@@ -38,6 +67,21 @@
 		</div>
 
 		<div class="nav-right">
+			{#if showToggle && datasource}
+				<div class="ds-toggle">
+					{#each availableSources as [name, info]}
+						<button
+							class="ds-btn"
+							class:active={datasource.active === name}
+							disabled={switching}
+							onclick={() => switchSource(name)}
+							title={info.detail}
+						>
+							{info.label}
+						</button>
+					{/each}
+				</div>
+			{/if}
 			<span class="version mono">v0.1.0</span>
 		</div>
 	</div>
@@ -135,5 +179,43 @@
 		border-radius: var(--radius-sm);
 		background: var(--bg-raised);
 		border: 1px solid var(--border);
+	}
+
+	.ds-toggle {
+		display: flex;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border);
+		overflow: hidden;
+	}
+
+	.ds-btn {
+		padding: 2px 10px;
+		font-size: 11px;
+		font-weight: 500;
+		background: var(--bg-raised);
+		color: var(--text-secondary);
+		border: none;
+		cursor: pointer;
+		transition: all 0.15s var(--ease-out);
+		font-family: var(--font-mono);
+	}
+
+	.ds-btn:not(:last-child) {
+		border-right: 1px solid var(--border);
+	}
+
+	.ds-btn:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.ds-btn.active {
+		background: var(--accent-glow);
+		color: var(--accent-text);
+	}
+
+	.ds-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 </style>
