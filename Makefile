@@ -2,7 +2,7 @@
 # Convenience targets for development and production workflows.
 # Requires: Python 3.12+, Node.js 18+, npm
 
-.PHONY: help install dev serve build lint test clean
+.PHONY: help install dev serve build lint test clean docker-build docker-up docker-down mcp mcp-http
 
 SHELL := /bin/bash
 DB         ?= archive.db
@@ -10,6 +10,7 @@ HOST       ?= 127.0.0.1
 PORT       ?= 8000
 VITE_PORT  ?= 5173
 ATT_DIR    ?= ./attachments
+IMAGE      ?= ghcr.io/junglem0nkey/wumpus-archiver
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -17,7 +18,11 @@ help: ## Show this help
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
 
-install: ## Install all dependencies (Python + Node)
+venv: ## Create a Python virtual environment
+	python3 -m venv .venv
+	@echo "Run 'source .venv/bin/activate' to activate"
+
+install: ## Install all dependencies (Python + Node) — activate venv first
 	pip install -e ".[dev]"
 	cd portal && npm install
 
@@ -73,6 +78,25 @@ scrape: ## Scrape a guild (set GUILD_ID env var)
 
 download-images: ## Download all image attachments locally
 	wumpus-archiver download $(DB) -o $(ATT_DIR) -v
+
+# ─── MCP Server ───────────────────────────────────────────────────────────────
+
+mcp: ## Start MCP server (stdio transport for Claude Desktop / Copilot)
+	wumpus-archiver mcp $(DB) -a $(ATT_DIR)
+
+mcp-http: ## Start MCP server (HTTP transport for network clients)
+	wumpus-archiver mcp $(DB) --http --host $(HOST) --port 9100 -a $(ATT_DIR)
+
+# ─── Docker ────────────────────────────────────────────────────────────────────
+
+docker-build: ## Build the Docker image locally
+	docker build -t $(IMAGE):local .
+
+docker-up: ## Start services via docker compose
+	docker compose up -d
+
+docker-down: ## Stop services via docker compose
+	docker compose down
 
 # ─── Cleanup ──────────────────────────────────────────────────────────────────
 

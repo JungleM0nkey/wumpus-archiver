@@ -61,6 +61,13 @@ Phases 1–3.5 complete: models, repositories, database, bot scraper, config, CL
 - Embeds stored as `str()` not JSON — known issue, should be `json.dumps()`
 - Search uses SQL LIKE — should migrate to FTS5 for performance at scale
 
+## IMPORTANT: Process management
+
+- **Never leave background processes running.** If you start a server or dev process to test something, always kill it when done.
+- Use `pkill -f "wumpus-archiver"` or kill the specific PID after verifying behavior.
+- Before starting a new server instance, kill any existing ones first: `pkill -f "wumpus-archiver serve" 2>/dev/null; sleep 1`
+- Do not start processes in the background (`&`) unless the user explicitly asks for a long-running server. Prefer foreground with a timeout for quick verification.
+
 ## IMPORTANT: warp intelligent tool usage guidelines
 
 Fast Apply: IMPORTANT: Use `edit_file` over `str_replace` or full file writes. It works with partial code snippets—no need for full file content.

@@ -4,16 +4,7 @@ description: Write production-ready Python code with modern best practices, type
 argument-hint: Describe the Python code, module, script, or feature you want to build or improve
 model: Claude Sonnet 4
 tools:
-  - search
-  - usages
-  - problems
-  - editFiles
-  - createFile
-  - runInTerminal
-  - fetch
-  - githubRepo
-  - testFailure
-  - changes
+  ['execute/testFailure', 'execute/runInTerminal', 'read/problems', 'read/readFile', 'agent/runSubagent', 'edit/createFile', 'edit/editFiles', 'search/changes', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/searchResults', 'search/textSearch', 'search/usages', 'web/fetch', 'web/githubRepo', '@hypothesi/tauri-mcp-server/tauri_driver_session', '@hypothesi/tauri-mcp-server/tauri_get_setup_instructions', '@hypothesi/tauri-mcp-server/tauri_ipc_emit_event', '@hypothesi/tauri-mcp-server/tauri_ipc_execute_command', '@hypothesi/tauri-mcp-server/tauri_ipc_get_backend_state', '@hypothesi/tauri-mcp-server/tauri_ipc_get_captured', '@hypothesi/tauri-mcp-server/tauri_ipc_monitor', '@hypothesi/tauri-mcp-server/tauri_list_devices', '@hypothesi/tauri-mcp-server/tauri_manage_window', '@hypothesi/tauri-mcp-server/tauri_read_logs', '@hypothesi/tauri-mcp-server/tauri_webview_execute_js', '@hypothesi/tauri-mcp-server/tauri_webview_find_element', '@hypothesi/tauri-mcp-server/tauri_webview_get_styles', '@hypothesi/tauri-mcp-server/tauri_webview_interact', '@hypothesi/tauri-mcp-server/tauri_webview_keyboard', '@hypothesi/tauri-mcp-server/tauri_webview_screenshot', '@hypothesi/tauri-mcp-server/tauri_webview_wait_for', 'firecrawl/firecrawl-mcp-server/firecrawl_agent', 'firecrawl/firecrawl-mcp-server/firecrawl_agent_status', 'firecrawl/firecrawl-mcp-server/firecrawl_check_crawl_status', 'firecrawl/firecrawl-mcp-server/firecrawl_crawl', 'firecrawl/firecrawl-mcp-server/firecrawl_extract', 'firecrawl/firecrawl-mcp-server/firecrawl_map', 'firecrawl/firecrawl-mcp-server/firecrawl_scrape', 'firecrawl/firecrawl-mcp-server/firecrawl_search', 'io.github.upstash/context7/get-library-docs', 'io.github.upstash/context7/resolve-library-id', 'microsoft/markitdown/convert_to_markdown', 'playwright/browser_click', 'playwright/browser_close', 'playwright/browser_console_messages', 'playwright/browser_drag', 'playwright/browser_evaluate', 'playwright/browser_file_upload', 'playwright/browser_fill_form', 'playwright/browser_handle_dialog', 'playwright/browser_hover', 'playwright/browser_install', 'playwright/browser_navigate', 'playwright/browser_navigate_back', 'playwright/browser_network_requests', 'playwright/browser_press_key', 'playwright/browser_resize', 'playwright/browser_run_code', 'playwright/browser_select_option', 'playwright/browser_snapshot', 'playwright/browser_tabs', 'playwright/browser_take_screenshot', 'playwright/browser_type', 'playwright/browser_wait_for', 'sequentialthinking/sequentialthinking', 'morph-mcp/edit_file', 'morph-mcp/warpgrep_codebase_search', 'vscode.mermaid-chat-features/renderMermaidDiagram', 'ms-azuretools.vscode-containers/containerToolsConfig', 'ms-python.python/getPythonEnvironmentInfo', 'ms-python.python/getPythonExecutableCommand', 'ms-python.python/installPythonPackage', 'ms-python.python/configurePythonEnvironment', 'todo']
 
 handoffs:
   - label: Review Code

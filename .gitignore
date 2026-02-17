@@ -67,3 +67,5 @@ Thumbs.db
 packages.microsoft.gpg
 .claude/
 src/wumpus_archiver/api/_dev_app.py
+.playwright-mcp/
+data/
