@@ -9,8 +9,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from wumpus_archiver.api.download_manager import DownloadManager
 from wumpus_archiver.api.scrape_manager import ScrapeJobManager
-from wumpus_archiver.storage.database import Database
+from wumpus_archiver.api.transfer_manager import TransferManager
+from wumpus_archiver.storage.database import Database, DatabaseRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,7 @@ def create_app(
     database: Database,
     attachments_path: Path | None = None,
     discord_token: str | None = None,
+    postgres_url: str | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -31,12 +34,21 @@ def create_app(
         Configured FastAPI application
     """
 
+    # Build database registry
+    registry = DatabaseRegistry()
+    registry.register("sqlite", database, database.database_url)
+    if postgres_url:
+        pg_db = Database(postgres_url)
+        registry.register("postgres", pg_db, postgres_url)
+        # Default to PostgreSQL when available (primary storage in Docker)
+        registry.set_active("postgres")
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         """Manage application lifecycle."""
-        await database.connect()
+        await registry.connect_all()
         yield
-        await database.disconnect()
+        await registry.disconnect_all()
 
     app = FastAPI(
         title="Wumpus Archiver",
@@ -54,11 +66,14 @@ def create_app(
         allow_headers=["*"],
     )
 
-    # Store database on app state
-    app.state.database = database
+    # Store database registry on app state
+    app.state.database = registry.get_active()
+    app.state.db_registry = registry
 
     # Scrape control panel: manager + token
-    app.state.scrape_manager = ScrapeJobManager(database)
+    app.state.scrape_manager = ScrapeJobManager(registry)
+    app.state.transfer_manager = TransferManager(registry)
+    app.state.download_manager = DownloadManager(registry.get_active(), attachments_path)
     # Try loading token from env/.env if not explicitly provided
     resolved_token = discord_token
     if not resolved_token:

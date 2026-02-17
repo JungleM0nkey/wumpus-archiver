@@ -80,3 +80,48 @@ class Database:
         if not self._engine:
             raise RuntimeError("Database not connected. Call connect() first.")
         return self._engine
+
+
+class DatabaseRegistry:
+    """Manages multiple database sources with runtime switching."""
+
+    def __init__(self) -> None:
+        self.sources: dict[str, Database] = {}
+        self.source_urls: dict[str, str] = {}
+        self.active: str = "sqlite"
+
+    def register(self, name: str, database: Database, url: str) -> None:
+        """Register a named database source."""
+        self.sources[name] = database
+        self.source_urls[name] = url
+        if len(self.sources) == 1:
+            self.active = name
+
+    def get_active(self) -> Database:
+        """Get the currently active database."""
+        if self.active not in self.sources:
+            raise RuntimeError(f"Active data source '{self.active}' not registered")
+        return self.sources[self.active]
+
+    def set_active(self, name: str) -> None:
+        """Switch the active data source."""
+        if name not in self.sources:
+            raise KeyError(f"Unknown data source: '{name}'. Available: {list(self.sources.keys())}")
+        self.active = name
+
+    @property
+    def available_sources(self) -> list[str]:
+        """List registered source names."""
+        return list(self.sources.keys())
+
+    async def connect_all(self) -> None:
+        """Connect and create tables for all registered sources."""
+        for _name, db in self.sources.items():
+            await db.connect()
+            await db.create_tables()
+
+    async def disconnect_all(self) -> None:
+        """Disconnect all registered sources."""
+        for db in self.sources.values():
+            await db.disconnect()
+

@@ -20,7 +20,7 @@ class Attachment(Base):
     message_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("messages.id"), nullable=False)
 
     # File metadata
-    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
     content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     size: Mapped[int] = mapped_column(Integer, nullable=False)  # bytes
 

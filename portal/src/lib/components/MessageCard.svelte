@@ -1,7 +1,10 @@
 <script lang="ts">
-	import type { Message } from '$lib/types';
+	import type { Attachment, GalleryAttachment, Message } from '$lib/types';
+	import Lightbox from './Lightbox.svelte';
 
 	let { message }: { message: Message } = $props();
+
+	const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.tiff']);
 
 	function formatTime(iso: string): string {
 		const d = new Date(iso);
@@ -20,8 +23,28 @@
 		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 	}
 
-	function isImageType(ct: string | null): boolean {
-		return !!ct && ct.startsWith('image/');
+	function isImage(att: Attachment): boolean {
+		if (att.content_type?.startsWith('image/')) return true;
+		const ext = att.filename.includes('.') ? '.' + att.filename.split('.').pop()!.toLowerCase() : '';
+		return IMAGE_EXTENSIONS.has(ext);
+	}
+
+	function toGalleryAttachment(att: Attachment): GalleryAttachment {
+		return {
+			...att,
+			created_at: message.created_at,
+			author_name: message.author?.display_name || message.author?.username || null,
+			author_avatar_url: message.author?.avatar_url || null,
+			channel_id: message.channel_id,
+			channel_name: null,
+		};
+	}
+
+	let imageAttachments = $derived(message.attachments.filter(isImage));
+	let lightboxIndex: number | null = $state(null);
+
+	function openLightbox(att: Attachment) {
+		lightboxIndex = imageAttachments.indexOf(att);
 	}
 
 	let parsedEmbeds: object[] = $derived.by(() => {
@@ -79,15 +102,15 @@
 	{#if message.attachments.length > 0}
 		<div class="attachments">
 			{#each message.attachments as att}
-				{#if isImageType(att.content_type)}
-					<a href={att.url} target="_blank" rel="noopener" class="attachment-img-link">
+				{#if isImage(att)}
+					<button class="attachment-img-link" onclick={() => openLightbox(att)}>
 						<img
 							class="attachment-img"
-							src={att.proxy_url || att.url}
+							src={att.url}
 							alt={att.filename}
 							loading="lazy"
 						/>
-					</a>
+					</button>
 				{:else}
 					<a href={att.url} target="_blank" rel="noopener" class="attachment-file">
 						<span class="file-icon">📎</span>
@@ -97,6 +120,17 @@
 				{/if}
 			{/each}
 		</div>
+	{/if}
+
+	{#if lightboxIndex !== null}
+		<Lightbox
+			attachment={toGalleryAttachment(imageAttachments[lightboxIndex])}
+			onclose={() => lightboxIndex = null}
+			onnext={() => { if (lightboxIndex !== null && lightboxIndex < imageAttachments.length - 1) lightboxIndex++; }}
+			onprev={() => { if (lightboxIndex !== null && lightboxIndex > 0) lightboxIndex--; }}
+			hasPrev={lightboxIndex > 0}
+			hasNext={lightboxIndex < imageAttachments.length - 1}
+		/>
 	{/if}
 
 	{#if parsedEmbeds.length > 0}
@@ -237,6 +271,14 @@
 		overflow: hidden;
 		border: 1px solid var(--border);
 		max-width: 400px;
+		padding: 0;
+		background: none;
+		cursor: pointer;
+		transition: border-color 0.15s var(--ease-out);
+	}
+
+	.attachment-img-link:hover {
+		border-color: var(--accent);
 	}
 
 	.attachment-img {

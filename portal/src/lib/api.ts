@@ -11,9 +11,14 @@ import type {
 	ScrapeStatusResponse,
 	ScrapeHistoryResponse,
 	ScrapeJob,
+	ScrapeableChannelsResponse,
 	DownloadStatsResponse,
+	DownloadJobStatus,
 	UserListResponse,
-	UserProfile
+	UserProfile,
+	DataSourceResponse,
+	TransferStatus,
+	AnalyzeResponse
 } from './types';
 
 const API_BASE = '/api';
@@ -105,12 +110,30 @@ export async function getScrapeStatus(): Promise<ScrapeStatusResponse> {
 	return fetchJSON<ScrapeStatusResponse>('/scrape/status');
 }
 
-export async function startScrape(guildId: number): Promise<{ job: ScrapeJob }> {
+export async function startScrape(
+	guildId: string,
+	channelIds?: string[]
+): Promise<{ job: ScrapeJob }> {
 	return fetchJSON<{ job: ScrapeJob }>('/scrape/start', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ guild_id: guildId })
+		body: JSON.stringify({
+			guild_id: guildId,
+			channel_ids: channelIds ?? null
+		})
 	});
+}
+
+export async function getScrapeableChannels(
+	guildId: string | number
+): Promise<ScrapeableChannelsResponse> {
+	return fetchJSON<ScrapeableChannelsResponse>(`/scrape/guilds/${guildId}/channels`);
+}
+
+export async function analyzeGuild(
+	guildId: string | number
+): Promise<AnalyzeResponse> {
+	return fetchJSON<AnalyzeResponse>(`/scrape/guilds/${guildId}/analyze`);
 }
 
 export async function cancelScrape(): Promise<{ message: string }> {
@@ -152,4 +175,52 @@ export async function getUserProfile(
 
 export async function getDownloadStats(): Promise<DownloadStatsResponse> {
 	return fetchJSON<DownloadStatsResponse>('/downloads/stats');
+}
+
+export async function startDownload(): Promise<DownloadJobStatus> {
+	return fetchJSON<DownloadJobStatus>('/downloads/start', {
+		method: 'POST'
+	});
+}
+
+export async function getDownloadJobStatus(): Promise<DownloadJobStatus> {
+	return fetchJSON<DownloadJobStatus>('/downloads/job');
+}
+
+export async function cancelDownload(): Promise<{ message: string }> {
+	return fetchJSON<{ message: string }>('/downloads/cancel', {
+		method: 'POST'
+	});
+}
+
+// --- Data source ---
+
+export async function getDataSource(): Promise<DataSourceResponse> {
+	return fetchJSON<DataSourceResponse>('/datasource');
+}
+
+export async function setDataSource(active: string): Promise<{ active: string }> {
+	return fetchJSON<{ active: string }>('/datasource', {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ active })
+	});
+}
+
+// --- Data transfer ---
+
+export async function getTransferStatus(): Promise<TransferStatus> {
+	return fetchJSON<TransferStatus>('/transfer/status');
+}
+
+export async function startTransfer(): Promise<TransferStatus> {
+	return fetchJSON<TransferStatus>('/transfer/start', {
+		method: 'POST'
+	});
+}
+
+export async function cancelTransfer(): Promise<{ message: string }> {
+	return fetchJSON<{ message: string }>('/transfer/cancel', {
+		method: 'POST'
+	});
 }

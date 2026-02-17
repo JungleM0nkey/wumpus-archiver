@@ -61,7 +61,7 @@
 		<!-- Image -->
 		<div class="image-frame">
 			<img
-				src={attachment.proxy_url || attachment.url}
+				src={attachment.url}
 				alt={attachment.filename}
 				class="lightbox-img"
 			/>

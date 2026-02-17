@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 
 import aiohttp
-from sqlalchemy import select, func
+from sqlalchemy import or_, select, func
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
@@ -27,6 +27,16 @@ IMAGE_CONTENT_TYPES = (
     "image/webp",
     "image/avif",
 )
+
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".tiff")
+
+
+def _image_filter():
+    """SQLAlchemy filter for image attachments (by content_type or file extension)."""
+    return or_(
+        Attachment.content_type.in_(IMAGE_CONTENT_TYPES),
+        *[Attachment.filename.ilike(f"%{ext}") for ext in IMAGE_EXTENSIONS],
+    )
 
 # Default concurrency and retry settings
 DEFAULT_CONCURRENCY = 5
@@ -223,7 +233,7 @@ class ImageDownloader:
                         select(Message.id).where(Message.channel_id == channel_id)
                     )
                 )
-                .where(Attachment.content_type.in_(IMAGE_CONTENT_TYPES))
+                .where(_image_filter())
             )
             total = count_result.scalar() or 0
 
@@ -251,7 +261,7 @@ class ImageDownloader:
                                 )
                             )
                         )
-                        .where(Attachment.content_type.in_(IMAGE_CONTENT_TYPES))
+                        .where(_image_filter())
                         .order_by(Attachment.id)
                         .offset(offset)
                         .limit(batch_size)

@@ -26,6 +26,11 @@ class Settings(BaseSettings):
         validation_alias="DATABASE_URL",
     )
 
+    postgres_url: str | None = Field(
+        default=None,
+        validation_alias="POSTGRES_URL",
+    )
+
     # API
     api_host: str = Field(default="127.0.0.1", validation_alias="API_HOST")
     api_port: int = Field(default=8000, validation_alias="API_PORT")

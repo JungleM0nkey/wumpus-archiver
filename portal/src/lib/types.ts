@@ -178,6 +178,7 @@ export interface TimelineGalleryResponse {
 export interface ScrapeProgress {
 	current_channel: string;
 	channels_done: number;
+	channels_total: number;
 	messages_scraped: number;
 	attachments_found: number;
 	errors: string[];
@@ -185,7 +186,9 @@ export interface ScrapeProgress {
 
 export interface ScrapeJob {
 	id: string;
-	guild_id: number;
+	guild_id: string;
+	channel_ids: string[] | null;
+	scope: 'guild' | 'channels';
 	status: 'pending' | 'connecting' | 'scraping' | 'completed' | 'failed' | 'cancelled';
 	progress: ScrapeProgress;
 	started_at: string | null;
@@ -193,6 +196,43 @@ export interface ScrapeJob {
 	result: Record<string, unknown> | null;
 	error_message: string | null;
 	duration_seconds: number | null;
+}
+
+export interface ScrapeableChannel {
+	id: string;
+	name: string;
+	type: number;
+	type_name: string;
+	parent_name: string | null;
+	position: number;
+	already_scraped: boolean;
+	archived_message_count: number;
+}
+
+export interface ScrapeableChannelsResponse {
+	guild_id: string;
+	guild_name: string;
+	channels: ScrapeableChannel[];
+	total: number;
+}
+
+export interface AnalyzeChannel {
+	id: string;
+	name: string;
+	type: number;
+	type_name: string;
+	parent_name: string | null;
+	position: number;
+	status: 'new' | 'has_new_messages' | 'up_to_date' | 'never_scraped';
+	archived_message_count: number;
+	last_scraped_at: string | null;
+}
+
+export interface AnalyzeResponse {
+	guild_id: string;
+	guild_name: string;
+	channels: AnalyzeChannel[];
+	summary: Record<string, number>;
 }
 
 export interface ScrapeStatusResponse {
@@ -282,4 +322,43 @@ export interface DownloadStatsResponse {
 	downloaded_bytes: number;
 	attachments_dir: string | null;
 	channels: DownloadChannelStats[];
+}
+
+export interface DownloadJobStatus {
+	status: 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+	total_images: number;
+	downloaded: number;
+	failed: number;
+	skipped: number;
+	current_channel: string;
+	error: string | null;
+	started_at: string | null;
+	finished_at: string | null;
+}
+
+// --- Data source types ---
+
+export interface DataSourceInfo {
+	available?: boolean;
+	label: string;
+	detail: string;
+}
+
+export interface DataSourceResponse {
+	active: string;
+	sources: Record<string, DataSourceInfo>;
+}
+
+// --- Data transfer types ---
+
+export interface TransferStatus {
+	status: 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+	current_table: string;
+	tables_done: number;
+	tables_total: number;
+	rows_transferred: number;
+	total_rows: number;
+	error: string | null;
+	started_at: string | null;
+	finished_at: string | null;
 }

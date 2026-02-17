@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from wumpus_archiver.bot.scraper import ArchiverBot
-from wumpus_archiver.storage.database import Database
+from wumpus_archiver.storage.database import Database, DatabaseRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ class ScrapeProgress(BaseModel):
 
     current_channel: str = ""
     channels_done: int = 0
+    channels_total: int = 0
     messages_scraped: int = 0
     attachments_found: int = 0
     errors: list[str] = []
@@ -41,6 +42,7 @@ class ScrapeJob(BaseModel):
 
     id: str
     guild_id: int
+    channel_ids: list[int] | None = None  # None = full guild scrape
     status: JobStatus = JobStatus.PENDING
     progress: ScrapeProgress = ScrapeProgress()
     started_at: datetime | None = None
@@ -55,18 +57,45 @@ class ScrapeJobManager:
     Only one scrape job can run at a time since we use a single bot connection.
     """
 
-    def __init__(self, database: Database) -> None:
+    def __init__(self, registry: DatabaseRegistry) -> None:
         """Initialize the scrape job manager.
 
         Args:
-            database: Database instance for storage
+            registry: Database registry for accessing the active data source
         """
-        self.database = database
+        self._registry = registry
         self._current_job: ScrapeJob | None = None
         self._task: asyncio.Task[None] | None = None
         self._bot: ArchiverBot | None = None
         self._cancel_requested = False
         self._history: list[ScrapeJob] = []
+
+    @property
+    def database(self) -> Database:
+        """Get the currently active database."""
+        return self._registry.get_active()
+
+    async def fetch_live_channels(self, token: str, guild_id: int) -> list[dict] | None:
+        """Fetch live channel list from Discord HTTP API.
+
+        Uses discord.http.HTTPClient directly for a single REST call
+        instead of connecting a full gateway bot.
+
+        Returns list of channel dicts or None on failure.
+        """
+        try:
+            import discord.http
+
+            http = discord.http.HTTPClient(loop=asyncio.get_running_loop())
+            try:
+                await http.static_login(token)
+                channels = await http.get_all_guild_channels(guild_id)
+                return channels  # type: ignore[return-value]
+            finally:
+                await http.close()
+        except Exception as e:
+            logger.warning("Failed to fetch live channels for guild %d: %s", guild_id, e)
+            return None
 
     @property
     def current_job(self) -> ScrapeJob | None:
@@ -86,12 +115,19 @@ class ScrapeJobManager:
             and self._current_job.status in (JobStatus.PENDING, JobStatus.CONNECTING, JobStatus.SCRAPING)
         )
 
-    def start_scrape(self, guild_id: int, token: str) -> ScrapeJob:
+    def start_scrape(
+        self,
+        guild_id: int,
+        token: str,
+        channel_ids: list[int] | None = None,
+    ) -> ScrapeJob:
         """Start a new scrape job.
 
         Args:
             guild_id: Discord guild ID to scrape
             token: Discord bot token
+            channel_ids: Optional list of specific channel IDs to scrape.
+                If None, scrapes all channels in the guild.
 
         Returns:
             The created ScrapeJob
@@ -105,6 +141,7 @@ class ScrapeJobManager:
         job = ScrapeJob(
             id=uuid.uuid4().hex[:12],
             guild_id=guild_id,
+            channel_ids=channel_ids,
             status=JobStatus.PENDING,
             started_at=datetime.now(UTC),
         )
@@ -167,16 +204,55 @@ class ScrapeJobManager:
 
             # Phase 2: Run the scrape
             job.status = JobStatus.SCRAPING
-            logger.info("Scrape job %s: scraping guild %d...", job.id, job.guild_id)
+            if job.channel_ids:
+                job.progress.channels_total = len(job.channel_ids)
+                logger.info(
+                    "Scrape job %s: scraping %d channels in guild %d...",
+                    job.id,
+                    len(job.channel_ids),
+                    job.guild_id,
+                )
+            else:
+                logger.info("Scrape job %s: scraping guild %d...", job.id, job.guild_id)
+
+            # Track cumulative progress across channels
+            cumulative_messages = 0
+            cumulative_attachments = 0
+            cumulative_channels = 0
 
             def progress_callback(channel_name: str, message_count: int) -> None:
                 """Update job progress from scraper callback."""
                 job.progress.current_channel = channel_name
-                job.progress.messages_scraped = message_count
+                job.progress.messages_scraped = cumulative_messages + message_count
 
-            stats = await bot.scrape_guild(job.guild_id, progress_callback)
+            def channel_done_callback(
+                ch_messages: int, ch_attachments: int
+            ) -> None:
+                """Called when a channel finishes scraping."""
+                nonlocal cumulative_messages, cumulative_attachments, cumulative_channels
+                cumulative_messages += ch_messages
+                cumulative_attachments += ch_attachments
+                cumulative_channels += 1
+                job.progress.channels_done = cumulative_channels
+                job.progress.messages_scraped = cumulative_messages
+                job.progress.attachments_found = cumulative_attachments
 
-            # Phase 3: Record results
+            if job.channel_ids:
+                stats = await bot.scrape_channels(
+                    job.guild_id,
+                    job.channel_ids,
+                    progress_callback,
+                    channel_done_callback,
+                )
+            else:
+                stats = await bot.scrape_guild(
+                    job.guild_id, progress_callback, channel_done_callback
+                )
+                # For full guild scrape, update total from result
+                if not job.progress.channels_total:
+                    job.progress.channels_total = int(stats.get("channels_scraped", 0))
+
+            # Phase 3: Record final results
             job.status = JobStatus.COMPLETED
             job.completed_at = datetime.now(UTC)
             job.result = stats

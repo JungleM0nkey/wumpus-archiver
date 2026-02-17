@@ -1,0 +1,49 @@
+# Wumpus Archiver — Docker Compose
+# Usage:
+#   docker compose up              # Start the web portal
+#   docker compose up -d           # Start in background
+#   docker compose down            # Stop
+#
+# Scraping (one-off):
+#   docker compose run --rm wumpus-archiver scrape --guild-id <ID> -o /data/archive.db
+#
+# Downloading attachments (one-off):
+#   docker compose run --rm wumpus-archiver download /data/archive.db -o /data/attachments
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: wumpus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wumpus}
+      POSTGRES_DB: wumpus
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wumpus"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  wumpus-archiver:
+    build: .
+    image: ghcr.io/junglem0nkey/wumpus-archiver:latest
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./data:/data
+    env_file:
+      - .env
+    environment:
+      - API_HOST=0.0.0.0
+      - DATABASE_URL=sqlite+aiosqlite:////data/archive.db
+      - ATTACHMENTS_PATH=/data/attachments
+      - POSTGRES_URL=postgresql+asyncpg://wumpus:${POSTGRES_PASSWORD:-wumpus}@postgres:5432/wumpus
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

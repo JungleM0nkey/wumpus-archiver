@@ -97,6 +97,12 @@ class ChannelRepository:
             channel.message_count += increment
             channel.last_scraped_at = datetime.now(UTC)
 
+    async def mark_scraped(self, channel_id: int) -> None:
+        """Mark a channel as scraped without changing message count."""
+        channel = await self.get_by_id(channel_id)
+        if channel:
+            channel.last_scraped_at = datetime.now(UTC)
+
 
 class MessageRepository:
     """Repository for Message operations."""
