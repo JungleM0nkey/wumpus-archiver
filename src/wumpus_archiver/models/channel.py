@@ -29,7 +29,7 @@ class Channel(Base):
     # Archival metadata
     first_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     last_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    last_scraped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_scraped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     message_count: Mapped[int] = mapped_column(default=0, nullable=False)
 
     # Relationships

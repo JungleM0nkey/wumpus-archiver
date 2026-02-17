@@ -24,10 +24,10 @@ class Guild(Base):
     member_count: Mapped[int | None] = mapped_column(nullable=True)
 
     # Archival metadata
-    first_scraped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    last_scraped_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    first_scraped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_scraped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     scrape_count: Mapped[int] = mapped_column(default=0, nullable=False)
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     channels: Mapped[list["Channel"]] = relationship(

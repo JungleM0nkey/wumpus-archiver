@@ -29,8 +29,8 @@ class Message(Base):
     clean_content: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
     # Timestamps
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    edited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Message metadata
     pinned: Mapped[bool] = mapped_column(default=False, nullable=False)
@@ -44,8 +44,8 @@ class Message(Base):
     reference_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     # Archival metadata
-    scraped_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     channel: Mapped["Channel"] = relationship("Channel", back_populates="messages")
