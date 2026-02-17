@@ -3,6 +3,8 @@
 from fastapi import APIRouter
 
 from wumpus_archiver.api.routes.channels import router as channels_router
+from wumpus_archiver.api.routes.datasource import router as datasource_router
+from wumpus_archiver.api.routes.transfer import router as transfer_router
 from wumpus_archiver.api.routes.downloads import router as downloads_router
 from wumpus_archiver.api.routes.gallery import router as gallery_router
 from wumpus_archiver.api.routes.guilds import router as guilds_router
@@ -23,5 +25,7 @@ router.include_router(stats_router)
 router.include_router(users_router)
 router.include_router(scrape_router)
 router.include_router(downloads_router)
+router.include_router(datasource_router)
+router.include_router(transfer_router)
 
 __all__ = ["router"]

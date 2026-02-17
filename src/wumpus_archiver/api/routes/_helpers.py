@@ -3,16 +3,21 @@
 from pathlib import Path
 
 from fastapi import HTTPException, Request
+from sqlalchemy import or_
 
 from wumpus_archiver.api.schemas import (
     AttachmentSchema,
     GalleryAttachmentSchema,
 )
+from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.storage.database import Database
 
 
 def get_db(request: Request) -> Database:
-    """Get database from app state."""
+    """Get the active database from the registry."""
+    registry = getattr(request.app.state, "db_registry", None)
+    if registry is not None:
+        return registry.get_active()
     return request.app.state.database  # type: ignore[no-any-return]
 
 
@@ -62,6 +67,23 @@ def raise_not_found(detail: str) -> None:
 
 
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/avif")
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".tiff"}
+
+
+def looks_like_image(content_type: str | None, filename: str) -> bool:
+    """Check if an attachment is an image by content_type or file extension."""
+    if content_type and content_type.startswith("image/"):
+        return True
+    ext = Path(filename).suffix.lower()
+    return ext in IMAGE_EXTENSIONS
+
+
+def image_filter():
+    """SQLAlchemy filter for image attachments (by content_type or file extension)."""
+    return or_(
+        Attachment.content_type.in_(IMAGE_TYPES),
+        *[Attachment.filename.ilike(f"%{ext}") for ext in IMAGE_EXTENSIONS],
+    )
 
 
 def rows_to_gallery_schemas(

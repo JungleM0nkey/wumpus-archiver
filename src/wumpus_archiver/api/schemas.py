@@ -212,9 +212,14 @@ class TimelineGalleryResponse(BaseModel):
 
 
 class ScrapeStartRequest(BaseModel):
-    """Request to start a scrape job."""
+    """Request to start a scrape job.
 
-    guild_id: int
+    IDs are accepted as strings to avoid JavaScript integer precision loss
+    (Discord snowflake IDs exceed Number.MAX_SAFE_INTEGER).
+    """
+
+    guild_id: str
+    channel_ids: list[str] | None = None  # None = full guild scrape
 
 
 class ScrapeProgressSchema(BaseModel):
@@ -222,6 +227,7 @@ class ScrapeProgressSchema(BaseModel):
 
     current_channel: str = ""
     channels_done: int = 0
+    channels_total: int = 0
     messages_scraped: int = 0
     attachments_found: int = 0
     errors: list[str] = []
@@ -231,7 +237,9 @@ class ScrapeJobSchema(BaseModel):
     """Response schema for a scrape job."""
 
     id: str
-    guild_id: int
+    guild_id: Snowflake
+    channel_ids: list[Snowflake] | None = None
+    scope: str = "guild"  # "guild" or "channels"
     status: str
     progress: ScrapeProgressSchema
     started_at: str | None = None
@@ -253,6 +261,51 @@ class ScrapeHistoryResponse(BaseModel):
     """Response for scrape history endpoint."""
 
     jobs: list[ScrapeJobSchema]
+
+
+class ScrapeableChannelSchema(BaseModel):
+    """A channel available for scraping from the live Discord guild."""
+
+    id: Snowflake
+    name: str
+    type: int
+    type_name: str
+    parent_name: str | None = None
+    position: int = 0
+    already_scraped: bool = False
+    archived_message_count: int = 0
+
+
+class ScrapeableChannelsResponse(BaseModel):
+    """Response listing channels available for scraping."""
+
+    guild_id: Snowflake
+    guild_name: str
+    channels: list[ScrapeableChannelSchema]
+    total: int
+
+
+class AnalyzeChannelSchema(BaseModel):
+    """Per-channel analysis result."""
+
+    id: Snowflake
+    name: str
+    type: int
+    type_name: str
+    parent_name: str | None = None
+    position: int = 0
+    status: str  # new | has_new_messages | up_to_date | never_scraped
+    archived_message_count: int = 0
+    last_scraped_at: str | None = None
+
+
+class AnalyzeResponse(BaseModel):
+    """Guild analysis result showing what needs scraping."""
+
+    guild_id: Snowflake
+    guild_name: str
+    channels: list[AnalyzeChannelSchema]
+    summary: dict[str, int]  # status -> count
 
 
 class UserListItem(BaseModel):
@@ -346,3 +399,58 @@ class DownloadStatsResponse(BaseModel):
     downloaded_bytes: int
     attachments_dir: str | None = None
     channels: list[DownloadChannelStats] = []
+
+
+class DownloadJobStatus(BaseModel):
+    """Status of a background download job."""
+
+    status: str  # idle | pending | running | completed | failed | cancelled
+    total_images: int = 0
+    downloaded: int = 0
+    failed: int = 0
+    skipped: int = 0
+    current_channel: str = ""
+    error: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
+# --- Data source schemas ---
+
+
+class DataSourceInfo(BaseModel):
+    """Info about a single data source."""
+
+    available: bool = True
+    label: str
+    detail: str = ""
+
+
+class DataSourceSetRequest(BaseModel):
+    """Request to switch the active data source."""
+
+    active: str
+
+
+class DataSourceResponse(BaseModel):
+    """Current data source state."""
+
+    active: str
+    sources: dict[str, DataSourceInfo]
+
+
+# --- Transfer schemas ---
+
+
+class TransferStatusSchema(BaseModel):
+    """Status of a data transfer job."""
+
+    status: str
+    current_table: str
+    tables_done: int
+    tables_total: int
+    rows_transferred: int
+    total_rows: int
+    error: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None

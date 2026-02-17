@@ -6,10 +6,30 @@
 		startScrape,
 		cancelScrape,
 		getScrapeHistory,
-		getDownloadStats
+		getDownloadStats,
+		startDownload,
+		getDownloadJobStatus,
+		cancelDownload,
+		analyzeGuild,
+		getTransferStatus,
+		startTransfer,
+		cancelTransfer,
+		getDataSource
 	} from '$lib/api';
-	import type { Guild, ScrapeJob, ScrapeStatusResponse, ScrapeHistoryResponse, DownloadStatsResponse } from '$lib/types';
+	import type {
+		Guild,
+		ScrapeJob,
+		ScrapeStatusResponse,
+		ScrapeHistoryResponse,
+		DownloadStatsResponse,
+		DownloadJobStatus,
+		AnalyzeResponse,
+		AnalyzeChannel,
+		TransferStatus,
+		DataSourceResponse
+	} from '$lib/types';
 
+	// --- Core state ---
 	let guilds: Guild[] = $state([]);
 	let status: ScrapeStatusResponse | null = $state(null);
 	let history: ScrapeJob[] = $state([]);
@@ -18,75 +38,201 @@
 	let error = $state('');
 	let actionError = $state('');
 	let selectedGuildId = $state('');
-	let customGuildId = $state('');
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-	// Computed
+	// --- Analyze state ---
+	let analyzeResult: AnalyzeResponse | null = $state(null);
+	let analyzing = $state(false);
+	let analyzeError = $state('');
+
+	// --- Channel selection state ---
+	let selectedChannelIds: Set<string> = $state(new Set());
+	let collapsedCategories: Set<string> = $state(new Set());
+	let channelFilter = $state('');
+
+	// --- Transfer state ---
+	let transferStatus: TransferStatus | null = $state(null);
+	let datasourceInfo: DataSourceResponse | null = $state(null);
+	let transferError = $state('');
+	let transferPollTimer: ReturnType<typeof setInterval> | null = null;
+
+	// --- Download job state ---
+	let downloadJob: DownloadJobStatus | null = $state(null);
+	let downloadError = $state('');
+	let downloadPollTimer: ReturnType<typeof setInterval> | null = null;
+
+	// --- Utilities drawer ---
+	let utilitiesOpen = $state(false);
+
+	// --- Derived ---
 	let currentJob = $derived(status?.current_job ?? null);
 	let isBusy = $derived(status?.busy ?? false);
 	let hasToken = $derived(status?.has_token ?? false);
+	let selectedGuild = $derived(guilds.find(g => g.id === selectedGuildId));
 
-	let resolvedGuildId = $derived(() => {
-		if (customGuildId.trim()) return Number(customGuildId.trim());
-		if (selectedGuildId) return Number(selectedGuildId);
-		return null;
+	let selectedCount = $derived(selectedChannelIds.size);
+
+	let showTransfer = $derived(
+		datasourceInfo !== null &&
+		Object.entries(datasourceInfo.sources).filter(([, info]) => info.available !== false).length >= 2
+	);
+	let transferBusy = $derived(
+		transferStatus?.status === 'pending' || transferStatus?.status === 'running'
+	);
+	let transferPercent = $derived.by(() => {
+		if (!transferStatus || transferStatus.total_rows === 0) return 0;
+		return Math.round((transferStatus.rows_transferred / transferStatus.total_rows) * 100);
 	});
 
-	onMount(async () => {
-		await loadAll();
-		// Poll for status updates every 2s
-		pollTimer = setInterval(pollStatus, 2000);
+	// Phase logic: what state is the primary panel in?
+	type Phase = 'idle' | 'analyzing' | 'analyzed' | 'scraping' | 'completed' | 'failed';
+	let phase: Phase = $derived.by(() => {
+		if (analyzing) return 'analyzing';
+		if (isBusy && currentJob) {
+			if (currentJob.status === 'completed') return 'completed';
+			if (currentJob.status === 'failed') return 'failed';
+			return 'scraping';
+		}
+		if (currentJob && (currentJob.status === 'completed' || currentJob.status === 'failed' || currentJob.status === 'cancelled')) {
+			if (!analyzeResult) return 'idle';
+		}
+		if (analyzeResult) return 'analyzed';
+		return 'idle';
 	});
 
-	onDestroy(() => {
-		if (pollTimer) clearInterval(pollTimer);
+	// Channel grouping — uses analyzeResult.channels directly
+	let analyzeChannels = $derived(analyzeResult?.channels ?? []);
+	let groupedChannels = $derived.by(() => {
+		const groups = new Map<string, AnalyzeChannel[]>();
+		const filtered = channelFilter.trim()
+			? analyzeChannels.filter(c =>
+				c.name.toLowerCase().includes(channelFilter.trim().toLowerCase())
+			)
+			: analyzeChannels;
+		for (const ch of filtered) {
+			const cat = ch.parent_name ?? '(no category)';
+			if (!groups.has(cat)) groups.set(cat, []);
+			groups.get(cat)!.push(ch);
+		}
+		return groups;
 	});
 
-	async function loadAll() {
+	// Analyze summary helpers
+	let needsScrapeCount = $derived.by(() => {
+		if (!analyzeResult) return 0;
+		const s = analyzeResult.summary;
+		return (s.new ?? 0) + (s.has_new_messages ?? 0) + (s.never_scraped ?? 0);
+	});
+
+	$effect(() => {
+		if (transferBusy) startTransferPolling();
+	});
+
+	// --- Functions ---
+
+	async function handleAnalyze() {
+		if (!selectedGuildId) {
+			analyzeError = 'Select a guild first';
+			return;
+		}
+		analyzing = true;
+		analyzeError = '';
+		analyzeResult = null;
+		actionError = '';
 		try {
-			const [g, s, h, dl] = await Promise.all([
-				getGuilds().catch(() => []),
-				getScrapeStatus(),
-				getScrapeHistory(),
-				getDownloadStats().catch(() => null)
-			]);
-			guilds = g;
-			status = s;
-			history = h.jobs;
-			dlStats = dl;
-			if (guilds.length > 0 && !selectedGuildId) {
-				selectedGuildId = guilds[0].id;
-			}
+			const result = await analyzeGuild(selectedGuildId);
+			analyzeResult = result;
+
+			// Pre-select channels that need scraping
+			const needsScrape = new Set(
+				result.channels
+					.filter(ch => ch.status === 'new' || ch.status === 'has_new_messages' || ch.status === 'never_scraped')
+					.map(ch => ch.id)
+			);
+			selectedChannelIds = needsScrape;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load';
+			analyzeError = e instanceof Error ? e.message : 'Failed to analyze guild';
 		} finally {
-			loading = false;
+			analyzing = false;
 		}
 	}
 
-	async function pollStatus() {
-		try {
-			status = await getScrapeStatus();
-			// Refresh history when a job finishes
-			if (status && !status.busy && history.length > 0) {
-				const hist = await getScrapeHistory();
-				history = hist.jobs;
-			}
-		} catch {
-			// Silently fail polling
+	function toggleChannel(id: string) {
+		const next = new Set(selectedChannelIds);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		selectedChannelIds = next;
+	}
+
+	function selectAllVisible() {
+		const visible = channelFilter.trim()
+			? analyzeChannels.filter(c =>
+				c.name.toLowerCase().includes(channelFilter.trim().toLowerCase())
+			)
+			: analyzeChannels;
+		const next = new Set(selectedChannelIds);
+		for (const c of visible) next.add(c.id);
+		selectedChannelIds = next;
+	}
+
+	function deselectAllVisible() {
+		if (!channelFilter.trim()) {
+			selectedChannelIds = new Set();
+			return;
+		}
+		const filtered = new Set(
+			analyzeChannels
+				.filter((c: AnalyzeChannel) => c.name.toLowerCase().includes(channelFilter.trim().toLowerCase()))
+				.map((c: AnalyzeChannel) => c.id)
+		);
+		selectedChannelIds = new Set([...selectedChannelIds].filter(id => !filtered.has(id)));
+	}
+
+	function selectNeedsScrape() {
+		if (!analyzeResult) return;
+		const ids = new Set(
+			analyzeResult.channels
+				.filter(ch => ch.status !== 'up_to_date')
+				.map(ch => ch.id)
+		);
+		selectedChannelIds = ids;
+	}
+
+	function toggleCategory(cat: string) {
+		const next = new Set(collapsedCategories);
+		if (next.has(cat)) next.delete(cat);
+		else next.add(cat);
+		collapsedCategories = next;
+	}
+
+	function channelIcon(type: number): string {
+		switch (type) {
+			case 0: return '#';
+			case 2: return '~';
+			case 5: return '!';
+			case 11:
+			case 12: return '/';
+			case 13: return '~';
+			case 15: return '=';
+			default: return '#';
 		}
 	}
 
 	async function handleStart() {
 		actionError = '';
-		const gid = resolvedGuildId();
-		if (!gid) {
-			actionError = 'Please select or enter a guild ID';
+		if (!selectedGuildId) {
+			actionError = 'Select a guild first';
 			return;
 		}
 		try {
-			await startScrape(gid);
+			if (selectedChannelIds.size > 0) {
+				await startScrape(selectedGuildId, Array.from(selectedChannelIds));
+			} else {
+				await startScrape(selectedGuildId);
+			}
 			status = await getScrapeStatus();
+			const hist = await getScrapeHistory();
+			history = hist.jobs;
 		} catch (e) {
 			actionError = e instanceof Error ? e.message : 'Failed to start scrape';
 		}
@@ -104,8 +250,174 @@
 		}
 	}
 
+	function handleReset() {
+		analyzeResult = null;
+		analyzeError = '';
+		actionError = '';
+		selectedChannelIds = new Set();
+		channelFilter = '';
+	}
+
+	onMount(async () => {
+		await loadAll();
+		pollTimer = setInterval(pollStatus, 2000);
+	});
+
+	onDestroy(() => {
+		if (pollTimer) clearInterval(pollTimer);
+		stopTransferPolling();
+		stopDownloadPolling();
+	});
+
+	async function loadAll() {
+		try {
+			const [g, s, h, dl, dj] = await Promise.all([
+				getGuilds().catch(() => []),
+				getScrapeStatus(),
+				getScrapeHistory(),
+				getDownloadStats().catch(() => null),
+				getDownloadJobStatus().catch(() => null)
+			]);
+			guilds = g;
+			status = s;
+			history = h.jobs;
+			dlStats = dl;
+			downloadJob = dj;
+			if (dj && (dj.status === 'pending' || dj.status === 'running')) {
+				startDownloadPolling();
+			}
+			await loadTransferInfo();
+			if (guilds.length > 0 && !selectedGuildId) {
+				selectedGuildId = guilds[0].id;
+			}
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function pollStatus() {
+		try {
+			const prev = status;
+			status = await getScrapeStatus();
+			// Refresh history when scrape finishes (busy → not busy) or when idle
+			if (status && !status.busy && (prev?.busy || history.length === 0)) {
+				const hist = await getScrapeHistory();
+				history = hist.jobs;
+				// Also refresh download stats since scrape may have added new attachments
+				dlStats = await getDownloadStats().catch(() => dlStats);
+			}
+		} catch {
+			// Silently fail polling
+		}
+	}
+
+	async function loadTransferInfo() {
+		try {
+			const [ds, ts] = await Promise.all([
+				getDataSource().catch(() => null),
+				getTransferStatus().catch(() => null)
+			]);
+			datasourceInfo = ds;
+			transferStatus = ts;
+		} catch {
+			// Silently fail
+		}
+	}
+
+	async function handleStartTransfer() {
+		transferError = '';
+		try {
+			await startTransfer();
+			transferStatus = await getTransferStatus();
+			startTransferPolling();
+		} catch (e) {
+			transferError = e instanceof Error ? e.message : 'Failed to start transfer';
+		}
+	}
+
+	async function handleCancelTransfer() {
+		transferError = '';
+		try {
+			await cancelTransfer();
+			transferStatus = await getTransferStatus();
+		} catch (e) {
+			transferError = e instanceof Error ? e.message : 'Failed to cancel transfer';
+		}
+	}
+
+	function startTransferPolling() {
+		if (transferPollTimer) return;
+		transferPollTimer = setInterval(async () => {
+			try {
+				transferStatus = await getTransferStatus();
+				if (transferStatus && !['pending', 'running'].includes(transferStatus.status)) {
+					stopTransferPolling();
+				}
+			} catch {
+				// Silently fail
+			}
+		}, 1000);
+	}
+
+	function stopTransferPolling() {
+		if (transferPollTimer) {
+			clearInterval(transferPollTimer);
+			transferPollTimer = null;
+		}
+	}
+
+	// --- Download job handlers ---
+
+	let isDownloading = $derived(
+		downloadJob != null && (downloadJob.status === 'pending' || downloadJob.status === 'running')
+	);
+
+	async function handleStartDownload() {
+		downloadError = '';
+		try {
+			downloadJob = await startDownload();
+			startDownloadPolling();
+		} catch (e) {
+			downloadError = e instanceof Error ? e.message : 'Failed to start download';
+		}
+	}
+
+	async function handleCancelDownload() {
+		try {
+			await cancelDownload();
+			downloadJob = await getDownloadJobStatus();
+		} catch (e) {
+			downloadError = e instanceof Error ? e.message : 'Failed to cancel';
+		}
+	}
+
+	function startDownloadPolling() {
+		stopDownloadPolling();
+		downloadPollTimer = setInterval(async () => {
+			try {
+				downloadJob = await getDownloadJobStatus();
+				if (downloadJob && !isDownloading) {
+					stopDownloadPolling();
+					// Refresh download stats when done
+					dlStats = await getDownloadStats().catch(() => dlStats);
+				}
+			} catch {
+				// Silently fail
+			}
+		}, 2000);
+	}
+
+	function stopDownloadPolling() {
+		if (downloadPollTimer) {
+			clearInterval(downloadPollTimer);
+			downloadPollTimer = null;
+		}
+	}
+
 	function formatDuration(seconds: number | null): string {
-		if (seconds === null) return '—';
+		if (seconds === null) return '--';
 		if (seconds < 60) return `${seconds.toFixed(1)}s`;
 		const m = Math.floor(seconds / 60);
 		const s = (seconds % 60).toFixed(0);
@@ -113,7 +425,7 @@
 	}
 
 	function formatDate(iso: string | null): string {
-		if (!iso) return '—';
+		if (!iso) return '--';
 		return new Date(iso).toLocaleString('en-US', {
 			month: 'short',
 			day: 'numeric',
@@ -122,26 +434,26 @@
 		});
 	}
 
+	function timeAgo(iso: string | null): string {
+		if (!iso) return 'never';
+		const diff = Date.now() - new Date(iso).getTime();
+		const mins = Math.floor(diff / 60000);
+		if (mins < 60) return `${mins}m ago`;
+		const hours = Math.floor(mins / 60);
+		if (hours < 24) return `${hours}h ago`;
+		const days = Math.floor(hours / 24);
+		return `${days}d ago`;
+	}
+
 	function statusColor(s: string): string {
 		switch (s) {
 			case 'completed': return 'var(--success)';
 			case 'failed': return 'var(--error)';
 			case 'cancelled': return 'var(--warning)';
 			case 'scraping':
-			case 'connecting': return 'var(--accent)';
+			case 'connecting':
+			case 'running': return 'var(--accent)';
 			default: return 'var(--text-muted)';
-		}
-	}
-
-	function statusIcon(s: string): string {
-		switch (s) {
-			case 'completed': return '✓';
-			case 'failed': return '✗';
-			case 'cancelled': return '⊘';
-			case 'scraping': return '◉';
-			case 'connecting': return '◌';
-			case 'pending': return '◌';
-			default: return '·';
 		}
 	}
 
@@ -159,452 +471,651 @@
 	}
 </script>
 
-<div class="control-panel">
-	<header class="panel-header">
-		<h1 class="panel-title serif">
-			Control<span class="dot">.</span>
-		</h1>
-		<p class="panel-sub">Run and monitor Discord server scrapes from here.</p>
+<div class="control">
+	<header class="page-header">
+		<h1 class="page-title serif">Control<span class="dot">.</span></h1>
 	</header>
 
 	{#if loading}
-		<div class="loading-state">
+		<div class="center-state">
 			<div class="spinner"></div>
 			<span class="mono">Loading...</span>
 		</div>
 	{:else if error}
-		<div class="error-state">
-			<p>⚠ {error}</p>
+		<div class="center-state">
+			<p style="color: var(--error)">Failed to load: {error}</p>
 		</div>
 	{:else}
-		<!-- Token Warning -->
-		{#if !hasToken}
-			<div class="alert alert-warning fade-in">
-				<span class="alert-icon">⚠</span>
-				<div>
-					<strong>No Discord bot token configured.</strong>
-					<p>Set <code>DISCORD_BOT_TOKEN</code> in your <code>.env</code> file and restart the server to enable scraping.</p>
-				</div>
-			</div>
-		{/if}
+		<!-- Primary Panel -->
+		<div class="primary-panel fade-in">
 
-		<div class="panel-grid">
-			<!-- Start Scrape Card -->
-			<section class="card start-card fade-in">
-				<div class="card-header">
-					<h2 class="card-title">
-						<span class="card-icon">▶</span>
-						Start Scrape
-					</h2>
+			{#if !hasToken}
+				<div class="panel-alert">
+					No Discord bot token configured. Set <code>DISCORD_BOT_TOKEN</code> in .env and restart.
 				</div>
-				<div class="card-body">
-					<div class="form-group">
-						<label class="form-label" for="guild-select">Guild</label>
-						{#if guilds.length > 0}
-							<select
-								id="guild-select"
-								class="form-select"
-								bind:value={selectedGuildId}
-								disabled={isBusy || !hasToken}
-							>
-								{#each guilds as guild}
-									<option value={guild.id}>{guild.name} ({guild.id})</option>
-								{/each}
-							</select>
+			{/if}
+
+			<!-- ─── IDLE: Guild selector + archive health ─── -->
+			{#if phase === 'idle'}
+				<div class="phase-idle">
+					<div class="guild-row">
+						<label class="label" for="guild-sel">Guild</label>
+						<select id="guild-sel" class="guild-select" bind:value={selectedGuildId} disabled={!hasToken}>
+							{#each guilds as guild}
+								<option value={guild.id}>{guild.name}</option>
+							{/each}
+						</select>
+					</div>
+
+					{#if selectedGuild}
+						<div class="health-strip">
+							<div class="health-stat">
+								<span class="health-val mono">{selectedGuild.message_count.toLocaleString()}</span>
+								<span class="health-lbl">messages</span>
+							</div>
+							<div class="health-stat">
+								<span class="health-val mono">{selectedGuild.channel_count}</span>
+								<span class="health-lbl">channels</span>
+							</div>
+							<div class="health-stat">
+								<span class="health-val mono">{timeAgo(selectedGuild.last_scraped_at)}</span>
+								<span class="health-lbl">last scraped</span>
+							</div>
+						</div>
+					{/if}
+
+					{#if analyzeError}
+						<div class="inline-error">{analyzeError}</div>
+					{/if}
+
+					<button
+						class="action-btn primary-action"
+						onclick={handleAnalyze}
+						disabled={!hasToken || !selectedGuildId}
+					>
+						Analyze Guild
+					</button>
+
+					<div class="idle-hint mono">
+						Compares your archive with live Discord data to find new content.
+					</div>
+				</div>
+
+			<!-- ─── ANALYZING: Loading ─── -->
+			{:else if phase === 'analyzing'}
+				<div class="phase-center">
+					<div class="spinner"></div>
+					<span class="mono" style="color: var(--text-secondary)">Analyzing {selectedGuild?.name ?? 'guild'}...</span>
+				</div>
+
+			<!-- ─── ANALYZED: Results + channel picker ─── -->
+			{:else if phase === 'analyzed' && analyzeResult}
+				<div class="phase-analyzed">
+					<!-- Summary bar -->
+					<div class="analyze-header">
+						<span class="analyze-guild-name">{analyzeResult.guild_name}</span>
+						<button class="text-btn" onclick={handleReset}>Back</button>
+					</div>
+
+					<div class="freshness-bar">
+						{#if analyzeResult}
+							{@const total = analyzeResult.channels.length}
+							{@const upToDate = analyzeResult.summary.up_to_date ?? 0}
+							{@const hasNew = analyzeResult.summary.has_new_messages ?? 0}
+							{@const newCh = analyzeResult.summary.new ?? 0}
+							{@const never = analyzeResult.summary.never_scraped ?? 0}
+							<div class="freshness-track">
+								{#if upToDate > 0}
+									<div class="freshness-seg seg-uptodate" style="width: {(upToDate / total) * 100}%"></div>
+								{/if}
+								{#if hasNew > 0}
+									<div class="freshness-seg seg-updated" style="width: {(hasNew / total) * 100}%"></div>
+								{/if}
+								{#if newCh > 0}
+									<div class="freshness-seg seg-new" style="width: {(newCh / total) * 100}%"></div>
+								{/if}
+								{#if never > 0}
+									<div class="freshness-seg seg-never" style="width: {(never / total) * 100}%"></div>
+								{/if}
+							</div>
+							<div class="freshness-breakdown">
+								{#if hasNew > 0}
+									<details class="breakdown-group">
+										<summary class="breakdown-header">
+											<span class="legend-dot dot-updated"></span>
+											<span class="breakdown-label">{hasNew} channel{hasNew > 1 ? 's' : ''} with new messages</span>
+										</summary>
+										<ul class="breakdown-list">
+											{#each analyzeResult.channels.filter(c => c.status === 'has_new_messages') as ch}
+												<li class="breakdown-ch"><span class="ch-icon mono">{channelIcon(ch.type)}</span>{ch.name}<span class="breakdown-meta mono">{ch.archived_message_count.toLocaleString()} archived</span></li>
+											{/each}
+										</ul>
+									</details>
+								{/if}
+								{#if newCh > 0}
+									<details class="breakdown-group">
+										<summary class="breakdown-header">
+											<span class="legend-dot dot-new"></span>
+											<span class="breakdown-label">{newCh} new channel{newCh > 1 ? 's' : ''}</span>
+										</summary>
+										<ul class="breakdown-list">
+											{#each analyzeResult.channels.filter(c => c.status === 'new') as ch}
+												<li class="breakdown-ch"><span class="ch-icon mono">{channelIcon(ch.type)}</span>{ch.name}</li>
+											{/each}
+										</ul>
+									</details>
+								{/if}
+								{#if never > 0}
+									<details class="breakdown-group">
+										<summary class="breakdown-header">
+											<span class="legend-dot dot-never"></span>
+											<span class="breakdown-label">{never} never scraped</span>
+										</summary>
+										<ul class="breakdown-list">
+											{#each analyzeResult.channels.filter(c => c.status === 'never_scraped') as ch}
+												<li class="breakdown-ch"><span class="ch-icon mono">{channelIcon(ch.type)}</span>{ch.name}</li>
+											{/each}
+										</ul>
+									</details>
+								{/if}
+								{#if upToDate > 0}
+									<details class="breakdown-group">
+										<summary class="breakdown-header">
+											<span class="legend-dot dot-uptodate"></span>
+											<span class="breakdown-label">{upToDate} current</span>
+										</summary>
+										<ul class="breakdown-list">
+											{#each analyzeResult.channels.filter(c => c.status === 'up_to_date') as ch}
+												<li class="breakdown-ch"><span class="ch-icon mono">{channelIcon(ch.type)}</span>{ch.name}<span class="breakdown-meta mono">{ch.archived_message_count.toLocaleString()} msgs</span></li>
+											{/each}
+										</ul>
+									</details>
+								{/if}
+							</div>
 						{/if}
 					</div>
-					<div class="form-group">
-						<label class="form-label" for="guild-id-input">Or enter Guild ID</label>
-						<input
-							id="guild-id-input"
-							class="form-input"
-							type="text"
-							placeholder="e.g. 165682173540696064"
-							bind:value={customGuildId}
-							disabled={isBusy || !hasToken}
-						/>
-					</div>
+
+					<!-- Channel picker -->
+					{#if analyzeChannels.length > 0}
+						<div class="channel-picker">
+							<div class="picker-toolbar">
+								<div class="picker-actions">
+									<button class="text-btn" onclick={selectNeedsScrape}>Select needs scrape ({needsScrapeCount})</button>
+									<span class="sep">|</span>
+									<button class="text-btn" onclick={selectAllVisible}>All</button>
+									<span class="sep">|</span>
+									<button class="text-btn" onclick={deselectAllVisible}>None</button>
+								</div>
+								{#if analyzeChannels.length > 15}
+									<input
+										class="filter-input"
+										type="text"
+										placeholder="Filter..."
+										bind:value={channelFilter}
+									/>
+								{/if}
+							</div>
+
+							<div class="channel-list">
+								{#each [...groupedChannels.entries()] as [category, channels]}
+									<div class="cat-group">
+										<button class="cat-header" onclick={() => toggleCategory(category)}>
+											<span class="cat-arrow" class:collapsed={collapsedCategories.has(category)}>&#x25BE;</span>
+											{category}
+										</button>
+										{#if !collapsedCategories.has(category)}
+											{#each channels as ch}
+												<label class="ch-row" class:selected={selectedChannelIds.has(ch.id)}>
+													<input
+														type="checkbox"
+														checked={selectedChannelIds.has(ch.id)}
+														onchange={() => toggleChannel(ch.id)}
+													/>
+													<span class="ch-icon mono">{channelIcon(ch.type)}</span>
+													<span class="ch-name">{ch.name}</span>
+													{#if ch.status !== 'up_to_date'}
+														<span class="ch-status ch-status-{ch.status}">
+															{#if ch.status === 'new'}new
+															{:else if ch.status === 'has_new_messages'}updated
+															{:else if ch.status === 'never_scraped'}empty{/if}
+														</span>
+													{/if}
+													<span class="ch-count mono">{ch.archived_message_count.toLocaleString()}</span>
+												</label>
+											{/each}
+										{/if}
+									</div>
+								{/each}
+							</div>
+
+							<div class="picker-footer mono">
+								{selectedCount} channel{selectedCount !== 1 ? 's' : ''} selected
+							</div>
+						</div>
+					{/if}
 
 					{#if actionError}
 						<div class="inline-error">{actionError}</div>
 					{/if}
 
-					<div class="card-actions">
-						{#if isBusy}
-							<button class="btn btn-danger" onclick={handleCancel}>
-								⊘ Cancel Scrape
-							</button>
-						{:else}
-							<button class="btn btn-primary" onclick={handleStart} disabled={!hasToken}>
-								▶ Start Scrape
-							</button>
-						{/if}
-					</div>
-				</div>
-			</section>
-
-			<!-- Live Status Card -->
-			<section class="card status-card fade-in" style="animation-delay: 0.05s">
-				<div class="card-header">
-					<h2 class="card-title">
-						<span class="card-icon">◉</span>
-						Live Status
-					</h2>
-					{#if currentJob}
-						<span
-							class="status-badge"
-							style="color: {statusColor(currentJob.status)}"
+					<div class="action-row">
+						<button
+							class="action-btn primary-action"
+							onclick={handleStart}
+							disabled={!hasToken || selectedCount === 0}
 						>
-							{statusIcon(currentJob.status)} {currentJob.status}
-						</span>
-					{:else}
-						<span class="status-badge" style="color: var(--text-muted)">
-							· idle
-						</span>
-					{/if}
+							{#if selectedCount > 0}
+								Scrape {selectedCount} Channel{selectedCount > 1 ? 's' : ''}
+							{:else}
+								Select Channels to Scrape
+							{/if}
+						</button>
+						<button
+							class="action-btn secondary-action"
+							onclick={handleStart}
+							disabled={!hasToken}
+						>
+							Full Guild
+						</button>
+					</div>
 				</div>
-				<div class="card-body">
-					{#if currentJob}
-						<div class="status-grid">
-							<div class="status-item">
-								<span class="status-label">Job ID</span>
-								<span class="status-value mono">{currentJob.id}</span>
-							</div>
-							<div class="status-item">
-								<span class="status-label">Guild</span>
-								<span class="status-value mono">{currentJob.guild_id}</span>
-							</div>
-							<div class="status-item">
-								<span class="status-label">Duration</span>
-								<span class="status-value mono">{formatDuration(currentJob.duration_seconds)}</span>
-							</div>
-							<div class="status-item">
-								<span class="status-label">Channel</span>
-								<span class="status-value">{currentJob.progress.current_channel || '—'}</span>
-							</div>
+
+			<!-- ─── SCRAPING: Live progress ─── -->
+			{:else if (phase === 'scraping') && currentJob}
+				<div class="phase-scraping">
+					<div class="scrape-header">
+						<span class="scrape-status-badge" style="color: {statusColor(currentJob.status)}">
+							{currentJob.status}
+						</span>
+						<span class="mono" style="color: var(--text-muted); font-size: 12px">{currentJob.id}</span>
+					</div>
+
+					<div class="scrape-counters">
+						<div class="counter">
+							<span class="counter-val">{currentJob.progress.channels_done}{#if currentJob.progress.channels_total > 0}<span class="counter-total"> / {currentJob.progress.channels_total}</span>{/if}</span>
+							<span class="counter-lbl">channels</span>
 						</div>
-
-						<div class="progress-stats">
-							<div class="progress-stat">
-								<div class="progress-number">{currentJob.progress.channels_done.toLocaleString()}</div>
-								<div class="progress-label">channels</div>
-							</div>
-							<div class="progress-stat">
-								<div class="progress-number">{currentJob.progress.messages_scraped.toLocaleString()}</div>
-								<div class="progress-label">messages</div>
-							</div>
-							<div class="progress-stat">
-								<div class="progress-number">{currentJob.progress.attachments_found.toLocaleString()}</div>
-								<div class="progress-label">attachments</div>
-							</div>
+						<div class="counter">
+							<span class="counter-val">{currentJob.progress.messages_scraped.toLocaleString()}</span>
+							<span class="counter-lbl">messages</span>
 						</div>
+						<div class="counter">
+							<span class="counter-val">{currentJob.progress.attachments_found.toLocaleString()}</span>
+							<span class="counter-lbl">attachments</span>
+						</div>
+						<div class="counter">
+							<span class="counter-val">{formatDuration(currentJob.duration_seconds)}</span>
+							<span class="counter-lbl">elapsed</span>
+						</div>
+					</div>
 
-						{#if isBusy}
-							<div class="pulse-bar">
-								<div class="pulse-fill"></div>
-							</div>
-						{/if}
-
-						{#if currentJob.error_message}
-							<div class="inline-error" style="margin-top: var(--sp-3)">
-								{currentJob.error_message}
-							</div>
-						{/if}
-
-						{#if currentJob.progress.errors.length > 0}
-							<details class="error-details">
-								<summary class="mono">{currentJob.progress.errors.length} warning(s)</summary>
-								<ul class="error-list">
-									{#each currentJob.progress.errors as err}
-										<li>{err}</li>
-									{/each}
-								</ul>
-							</details>
-						{/if}
-					{:else}
-						<div class="empty-status">
-							<span class="empty-icon">◌</span>
-							<p>No active scrape job. Start one from the left panel.</p>
+					{#if currentJob.progress.current_channel}
+						<div class="current-channel mono">
+							Scraping #{currentJob.progress.current_channel}
 						</div>
 					{/if}
+
+					{#if currentJob.progress.channels_total > 0}
+						{@const pct = Math.round((currentJob.progress.channels_done / currentJob.progress.channels_total) * 100)}
+						<div class="progress-track">
+							<div class="progress-fill" style="width: {pct}%"></div>
+						</div>
+					{:else}
+						<div class="pulse-bar">
+							<div class="pulse-fill"></div>
+						</div>
+					{/if}
+
+					{#if currentJob.progress.errors.length > 0}
+						<details class="scrape-warnings">
+							<summary class="mono">{currentJob.progress.errors.length} warning(s)</summary>
+							<ul>
+								{#each currentJob.progress.errors as err}
+									<li class="mono">{err}</li>
+								{/each}
+							</ul>
+						</details>
+					{/if}
+
+					{#if currentJob.error_message}
+						<div class="inline-error">{currentJob.error_message}</div>
+					{/if}
+
+					<button class="action-btn cancel-action" onclick={handleCancel}>
+						Cancel
+					</button>
 				</div>
-			</section>
-		</div>
 
-		<!-- Download Stats -->
-		{#if dlStats}
-			<section class="downloads-section fade-in" style="animation-delay: 0.08s">
-				<h2 class="section-title">
-					<span class="section-icon">⬇</span>
-					Downloaded Images
-				</h2>
+			<!-- ─── COMPLETED / FAILED ─── -->
+			{:else if (phase === 'completed' || phase === 'failed') && currentJob}
+				<div class="phase-done">
+					<div class="done-status" style="color: {statusColor(currentJob.status)}">
+						{currentJob.status === 'completed' ? 'Scrape Complete' : 'Scrape Failed'}
+					</div>
 
-				<div class="dl-overview">
-					<div class="dl-summary-grid">
-						<div class="dl-stat">
-							<div class="dl-stat-number">{dlStats.downloaded.toLocaleString()}</div>
-							<div class="dl-stat-label">downloaded</div>
+					<div class="scrape-counters">
+						<div class="counter">
+							<span class="counter-val">{currentJob.progress.channels_done}{#if currentJob.progress.channels_total > 0}<span class="counter-total"> / {currentJob.progress.channels_total}</span>{/if}</span>
+							<span class="counter-lbl">channels</span>
 						</div>
-						<div class="dl-stat">
-							<div class="dl-stat-number">{dlStats.total_images.toLocaleString()}</div>
-							<div class="dl-stat-label">total images</div>
+						<div class="counter">
+							<span class="counter-val">{currentJob.progress.messages_scraped.toLocaleString()}</span>
+							<span class="counter-lbl">messages</span>
 						</div>
-						<div class="dl-stat">
-							<div class="dl-stat-number">{formatBytes(dlStats.downloaded_bytes)}</div>
-							<div class="dl-stat-label">on disk</div>
+						<div class="counter">
+							<span class="counter-val">{currentJob.progress.attachments_found.toLocaleString()}</span>
+							<span class="counter-lbl">attachments</span>
 						</div>
-						<div class="dl-stat">
-							<div class="dl-stat-number">{dlPercent(dlStats)}%</div>
-							<div class="dl-stat-label">complete</div>
+						<div class="counter">
+							<span class="counter-val">{formatDuration(currentJob.duration_seconds)}</span>
+							<span class="counter-lbl">duration</span>
 						</div>
 					</div>
 
-					<!-- Progress bar -->
-					<div class="dl-progress-bar">
-						<div
-							class="dl-progress-fill"
-							style="width: {dlPercent(dlStats)}%"
-						></div>
-					</div>
+					{#if currentJob.error_message}
+						<div class="inline-error">{currentJob.error_message}</div>
+					{/if}
 
-					<div class="dl-breakdown">
-						{#if dlStats.pending > 0}
-							<span class="dl-tag dl-tag-pending">{dlStats.pending.toLocaleString()} pending</span>
-						{/if}
-						{#if dlStats.failed > 0}
-							<span class="dl-tag dl-tag-failed">{dlStats.failed.toLocaleString()} failed</span>
-						{/if}
-						{#if dlStats.skipped > 0}
-							<span class="dl-tag dl-tag-skipped">{dlStats.skipped.toLocaleString()} skipped</span>
-						{/if}
-						{#if dlStats.attachments_dir}
-							<span class="dl-tag dl-tag-path mono" title={dlStats.attachments_dir}>📁 {dlStats.attachments_dir}</span>
-						{/if}
-					</div>
-				</div>
-
-				{#if dlStats.channels.length > 0}
-					<details class="dl-channels-details">
-						<summary class="mono">Per-channel breakdown ({dlStats.channels.length} channels)</summary>
-						<div class="dl-channels-table-wrap">
-							<table class="history-table dl-channels-table">
-								<thead>
-									<tr>
-										<th>Channel</th>
-										<th>Downloaded</th>
-										<th>Pending</th>
-										<th>Failed</th>
-										<th>Total</th>
-										<th>Size</th>
-										<th>Progress</th>
-									</tr>
-								</thead>
-								<tbody>
-									{#each dlStats.channels as ch}
-										{@const pct = ch.total_images > 0 ? Math.round((ch.downloaded / ch.total_images) * 100) : 0}
-										<tr>
-											<td>#{ch.channel_name}</td>
-											<td class="mono">{ch.downloaded.toLocaleString()}</td>
-											<td class="mono">{ch.pending > 0 ? ch.pending.toLocaleString() : '—'}</td>
-											<td class="mono" style:color={ch.failed > 0 ? 'var(--error)' : undefined}>{ch.failed > 0 ? ch.failed.toLocaleString() : '—'}</td>
-											<td class="mono">{ch.total_images.toLocaleString()}</td>
-											<td class="mono">{formatBytes(ch.downloaded_bytes)}</td>
-											<td>
-												<div class="dl-cell-bar">
-													<div class="dl-cell-fill" style="width: {pct}%"></div>
-													<span class="dl-cell-pct">{pct}%</span>
-												</div>
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
-					</details>
-				{/if}
-			</section>
-		{/if}
-
-		<!-- History -->
-		<section class="history-section fade-in" style="animation-delay: 0.1s">
-			<h2 class="section-title">
-				<span class="section-icon">▤</span>
-				Scrape History
-			</h2>
-			{#if history.length === 0}
-				<div class="empty-history">
-					<p class="mono" style="color: var(--text-muted)">No completed jobs yet.</p>
-				</div>
-			{:else}
-				<div class="history-table-wrap">
-					<table class="history-table">
-						<thead>
-							<tr>
-								<th>Status</th>
-								<th>Job ID</th>
-								<th>Guild</th>
-								<th>Channels</th>
-								<th>Messages</th>
-								<th>Attachments</th>
-								<th>Duration</th>
-								<th>Started</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each history as job}
-								<tr>
-									<td>
-										<span class="table-status" style="color: {statusColor(job.status)}">
-											{statusIcon(job.status)} {job.status}
-										</span>
-									</td>
-									<td class="mono">{job.id}</td>
-									<td class="mono">{job.guild_id}</td>
-									<td>{job.progress.channels_done}</td>
-									<td>{job.progress.messages_scraped.toLocaleString()}</td>
-									<td>{job.progress.attachments_found.toLocaleString()}</td>
-									<td class="mono">{formatDuration(job.duration_seconds)}</td>
-									<td>{formatDate(job.started_at)}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
+					<button class="action-btn primary-action" onclick={handleReset}>
+						Analyze Again
+					</button>
 				</div>
 			{/if}
-		</section>
+		</div>
+
+		<!-- Utilities drawer -->
+		<div class="utilities" class:open={utilitiesOpen}>
+			<button class="utilities-toggle" onclick={() => utilitiesOpen = !utilitiesOpen}>
+				<span class="toggle-arrow" class:open={utilitiesOpen}>&#x25BE;</span>
+				<span>Utilities</span>
+				<span class="toggle-hint mono">
+					{#if dlStats}Downloads{/if}
+					{#if showTransfer}&ensp;Transfer{/if}
+					&ensp;History
+				</span>
+			</button>
+
+			{#if utilitiesOpen}
+				<div class="utilities-content fade-in">
+
+					<!-- Downloads -->
+					<div class="util-section">
+						<h3 class="util-title">Image Downloads</h3>
+						{#if dlStats}
+							{#if dlStats.attachments_dir}
+								<div class="dl-path mono">{dlStats.attachments_dir}</div>
+							{/if}
+							<div class="dl-row">
+								<span class="mono">{dlStats.downloaded.toLocaleString()} / {dlStats.total_images.toLocaleString()}</span>
+								<span class="mono">{formatBytes(dlStats.downloaded_bytes)}</span>
+								<span class="mono">{dlPercent(dlStats)}%</span>
+							</div>
+							<div class="progress-track">
+								<div class="progress-fill" style="width: {dlPercent(dlStats)}%"></div>
+							</div>
+							<div class="dl-tags">
+								{#if dlStats.pending > 0}
+									<span class="dl-tag tag-pending">{dlStats.pending.toLocaleString()} pending</span>
+								{/if}
+								{#if dlStats.failed > 0}
+									<span class="dl-tag tag-failed">{dlStats.failed.toLocaleString()} failed</span>
+								{/if}
+							</div>
+						{/if}
+
+						{#if isDownloading && downloadJob}
+							<div class="dl-progress-live">
+								<div class="dl-row">
+									<span class="mono" style="color: var(--accent)">{downloadJob.status}</span>
+									{#if downloadJob.current_channel}
+										<span class="mono">{downloadJob.current_channel}</span>
+									{/if}
+								</div>
+								<div class="dl-row">
+									<span class="mono">{downloadJob.downloaded} downloaded</span>
+									{#if downloadJob.failed > 0}
+										<span class="mono" style="color: var(--error)">{downloadJob.failed} failed</span>
+									{/if}
+									{#if downloadJob.skipped > 0}
+										<span class="mono">{downloadJob.skipped} skipped</span>
+									{/if}
+								</div>
+								{#if downloadJob.total_images > 0}
+									{@const pct = Math.round(((downloadJob.downloaded + downloadJob.failed + downloadJob.skipped) / downloadJob.total_images) * 100)}
+									<div class="progress-track">
+										<div class="progress-fill" style="width: {pct}%"></div>
+									</div>
+								{:else}
+									<div class="pulse-bar"><div class="pulse-fill"></div></div>
+								{/if}
+								<button class="action-btn" style="margin-top: var(--sp-2)" onclick={handleCancelDownload}>
+									Cancel Download
+								</button>
+							</div>
+						{:else}
+							{#if downloadError}
+								<div class="inline-error">{downloadError}</div>
+							{/if}
+							{#if downloadJob && downloadJob.status === 'completed'}
+								<div class="dl-done mono" style="color: var(--success); font-size: 12px; margin-top: var(--sp-2)">
+									Last download: {downloadJob.downloaded} images
+								</div>
+							{/if}
+							{#if dlStats && dlStats.pending > 0}
+								<button class="action-btn primary-action" style="margin-top: var(--sp-3)" onclick={handleStartDownload}>
+									Download {dlStats.pending.toLocaleString()} Images
+								</button>
+							{/if}
+						{/if}
+					</div>
+
+					<!-- Transfer -->
+					{#if showTransfer}
+						<div class="util-section">
+							<h3 class="util-title">Data Transfer</h3>
+							<div class="transfer-row">
+								<span>SQLite</span>
+								<span class="transfer-arrow">&#x2192;</span>
+								<span>PostgreSQL</span>
+							</div>
+
+							{#if transferStatus && transferStatus.status !== 'idle'}
+								<div class="transfer-progress">
+									<div class="dl-row">
+										<span class="mono" style="color: {statusColor(transferStatus.status)}">
+											{transferStatus.status}
+										</span>
+										<span class="mono">{transferStatus.rows_transferred.toLocaleString()} / {transferStatus.total_rows.toLocaleString()} rows</span>
+										<span class="mono">{transferPercent}%</span>
+									</div>
+									<div class="progress-track">
+										<div class="progress-fill" style="width: {transferPercent}%"></div>
+									</div>
+									{#if transferStatus.error}
+										<div class="inline-error">{transferStatus.error}</div>
+									{/if}
+								</div>
+							{/if}
+
+							{#if transferError}
+								<div class="inline-error">{transferError}</div>
+							{/if}
+
+							<div class="util-actions">
+								{#if transferBusy}
+									<button class="action-btn cancel-action" onclick={handleCancelTransfer}>Cancel</button>
+								{:else}
+									<button class="action-btn secondary-action" onclick={handleStartTransfer}>Transfer Data</button>
+								{/if}
+							</div>
+						</div>
+					{/if}
+
+					<!-- History -->
+					<div class="util-section">
+						<h3 class="util-title">Scrape History</h3>
+						{#if history.length === 0}
+							<p class="mono" style="color: var(--text-muted); font-size: 13px">No completed jobs yet.</p>
+						{:else}
+							<div class="history-table-wrap">
+								<table class="history-table">
+									<thead>
+										<tr>
+											<th>Status</th>
+											<th>Scope</th>
+											<th>Messages</th>
+											<th>Duration</th>
+											<th>When</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each history as job}
+											{@const hasError = job.status === 'failed' || job.progress.errors.length > 0}
+											<tr class:has-detail={hasError}>
+												<td>
+													<span style="color: {statusColor(job.status)}" class="mono">{job.status}</span>
+												</td>
+												<td>
+													{#if job.scope === 'channels' && job.channel_ids}
+														{job.channel_ids.length} ch
+													{:else}
+														full
+													{/if}
+												</td>
+												<td class="mono">{job.progress.messages_scraped.toLocaleString()}</td>
+												<td class="mono">{formatDuration(job.duration_seconds)}</td>
+												<td class="mono">{formatDate(job.started_at)}</td>
+											</tr>
+											{#if hasError}
+												<tr class="detail-row">
+													<td colspan="5">
+														{#if job.error_message}
+															<div class="history-error">{job.error_message}</div>
+														{/if}
+														{#if job.progress.errors.length > 0}
+															<details class="history-warnings">
+																<summary class="mono">{job.progress.errors.length} warning(s)</summary>
+																<ul>
+																	{#each job.progress.errors as err}
+																		<li class="mono">{err}</li>
+																	{/each}
+																</ul>
+															</details>
+														{/if}
+													</td>
+												</tr>
+											{/if}
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/if}
+		</div>
 	{/if}
 </div>
 
 <style>
-	.control-panel {
-		max-width: 1200px;
+	.control {
+		max-width: 680px;
 		margin: 0 auto;
 		padding: var(--sp-8) var(--sp-6);
 	}
 
 	/* Header */
-	.panel-header {
-		margin-bottom: var(--sp-8);
+	.page-header {
+		margin-bottom: var(--sp-6);
 	}
 
-	.panel-title {
-		font-size: 36px;
+	.page-title {
+		font-size: 32px;
 		font-weight: 700;
 		letter-spacing: -0.03em;
 		line-height: 1.1;
 	}
 
-	.dot {
-		color: var(--accent);
-	}
+	.dot { color: var(--accent); }
 
-	.panel-sub {
-		margin-top: var(--sp-2);
-		color: var(--text-secondary);
-		font-size: 15px;
-	}
-
-	/* Alert */
-	.alert {
+	/* Center states */
+	.center-state {
 		display: flex;
-		align-items: flex-start;
+		flex-direction: column;
+		align-items: center;
 		gap: var(--sp-3);
-		padding: var(--sp-4) var(--sp-5);
+		padding: var(--sp-16) 0;
+		color: var(--text-muted);
+	}
+
+	.spinner {
+		width: 20px;
+		height: 20px;
+		border: 2px solid var(--border-strong);
+		border-top-color: var(--accent);
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	.spinner-sm {
+		width: 14px;
+		height: 14px;
+		border-width: 1.5px;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	/* Primary panel */
+	.primary-panel {
+		background: var(--bg-surface);
+		border: 1px solid var(--border);
 		border-radius: var(--radius-lg);
-		margin-bottom: var(--sp-6);
-		font-size: 14px;
-		line-height: 1.5;
+		padding: var(--sp-6);
+		min-height: 200px;
 	}
 
-	.alert-warning {
-		background: rgba(251, 191, 36, 0.08);
-		border: 1px solid rgba(251, 191, 36, 0.2);
-		color: var(--warning);
-	}
-
-	.alert-icon {
-		font-size: 18px;
-		flex-shrink: 0;
-		margin-top: 1px;
-	}
-
-	.alert p {
-		margin-top: var(--sp-1);
-		color: var(--text-secondary);
-	}
-
-	.alert code {
-		font-family: var(--font-mono);
+	.panel-alert {
 		font-size: 13px;
-		padding: 1px 5px;
+		color: var(--warning);
+		padding: var(--sp-3) var(--sp-4);
+		background: rgba(251, 191, 36, 0.06);
+		border: 1px solid rgba(251, 191, 36, 0.12);
+		border-radius: var(--radius-md);
+		margin-bottom: var(--sp-5);
+	}
+
+	.panel-alert code {
+		font-family: var(--font-mono);
+		font-size: 12px;
+		padding: 1px 4px;
 		background: var(--bg-overlay);
 		border-radius: var(--radius-sm);
 	}
 
-	/* Grid */
-	.panel-grid {
-		display: grid;
-		grid-template-columns: 1fr 1.4fr;
-		gap: var(--sp-6);
-		margin-bottom: var(--sp-8);
-	}
-
-	@media (max-width: 768px) {
-		.panel-grid {
-			grid-template-columns: 1fr;
-		}
-	}
-
-	/* Cards */
-	.card {
-		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		overflow: hidden;
-	}
-
-	.card-header {
+	/* ─── Idle phase ─── */
+	.phase-idle {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: var(--sp-4) var(--sp-5);
-		border-bottom: 1px solid var(--border);
+		flex-direction: column;
+		gap: var(--sp-5);
 	}
 
-	.card-title {
-		font-size: 15px;
+	.guild-row {
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-1);
+	}
+
+	.label {
+		font-size: 11px;
 		font-weight: 600;
-		display: flex;
-		align-items: center;
-		gap: var(--sp-2);
-	}
-
-	.card-icon {
-		color: var(--accent);
-		font-size: 14px;
-	}
-
-	.card-body {
-		padding: var(--sp-5);
-	}
-
-	/* Form */
-	.form-group {
-		margin-bottom: var(--sp-4);
-	}
-
-	.form-label {
-		display: block;
-		font-size: 12px;
-		font-weight: 500;
-		color: var(--text-secondary);
+		color: var(--text-muted);
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		margin-bottom: var(--sp-1);
+		letter-spacing: 0.05em;
 	}
 
-	.form-select,
-	.form-input {
+	.guild-select {
 		width: 100%;
 		padding: var(--sp-2) var(--sp-3);
 		font-family: var(--font-mono);
@@ -616,148 +1127,434 @@
 		transition: border-color 0.15s var(--ease-out);
 	}
 
-	.form-select:focus,
-	.form-input:focus {
+	.guild-select:focus {
 		outline: none;
 		border-color: var(--accent-dim);
 	}
 
-	.form-select:disabled,
-	.form-input:disabled {
+	.guild-select:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
 	}
 
-	.form-select option {
+	.guild-select option {
 		background: var(--bg-raised);
 		color: var(--text-primary);
 	}
 
-	.inline-error {
-		font-size: 13px;
-		color: var(--error);
-		padding: var(--sp-2) var(--sp-3);
-		background: rgba(248, 113, 113, 0.08);
-		border-radius: var(--radius-sm);
-		margin-bottom: var(--sp-3);
-	}
-
-	.card-actions {
-		margin-top: var(--sp-4);
+	.health-strip {
 		display: flex;
-		gap: var(--sp-3);
-	}
-
-	/* Buttons */
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--sp-2);
-		padding: var(--sp-2) var(--sp-5);
-		font-size: 14px;
-		font-weight: 600;
+		justify-content: space-between;
+		padding: var(--sp-4);
+		background: var(--bg-raised);
 		border-radius: var(--radius-md);
-		transition: all 0.15s var(--ease-out);
-		cursor: pointer;
 	}
 
-	.btn:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
-	}
-
-	.btn-primary {
-		background: var(--accent);
-		color: var(--bg-base);
-	}
-
-	.btn-primary:hover:not(:disabled) {
-		background: var(--accent-dim);
-	}
-
-	.btn-danger {
-		background: rgba(248, 113, 113, 0.15);
-		color: var(--error);
-		border: 1px solid rgba(248, 113, 113, 0.3);
-	}
-
-	.btn-danger:hover {
-		background: rgba(248, 113, 113, 0.25);
-	}
-
-	/* Status Card */
-	.status-badge {
-		font-family: var(--font-mono);
-		font-size: 12px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		display: flex;
-		align-items: center;
-		gap: var(--sp-1);
-	}
-
-	.status-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: var(--sp-3);
-		margin-bottom: var(--sp-5);
-	}
-
-	.status-item {
+	.health-stat {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		align-items: center;
+		gap: 1px;
+		flex: 1;
 	}
 
-	.status-label {
+	.health-val {
+		font-size: 16px;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.health-lbl {
 		font-size: 11px;
-		font-weight: 500;
 		color: var(--text-muted);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 	}
 
-	.status-value {
-		font-size: 14px;
+	.idle-hint {
+		font-size: 12px;
+		color: var(--text-muted);
+		text-align: center;
+	}
+
+	/* ─── Analyzing ─── */
+	.phase-center {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--sp-3);
+		padding: var(--sp-12) 0;
+	}
+
+	/* ─── Analyzed phase ─── */
+	.phase-analyzed {
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-4);
+	}
+
+	.analyze-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.analyze-guild-name {
+		font-weight: 600;
+		font-size: 15px;
+	}
+
+	/* Freshness bar — the signature element */
+	.freshness-bar {
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-2);
+	}
+
+	.freshness-track {
+		display: flex;
+		height: 6px;
+		border-radius: 3px;
+		overflow: hidden;
+		background: var(--bg-raised);
+	}
+
+	.freshness-seg {
+		height: 100%;
+		transition: width 0.4s var(--ease-out);
+	}
+
+	.seg-uptodate { background: #4ade80; }
+	.seg-updated { background: var(--warning); }
+	.seg-new { background: #60a5fa; }
+	.seg-never { background: var(--error); opacity: 0.7; }
+
+	.freshness-breakdown {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.breakdown-group {
+		font-size: 13px;
+	}
+
+	.breakdown-header {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		cursor: pointer;
+		padding: var(--sp-1) 0;
+		color: var(--text-secondary);
+		list-style: none;
+	}
+
+	.breakdown-header::-webkit-details-marker {
+		display: none;
+	}
+
+	.breakdown-header::before {
+		content: '▸';
+		font-size: 10px;
+		color: var(--text-muted);
+		transition: transform 0.15s var(--ease-out);
+		display: inline-block;
+	}
+
+	details[open] > .breakdown-header::before {
+		transform: rotate(90deg);
+	}
+
+	.breakdown-label {
+		font-size: 12px;
+	}
+
+	.breakdown-list {
+		list-style: none;
+		padding: 0 0 var(--sp-1) var(--sp-5);
+		margin: 0;
+		max-height: 140px;
+		overflow-y: auto;
+	}
+
+	.breakdown-ch {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-1);
+		font-size: 12px;
+		color: var(--text-secondary);
+		padding: 1px 0;
+	}
+
+	.breakdown-meta {
+		margin-left: auto;
+		font-size: 11px;
+		color: var(--text-muted);
+	}
+
+	.legend-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.dot-uptodate { background: #4ade80; }
+	.dot-updated { background: var(--warning); }
+	.dot-new { background: #60a5fa; }
+	.dot-never { background: var(--error); opacity: 0.7; }
+
+	/* Channel picker */
+	.channels-loading {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--sp-2);
+		padding: var(--sp-6);
+		color: var(--text-muted);
+		font-size: 13px;
+	}
+
+	.channel-picker {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.picker-toolbar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: var(--sp-2) var(--sp-3);
+		background: var(--bg-raised);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md) var(--radius-md) 0 0;
+		border-bottom: none;
+	}
+
+	.picker-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-2);
+	}
+
+	.text-btn {
+		background: none;
+		border: none;
+		color: var(--accent-text);
+		cursor: pointer;
+		font-size: 12px;
+		padding: 0;
+		transition: color 0.15s var(--ease-out);
+	}
+
+	.text-btn:hover { color: var(--accent); }
+
+	.sep {
+		color: var(--text-faint);
+		font-size: 12px;
+	}
+
+	.filter-input {
+		padding: 2px var(--sp-2);
+		font-family: var(--font-mono);
+		font-size: 12px;
+		background: var(--bg-overlay);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		color: var(--text-primary);
+		width: 100px;
+	}
+
+	.filter-input:focus {
+		outline: none;
+		border-color: var(--accent-dim);
+	}
+
+	.channel-list {
+		max-height: 320px;
+		overflow-y: auto;
+		background: var(--bg-raised);
+		border: 1px solid var(--border);
+		border-radius: 0 0 var(--radius-md) var(--radius-md);
+	}
+
+	.cat-group {
+		border-bottom: 1px solid var(--border);
+	}
+
+	.cat-group:last-child {
+		border-bottom: none;
+	}
+
+	.cat-header {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-1);
+		width: 100%;
+		padding: var(--sp-2) var(--sp-3);
+		background: none;
+		border: none;
+		cursor: pointer;
+		font-size: 11px;
+		font-weight: 600;
+		color: var(--text-muted);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		transition: color 0.15s var(--ease-out);
+	}
+
+	.cat-header:hover { color: var(--text-secondary); }
+
+	.cat-arrow {
+		font-size: 10px;
+		transition: transform 0.15s var(--ease-out);
+		display: inline-block;
+	}
+
+	.cat-arrow.collapsed {
+		transform: rotate(-90deg);
+	}
+
+	.ch-row {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-2);
+		padding: var(--sp-1) var(--sp-3);
+		padding-left: var(--sp-5);
+		cursor: pointer;
+		transition: background 0.1s var(--ease-out);
+		font-size: 13px;
+	}
+
+	.ch-row:hover { background: var(--bg-hover); }
+
+	.ch-row.selected {
+		background: rgba(232, 168, 56, 0.04);
+	}
+
+	.ch-row input[type="checkbox"] {
+		accent-color: var(--accent);
+		width: 13px;
+		height: 13px;
+		flex-shrink: 0;
+	}
+
+	.ch-icon {
+		flex-shrink: 0;
+		width: 14px;
+		text-align: center;
+		font-size: 13px;
+		color: var(--text-muted);
+	}
+
+	.ch-name {
+		flex: 1;
 		color: var(--text-primary);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
-	/* Progress Stats */
-	.progress-stats {
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: var(--sp-4);
-		padding: var(--sp-4);
-		background: var(--bg-raised);
-		border-radius: var(--radius-md);
-		margin-bottom: var(--sp-4);
+	.ch-status {
+		font-size: 10px;
+		font-weight: 600;
+		padding: 1px 5px;
+		border-radius: 3px;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+		flex-shrink: 0;
 	}
 
-	.progress-stat {
+	.ch-status-new {
+		background: rgba(96, 165, 250, 0.12);
+		color: #60a5fa;
+	}
+
+	.ch-status-has_new_messages {
+		background: rgba(251, 191, 36, 0.12);
+		color: var(--warning);
+	}
+
+	.ch-status-never_scraped {
+		background: rgba(248, 113, 113, 0.1);
+		color: var(--error);
+	}
+
+	.ch-count {
+		color: var(--text-muted);
+		font-size: 11px;
+		flex-shrink: 0;
+	}
+
+	.picker-footer {
+		padding: var(--sp-2) 0;
+		font-size: 12px;
+		color: var(--text-secondary);
 		text-align: center;
 	}
 
-	.progress-number {
+	/* ─── Scraping phase ─── */
+	.phase-scraping {
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-4);
+	}
+
+	.scrape-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.scrape-status-badge {
 		font-family: var(--font-mono);
-		font-size: 22px;
+		font-size: 13px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
+	.scrape-counters {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: var(--sp-3);
+		padding: var(--sp-4);
+		background: var(--bg-raised);
+		border-radius: var(--radius-md);
+	}
+
+	.counter {
+		text-align: center;
+	}
+
+	.counter-val {
+		display: block;
+		font-family: var(--font-mono);
+		font-size: 20px;
 		font-weight: 700;
 		color: var(--accent-text);
 		line-height: 1.2;
 	}
 
-	.progress-label {
-		font-size: 11px;
+	.counter-total {
+		font-size: 14px;
+		font-weight: 400;
+		color: var(--text-muted);
+	}
+
+	.counter-lbl {
+		font-size: 10px;
 		color: var(--text-muted);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
-		margin-top: 2px;
 	}
 
-	/* Pulse Bar */
+	.current-channel {
+		font-size: 13px;
+		color: var(--text-secondary);
+		text-align: center;
+	}
+
 	.pulse-bar {
 		height: 3px;
 		background: var(--bg-raised);
@@ -778,128 +1575,303 @@
 		100% { transform: translateX(350%); }
 	}
 
-	/* Error Details */
-	.error-details {
-		margin-top: var(--sp-3);
-		font-size: 13px;
-	}
-
-	.error-details summary {
-		cursor: pointer;
-		color: var(--warning);
-		padding: var(--sp-2);
-	}
-
-	.error-list {
-		list-style: none;
-		padding: var(--sp-2) var(--sp-3);
-		max-height: 200px;
-		overflow-y: auto;
-	}
-
-	.error-list li {
-		padding: var(--sp-1) 0;
-		color: var(--text-secondary);
-		border-bottom: 1px solid var(--border);
+	.scrape-warnings {
 		font-size: 12px;
 	}
 
-	/* Empty State */
-	.empty-status {
-		text-align: center;
-		padding: var(--sp-8) var(--sp-4);
-		color: var(--text-muted);
+	.scrape-warnings summary {
+		cursor: pointer;
+		color: var(--warning);
+		padding: var(--sp-1) 0;
 	}
 
-	.empty-icon {
-		font-size: 36px;
-		display: block;
-		margin-bottom: var(--sp-3);
-		opacity: 0.4;
+	.scrape-warnings ul {
+		list-style: none;
+		padding: var(--sp-2) var(--sp-3);
+		max-height: 150px;
+		overflow-y: auto;
 	}
 
-	/* Loading */
-	.loading-state {
+	.scrape-warnings li {
+		padding: var(--sp-1) 0;
+		color: var(--text-secondary);
+		border-bottom: 1px solid var(--border);
+		font-size: 11px;
+	}
+
+	/* ─── Done phase ─── */
+	.phase-done {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-16) 0;
-		color: var(--text-muted);
+		gap: var(--sp-5);
+		padding: var(--sp-4) 0;
 	}
 
-	.spinner {
-		width: 24px;
-		height: 24px;
-		border: 2px solid var(--border-strong);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
+	.done-status {
+		font-size: 18px;
+		font-weight: 700;
+		letter-spacing: -0.02em;
 	}
 
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-
-	.error-state {
-		text-align: center;
-		padding: var(--sp-16) 0;
-		color: var(--error);
-	}
-
-	/* History Section */
-	.history-section {
-		margin-top: var(--sp-2);
-	}
-
-	.section-title {
-		font-size: 16px;
+	/* ─── Buttons ─── */
+	.action-btn {
+		padding: var(--sp-2) var(--sp-5);
+		font-size: 14px;
 		font-weight: 600;
+		border-radius: var(--radius-md);
+		transition: all 0.15s var(--ease-out);
+		cursor: pointer;
+		border: none;
+	}
+
+	.action-btn:disabled {
+		opacity: 0.35;
+		cursor: not-allowed;
+	}
+
+	.primary-action {
+		width: 100%;
+		background: var(--accent);
+		color: var(--bg-base);
+	}
+
+	.primary-action:hover:not(:disabled) {
+		background: var(--accent-dim);
+	}
+
+	.secondary-action {
+		background: var(--bg-raised);
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+	}
+
+	.secondary-action:hover:not(:disabled) {
+		color: var(--text-primary);
+		border-color: var(--border-strong);
+	}
+
+	.cancel-action {
+		width: 100%;
+		background: rgba(248, 113, 113, 0.12);
+		color: var(--error);
+		border: 1px solid rgba(248, 113, 113, 0.2);
+	}
+
+	.cancel-action:hover {
+		background: rgba(248, 113, 113, 0.2);
+	}
+
+	.action-row {
+		display: flex;
+		gap: var(--sp-3);
+	}
+
+	.action-row .primary-action {
+		flex: 1;
+	}
+
+	.inline-error {
+		font-size: 13px;
+		color: var(--error);
+		padding: var(--sp-2) var(--sp-3);
+		background: rgba(248, 113, 113, 0.06);
+		border-radius: var(--radius-sm);
+	}
+
+	/* ─── Utilities drawer ─── */
+	.utilities {
+		margin-top: var(--sp-6);
+	}
+
+	.utilities-toggle {
 		display: flex;
 		align-items: center;
 		gap: var(--sp-2);
-		margin-bottom: var(--sp-4);
+		width: 100%;
+		padding: var(--sp-3) 0;
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--text-secondary);
+		cursor: pointer;
+		transition: color 0.15s var(--ease-out);
+		background: none;
+		border: none;
+		border-top: 1px solid var(--border);
 	}
 
-	.section-icon {
+	.utilities-toggle:hover {
+		color: var(--text-primary);
+	}
+
+	.toggle-arrow {
+		font-size: 11px;
+		transition: transform 0.15s var(--ease-out);
+		display: inline-block;
+	}
+
+	.toggle-arrow.open {
+		transform: rotate(0deg);
+	}
+
+	.toggle-arrow:not(.open) {
+		transform: rotate(-90deg);
+	}
+
+	.toggle-hint {
+		margin-left: auto;
+		font-size: 11px;
+		color: var(--text-muted);
+		font-weight: 400;
+	}
+
+	.utilities-content {
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-5);
+		padding: var(--sp-4) 0;
+	}
+
+	.util-section {
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-3);
+		padding: var(--sp-4);
+		background: var(--bg-surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+	}
+
+	.util-title {
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--text-secondary);
+	}
+
+	.util-actions {
+		display: flex;
+		justify-content: flex-end;
+	}
+
+	/* Downloads */
+	.dl-path {
+		font-size: 11px;
+		color: var(--text-muted);
+		padding: var(--sp-1) var(--sp-2);
+		background: var(--bg-raised);
+		border-radius: var(--radius-sm);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.dl-row {
+		display: flex;
+		justify-content: space-between;
+		font-size: 12px;
+		color: var(--text-secondary);
+	}
+
+	.progress-track {
+		height: 4px;
+		background: var(--bg-raised);
+		border-radius: 2px;
+		overflow: hidden;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: var(--accent);
+		border-radius: 2px;
+		transition: width 0.4s var(--ease-out);
+		min-width: 2px;
+	}
+
+	.dl-progress-live {
+		margin-top: var(--sp-3);
+		padding: var(--sp-3);
+		background: rgba(var(--accent-rgb, 99, 102, 241), 0.06);
+		border-radius: var(--radius-sm);
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-2);
+	}
+
+	.dl-tags {
+		display: flex;
+		gap: var(--sp-2);
+	}
+
+	.dl-tag {
+		font-size: 11px;
+		padding: 1px 6px;
+		border-radius: var(--radius-sm);
+		font-weight: 500;
+	}
+
+	.tag-pending {
+		background: rgba(251, 191, 36, 0.1);
+		color: var(--warning);
+	}
+
+	.tag-failed {
+		background: rgba(248, 113, 113, 0.1);
+		color: var(--error);
+	}
+
+	/* Transfer */
+	.transfer-row {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--sp-3);
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--text-secondary);
+	}
+
+	.transfer-arrow {
 		color: var(--accent);
+		font-weight: 700;
 	}
 
-	.empty-history {
-		padding: var(--sp-6);
-		text-align: center;
+	.transfer-progress {
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-2);
 	}
 
+	/* History */
 	.history-table-wrap {
 		overflow-x: auto;
 		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		background: var(--bg-surface);
+		border-radius: var(--radius-md);
+		background: var(--bg-raised);
 	}
 
 	.history-table {
 		width: 100%;
 		border-collapse: collapse;
-		font-size: 13px;
+		font-size: 12px;
 	}
 
 	.history-table th {
 		text-align: left;
-		padding: var(--sp-3) var(--sp-4);
-		font-size: 11px;
+		padding: var(--sp-2) var(--sp-3);
+		font-size: 10px;
 		font-weight: 600;
 		color: var(--text-muted);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		border-bottom: 1px solid var(--border);
-		background: var(--bg-raised);
 		white-space: nowrap;
 	}
 
 	.history-table td {
-		padding: var(--sp-3) var(--sp-4);
+		padding: var(--sp-2) var(--sp-3);
 		border-bottom: 1px solid var(--border);
 		white-space: nowrap;
+		color: var(--text-secondary);
 	}
 
 	.history-table tr:last-child td {
@@ -910,168 +1882,45 @@
 		background: var(--bg-hover);
 	}
 
-	.table-status {
-		font-family: var(--font-mono);
-		font-size: 12px;
-		font-weight: 600;
-		display: flex;
-		align-items: center;
-		gap: 4px;
+	.detail-row td {
+		padding: 0 var(--sp-3) var(--sp-2) !important;
+		border-bottom: 1px solid var(--border);
 	}
 
-	/* Downloads Section */
-	.downloads-section {
-		margin-bottom: var(--sp-8);
+	.detail-row:hover td {
+		background: transparent !important;
 	}
 
-	.dl-overview {
-		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		padding: var(--sp-5);
-		margin-bottom: var(--sp-4);
-	}
-
-	.dl-summary-grid {
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		gap: var(--sp-4);
-		padding: var(--sp-4);
-		background: var(--bg-raised);
-		border-radius: var(--radius-md);
-		margin-bottom: var(--sp-4);
-	}
-
-	@media (max-width: 600px) {
-		.dl-summary-grid {
-			grid-template-columns: repeat(2, 1fr);
-		}
-	}
-
-	.dl-stat {
-		text-align: center;
-	}
-
-	.dl-stat-number {
-		font-family: var(--font-mono);
-		font-size: 22px;
-		font-weight: 700;
-		color: var(--accent-text);
-		line-height: 1.2;
-	}
-
-	.dl-stat-label {
+	.history-error {
 		font-size: 11px;
-		color: var(--text-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		margin-top: 2px;
-	}
-
-	.dl-progress-bar {
-		height: 6px;
-		background: var(--bg-raised);
-		border-radius: 3px;
-		overflow: hidden;
-		margin-bottom: var(--sp-3);
-	}
-
-	.dl-progress-fill {
-		height: 100%;
-		background: var(--accent);
-		border-radius: 3px;
-		transition: width 0.4s var(--ease-out);
-		min-width: 2px;
-	}
-
-	.dl-breakdown {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--sp-2);
-	}
-
-	.dl-tag {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		padding: 2px 10px;
-		font-size: 12px;
-		border-radius: var(--radius-sm);
-		font-weight: 500;
-	}
-
-	.dl-tag-pending {
-		background: rgba(251, 191, 36, 0.1);
-		color: var(--warning);
-	}
-
-	.dl-tag-failed {
-		background: rgba(248, 113, 113, 0.1);
+		font-family: var(--font-mono);
 		color: var(--error);
+		padding: var(--sp-1) var(--sp-2);
+		background: rgba(248, 113, 113, 0.06);
+		border-radius: var(--radius-sm);
+		margin-bottom: var(--sp-1);
 	}
 
-	.dl-tag-skipped {
-		background: rgba(148, 163, 184, 0.1);
-		color: var(--text-secondary);
-	}
-
-	.dl-tag-path {
-		background: var(--bg-raised);
-		color: var(--text-secondary);
-		max-width: 400px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+	.history-warnings {
 		font-size: 11px;
 	}
 
-	.dl-channels-details {
-		margin-top: var(--sp-2);
-		font-size: 13px;
-	}
-
-	.dl-channels-details summary {
+	.history-warnings summary {
 		cursor: pointer;
-		color: var(--text-secondary);
-		padding: var(--sp-2) 0;
-		font-size: 13px;
-		user-select: none;
-	}
-
-	.dl-channels-details summary:hover {
-		color: var(--text-primary);
-	}
-
-	.dl-channels-table-wrap {
-		margin-top: var(--sp-3);
-		overflow-x: auto;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		background: var(--bg-surface);
-		max-height: 400px;
-		overflow-y: auto;
-	}
-
-	.dl-cell-bar {
-		display: flex;
-		align-items: center;
-		gap: var(--sp-2);
-		min-width: 80px;
-	}
-
-	.dl-cell-bar .dl-cell-fill {
-		height: 4px;
-		background: var(--accent);
-		border-radius: 2px;
-		flex: 1;
-		max-width: 60px;
-	}
-
-	.dl-cell-pct {
-		font-family: var(--font-mono);
+		color: var(--warning);
 		font-size: 11px;
-		color: var(--text-muted);
-		min-width: 32px;
-		text-align: right;
+		padding: var(--sp-1) 0;
+	}
+
+	.history-warnings ul {
+		list-style: none;
+		padding: var(--sp-1) var(--sp-3);
+		margin: 0;
+	}
+
+	.history-warnings li {
+		padding: 1px 0;
+		color: var(--text-secondary);
+		font-size: 10px;
 	}
 </style>
