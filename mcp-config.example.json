@@ -1,0 +1,45 @@
+{
+  "_comment": "MCP client configuration examples for wumpus-archiver",
+
+  "claude_desktop": {
+    "_usage": "Add to ~/Library/Application Support/Claude/claude_desktop_config.json (macOS) or %APPDATA%/Claude/claude_desktop_config.json (Windows)",
+    "mcpServers": {
+      "wumpus-archiver": {
+        "command": "wumpus-archiver",
+        "args": ["mcp", "./archive.db", "-a", "./attachments"]
+      }
+    }
+  },
+
+  "claude_desktop_docker": {
+    "_usage": "Run via Docker container in stdio mode",
+    "mcpServers": {
+      "wumpus-archiver": {
+        "command": "docker",
+        "args": [
+          "run", "--rm", "-i",
+          "-v", "./data:/data",
+          "ghcr.io/junglem0nkey/wumpus-archiver:latest",
+          "mcp", "/data/archive.db", "-a", "/data/attachments"
+        ]
+      }
+    }
+  },
+
+  "http_transport": {
+    "_usage": "Start with: wumpus-archiver mcp ./archive.db --http --port 9100",
+    "mcpServers": {
+      "wumpus-archiver": {
+        "url": "http://localhost:9100/mcp"
+      }
+    }
+  },
+
+  "airis_gateway": {
+    "_usage": "Register with airis MCP gateway (HTTP transport)",
+    "name": "wumpus-archiver",
+    "transport": "streamable-http",
+    "url": "http://localhost:9100/mcp",
+    "description": "Discord server archive — search, browse, and manage archived Discord data"
+  }
+}
