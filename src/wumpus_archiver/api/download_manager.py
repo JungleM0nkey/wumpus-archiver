@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from wumpus_archiver.storage.database import Database
+from wumpus_archiver.storage.database import Database, DatabaseRegistry
 from wumpus_archiver.utils.downloader import ImageDownloader
 
 logger = logging.getLogger(__name__)
@@ -30,11 +30,16 @@ class DownloadJob:
 class DownloadManager:
     """Manages background image download jobs."""
 
-    def __init__(self, database: Database, attachments_path: Path | None) -> None:
-        self._database = database
+    def __init__(self, registry: DatabaseRegistry, attachments_path: Path | None) -> None:
+        self._registry = registry
         self._attachments_path = attachments_path
         self._job: DownloadJob | None = None
         self._task: asyncio.Task[None] | None = None
+
+    @property
+    def _database(self) -> Database:
+        """Get the currently active database from the registry."""
+        return self._registry.get_active()
 
     @property
     def current_job(self) -> DownloadJob | None:

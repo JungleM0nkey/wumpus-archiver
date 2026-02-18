@@ -73,7 +73,7 @@ def create_app(
     # Scrape control panel: manager + token
     app.state.scrape_manager = ScrapeJobManager(registry)
     app.state.transfer_manager = TransferManager(registry)
-    app.state.download_manager = DownloadManager(registry.get_active(), attachments_path)
+    app.state.download_manager = DownloadManager(registry, attachments_path)
     # Try loading token from env/.env if not explicitly provided
     resolved_token = discord_token
     if not resolved_token:

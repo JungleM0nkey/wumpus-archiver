@@ -86,7 +86,7 @@ class ScrapeJobManager:
         try:
             import discord.http
 
-            http = discord.http.HTTPClient(loop=asyncio.get_running_loop())
+            http = discord.http.HTTPClient()
             try:
                 await http.static_login(token)
                 channels = await http.get_all_guild_channels(guild_id)

@@ -90,7 +90,7 @@ class DatabaseRegistry:
         self.sources: dict[str, Database] = {}
         self.source_urls: dict[str, str] = {}
         self._active: str = "sqlite"
-        self._lock: asyncio.Lock = asyncio.Lock()
+        self._lock: asyncio.Lock | None = None
 
     def register(self, name: str, database: Database, url: str) -> None:
         """Register a named database source."""
@@ -118,6 +118,8 @@ class DatabaseRegistry:
 
     async def set_active_safe(self, name: str) -> None:
         """Switch the active data source (async, lock-protected for runtime use)."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
         async with self._lock:
             if name not in self.sources:
                 raise KeyError(f"Unknown data source: '{name}'. Available: {list(self.sources.keys())}")
