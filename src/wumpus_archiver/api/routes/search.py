@@ -1,7 +1,6 @@
 """Search API route handlers."""
 
 from fastapi import APIRouter, Query, Request
-
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 

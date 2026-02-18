@@ -1,7 +1,6 @@
 """Message API route handlers."""
 
 from fastapi import APIRouter, Path, Query, Request
-
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 

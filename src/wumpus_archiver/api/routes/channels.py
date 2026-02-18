@@ -1,7 +1,6 @@
 """Channel API route handlers."""
 
 from fastapi import APIRouter, Path, Request
-
 from sqlalchemy import select
 
 from wumpus_archiver.api.routes._helpers import get_db

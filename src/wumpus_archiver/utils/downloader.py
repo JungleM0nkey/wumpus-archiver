@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 
 import aiohttp
-from sqlalchemy import or_, select, func
+from sqlalchemy import func, or_, select
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
@@ -379,7 +379,7 @@ class ImageDownloader:
                                 attempt + 1,
                             )
 
-                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    except (TimeoutError, aiohttp.ClientError) as e:
                         logger.warning(
                             "Download error for %s (attempt %d): %s",
                             attachment.filename,

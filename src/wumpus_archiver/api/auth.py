@@ -10,9 +10,12 @@ logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
 
 
+_security_dependency = Security(security)
+
+
 async def require_auth(
     request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Security(security),
+    credentials: HTTPAuthorizationCredentials | None = _security_dependency,
 ) -> None:
     """Require valid Bearer token for state-modifying endpoints.
 

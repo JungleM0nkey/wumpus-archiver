@@ -4,7 +4,6 @@ import asyncio
 import logging
 import os
 import signal
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -93,7 +92,7 @@ async def _terminate_process(proc: ManagedProcess) -> None:
         proc.process.terminate()
         try:
             await asyncio.wait_for(proc.process.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Force-killing %s", proc.label)
             proc.process.kill()
             await proc.process.wait()

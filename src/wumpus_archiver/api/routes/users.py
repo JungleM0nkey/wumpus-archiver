@@ -3,7 +3,6 @@
 import datetime as dt
 
 from fastapi import APIRouter, Path, Query, Request
-
 from sqlalchemy import func, select
 
 from wumpus_archiver.api.routes._helpers import get_db, raise_not_found

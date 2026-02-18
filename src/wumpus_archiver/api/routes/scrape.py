@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
+from wumpus_archiver.api.auth import require_auth
 from wumpus_archiver.api.schemas import (
     AnalyzeChannelSchema,
     AnalyzeResponse,
@@ -17,7 +18,6 @@ from wumpus_archiver.api.schemas import (
     ScrapeStartRequest,
     ScrapeStatusResponse,
 )
-from wumpus_archiver.api.auth import require_auth
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.guild import Guild as GuildModel
 

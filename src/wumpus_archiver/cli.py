@@ -2,10 +2,9 @@
 
 import asyncio
 import sys
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import cast
-
-from importlib.metadata import version as pkg_version
 
 import click
 

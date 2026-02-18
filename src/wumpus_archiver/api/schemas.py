@@ -228,7 +228,7 @@ class ScrapeStartRequest(BaseModel):
         try:
             int(v)
         except ValueError:
-            raise ValueError(f"guild_id must be a numeric string, got '{v}'")
+            raise ValueError(f"guild_id must be a numeric string, got '{v}'") from None
         return v
 
     @field_validator("channel_ids")
@@ -241,7 +241,7 @@ class ScrapeStartRequest(BaseModel):
             try:
                 int(cid)
             except ValueError:
-                raise ValueError(f"channel_ids must be numeric strings, got '{cid}'")
+                raise ValueError(f"channel_ids must be numeric strings, got '{cid}'") from None
         return v
 
 

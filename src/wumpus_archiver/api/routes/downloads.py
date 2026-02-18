@@ -2,13 +2,16 @@
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-
 from sqlalchemy import func, select
 
 from wumpus_archiver.api.auth import require_auth
 from wumpus_archiver.api.download_manager import DownloadManager
 from wumpus_archiver.api.routes._helpers import get_attachments_path, get_db, image_filter
-from wumpus_archiver.api.schemas import DownloadChannelStats, DownloadJobStatus, DownloadStatsResponse
+from wumpus_archiver.api.schemas import (
+    DownloadChannelStats,
+    DownloadJobStatus,
+    DownloadStatsResponse,
+)
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.message import Message
