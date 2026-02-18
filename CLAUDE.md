@@ -99,16 +99,19 @@ wumpus-archiver/
 - Pydantic settings for configuration with `.env` support
 - Click for CLI interface
 - Domain-split route modules (11 files under `api/routes/`)
-- `DatabaseRegistry` for multi-source database management (SQLite + PostgreSQL), with `asyncio.Lock` for thread-safe runtime switching
+- `DatabaseRegistry` for multi-source database management (SQLite + PostgreSQL), with lazy-initialized `asyncio.Lock` for thread-safe runtime switching
 - `TransferManager` for background SQLite→PostgreSQL data migration with idempotency logging
-- `DownloadManager` for background image download jobs via API
-- Bearer token authentication (`API_SECRET`) on all state-modifying endpoints (POST/PUT)
+- `DownloadManager` for background image download jobs — holds `DatabaseRegistry` reference (not a snapshot) so datasource switches are reflected
+- Bearer token authentication (`API_SECRET`) on all state-modifying endpoints (POST/PUT), using `hmac.compare_digest()` for timing-safe comparison
+- Frontend API client (`api.ts`) injects `Authorization: Bearer` header automatically when a token is stored in `localStorage`
+- SPA fallback with path traversal protection (resolved paths must stay within `portal/build/`)
 - Incremental scraping via `last_message_id` cursor
 - SPA served by FastAPI in production (adapter-static builds to `portal/build/`)
 - Vite dev server with API proxy in development
 - Concurrent process manager for unified `dev` command
-- Docker multi-stage build with PostgreSQL via docker-compose (non-root container user)
+- Docker multi-stage build with PostgreSQL via docker-compose; entrypoint script fixes bind-mount ownership then drops to non-root `archiver` user via `gosu`
 - MCP server shares `ScrapeJobManager` and download task references via `AppContext` lifespan
+- Dialect-aware SQL: `func.strftime` (SQLite) vs `func.to_char` (PostgreSQL) for date grouping queries
 
 ## Implementation Status
 
@@ -239,7 +242,7 @@ The app supports dual databases via `DatabaseRegistry`:
 - **SQLite** (default) — single-file, zero-config, used for local development
 - **PostgreSQL** (optional) — set `POSTGRES_URL` env var to enable
 
-`DatabaseRegistry` manages named database sources and allows runtime switching between them (protected by `asyncio.Lock` for concurrent request safety). The active source is used for all API queries. A `TransferManager` handles background data migration from SQLite to PostgreSQL with per-table batch transfers, automatic sequence resets, and idempotency logging (inserted vs updated row counts).
+`DatabaseRegistry` manages named database sources and allows runtime switching between them (protected by a lazy-initialized `asyncio.Lock` for concurrent request safety — created on first use to avoid Python 3.12+ event loop issues). The active source is used for all API queries via `get_db(request)` in route handlers — never accessed through a stale `app.state.database` reference. `DownloadManager` holds a `DatabaseRegistry` reference and resolves the active database on each operation, so datasource switches are reflected immediately. A `TransferManager` handles background data migration from SQLite to PostgreSQL with per-table batch transfers, automatic sequence resets, and idempotency logging (inserted vs updated row counts).
 
 ### MCP Server Architecture
 
@@ -257,9 +260,16 @@ State-modifying API endpoints (POST/PUT) are protected by Bearer token authentic
 - **If `API_SECRET` is not set**: All requests are allowed (development mode)
 - **If `API_SECRET` is set**: All POST/PUT endpoints require `Authorization: Bearer <API_SECRET>` header
 - **Protected endpoints**: `/api/scrape/*`, `/api/transfer/*`, `/api/datasource` (PUT), `/api/downloads/*` (POST)
-- **Auth check endpoint**: `GET /api/auth/check` — returns 200 if token is valid, 401 otherwise
+- **Auth check endpoint**: `GET /api/auth/check` — returns `{authenticated, auth_required}` status
+- **Timing-safe**: Secret comparison uses `hmac.compare_digest()` in both `auth.py` and the auth check endpoint
 
-The frontend reads the token from environment and includes it in requests to protected endpoints.
+### Frontend Auth Flow
+
+1. On app load, `+layout.svelte` restores any stored token from `localStorage('wumpus_api_token')`
+2. Calls `GET /api/auth/check` to determine if auth is required
+3. If auth is required and no token stored, prompts the user for the API secret
+4. Token is stored in `localStorage` and injected into all `fetchJSON()` requests via `Authorization: Bearer` header
+5. The `setApiToken()` / `getApiToken()` functions in `api.ts` manage the token lifecycle
 
 ```bash
 # Test auth is working
@@ -287,9 +297,11 @@ See `.env.example` for all options. Key variables:
 
 ## Security Notes
 
-- Docker container runs as non-root `archiver` user (UID 1000)
-- API request body size limited to 1 MB (`limit_max_request_size`)
+- Docker container runs as non-root `archiver` user (UID 1000); entrypoint script (`docker-entrypoint.sh`) runs as root only to fix bind-mount ownership, then drops privileges via `gosu`
+- API authentication via `API_SECRET` Bearer token with `hmac.compare_digest()` (timing-safe) — see Authentication section
+- SPA fallback (`app.py`) includes path traversal protection: resolved file paths must stay within `portal/build/`
 - CORS restricted to `GET`, `POST`, `PUT`, `OPTIONS` methods and `Content-Type`, `Authorization` headers
+- HTTP request size limited via `h11_max_incomplete_event_size=1_048_576` (1 MB) in uvicorn config
 - All path parameters validated with `Path(gt=0)` to reject invalid IDs
 - Pydantic `@field_validator` on `ScrapeStartRequest` validates snowflake ID format
 

@@ -17,9 +17,9 @@ Three-layer async system: **Discord Bot** (scraper) → **Storage** (SQLAlchemy 
 
 - **Models** (`src/wumpus_archiver/models/`): SQLAlchemy 2.0 declarative with `Mapped[]`/`mapped_column()`. Discord snowflake IDs as `BigInteger` PKs. String-based relationship targets with `cascade="all, delete-orphan"`.
 - **Repositories** (`src/wumpus_archiver/storage/repositories.py`): One class per entity. Takes `AsyncSession` in `__init__`. Core pattern is `upsert()` (check existence via `get_by_id()`, update or add). Uses `select()` statement API.
-- **Database** (`src/wumpus_archiver/storage/database.py`): `connect()`/`disconnect()`/`create_tables()` lifecycle. `session()` is `@asynccontextmanager` with auto-commit/rollback.
+- **Database** (`src/wumpus_archiver/storage/database.py`): `connect()`/`disconnect()`/`create_tables()` lifecycle. `session()` is `@asynccontextmanager` with auto-commit/rollback. `DatabaseRegistry` manages SQLite + PostgreSQL with lazy-initialized `asyncio.Lock` for safe runtime switching. All routes access DB via `get_db(request)` from `_helpers.py`.
 - **Bot** (`src/wumpus_archiver/bot/scraper.py`): `ArchiverBot` wraps `commands.Bot` (composition, not inheritance). `scrape_guild()` is the main entry point.
-- **API** (`src/wumpus_archiver/api/`): FastAPI app factory in `app.py`. 17 endpoints across 9 domain-split route modules in `routes/`. Pydantic response schemas in `schemas.py`. Background scrape manager in `scrape_manager.py`.
+- **API** (`src/wumpus_archiver/api/`): FastAPI app factory in `app.py`. 22+ endpoints across 11 domain-split route modules in `routes/`. Auth middleware in `auth.py` (Bearer token via `API_SECRET`). Pydantic response schemas in `schemas.py`. Background managers: `scrape_manager.py`, `download_manager.py`, `transfer_manager.py`.
 - **Portal** (`portal/`): SvelteKit 2 with adapter-static. Typed API client in `lib/api.ts`. 10 pages, 7 reusable components. Vite dev server proxies `/api` to FastAPI in development.
 - **Config** (`src/wumpus_archiver/config.py`): pydantic-settings `BaseSettings` with `.env` support, `@lru_cache` singleton via `get_settings()`. `GUILD_ID` defaults target server for CLI commands.
 - **CLI** (`src/wumpus_archiver/cli.py`): click-based, 6 subcommands: `scrape`, `serve`, `dev`, `download`, `init`, `update`.
@@ -47,12 +47,16 @@ make test-cov                      # pytest + coverage
 - **Configuration via `Field(validation_alias="ENV_VAR_NAME")`** in Settings class
 - **No Firecrawl** — explicitly removed from scope; focus on core archival
 - **SPA serving in production** — FastAPI serves built SvelteKit from `portal/build/` with index.html fallback
+- **Dialect-aware SQL** — use `func.strftime` for SQLite and `func.to_char` for PostgreSQL date formatting; detect dialect via `str(db.engine.url)`
+- **Database access** — always use `get_db(request)` from `_helpers.py`, never `app.state.database` directly; managers hold `DatabaseRegistry` ref
+- **Auth on POST/PUT** — state-modifying endpoints require Bearer token (`API_SECRET` env var); use `hmac.compare_digest()` for comparison
+- **Discord snowflake IDs** — serialize as strings in JSON responses (`Snowflake` type in `schemas.py`); accept as `str` in request bodies
 
 ## Implementation Status
 
-Phases 1–3.5 complete: models, repositories, database, bot scraper, config, CLI, FastAPI API (17 endpoints), SvelteKit portal (10 pages), unified dev command, Makefile.
+Phases 1–3.5 complete: models, repositories, database, bot scraper, config, CLI, FastAPI API (22+ endpoints), SvelteKit portal (10 pages), unified dev command, Makefile, Docker multi-stage build with PostgreSQL, CI/CD, MCP server.
 
-**Not yet implemented**: FTS5 search, Alembic migrations, `update` command, export formats, analytics charts.
+**Not yet implemented**: FTS5 search, Alembic migrations, export formats, analytics charts.
 
 ## Known Issues
 
