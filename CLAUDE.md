@@ -31,6 +31,7 @@ wumpus-archiver/
 │   │   └── repositories.py    # Per-entity repositories
 │   ├── api/                   # FastAPI application
 │   │   ├── app.py             # App factory (lifespan, CORS, SPA serving)
+│   │   ├── auth.py            # Bearer token auth middleware (API_SECRET)
 │   │   ├── schemas.py         # Pydantic response models
 │   │   ├── scrape_manager.py  # Background scrape job manager
 │   │   ├── download_manager.py # Background image download job manager
@@ -98,14 +99,16 @@ wumpus-archiver/
 - Pydantic settings for configuration with `.env` support
 - Click for CLI interface
 - Domain-split route modules (11 files under `api/routes/`)
-- `DatabaseRegistry` for multi-source database management (SQLite + PostgreSQL)
-- `TransferManager` for background SQLite→PostgreSQL data migration
+- `DatabaseRegistry` for multi-source database management (SQLite + PostgreSQL), with `asyncio.Lock` for thread-safe runtime switching
+- `TransferManager` for background SQLite→PostgreSQL data migration with idempotency logging
 - `DownloadManager` for background image download jobs via API
+- Bearer token authentication (`API_SECRET`) on all state-modifying endpoints (POST/PUT)
 - Incremental scraping via `last_message_id` cursor
 - SPA served by FastAPI in production (adapter-static builds to `portal/build/`)
 - Vite dev server with API proxy in development
 - Concurrent process manager for unified `dev` command
-- Docker multi-stage build with PostgreSQL via docker-compose
+- Docker multi-stage build with PostgreSQL via docker-compose (non-root container user)
+- MCP server shares `ScrapeJobManager` and download task references via `AppContext` lifespan
 
 ## Implementation Status
 
@@ -236,7 +239,38 @@ The app supports dual databases via `DatabaseRegistry`:
 - **SQLite** (default) — single-file, zero-config, used for local development
 - **PostgreSQL** (optional) — set `POSTGRES_URL` env var to enable
 
-`DatabaseRegistry` manages named database sources and allows runtime switching between them. The active source is used for all API queries. A `TransferManager` handles background data migration from SQLite to PostgreSQL with per-table batch transfers and automatic sequence resets.
+`DatabaseRegistry` manages named database sources and allows runtime switching between them (protected by `asyncio.Lock` for concurrent request safety). The active source is used for all API queries. A `TransferManager` handles background data migration from SQLite to PostgreSQL with per-table batch transfers, automatic sequence resets, and idempotency logging (inserted vs updated row counts).
+
+### MCP Server Architecture
+
+The MCP server (`mcp/server.py`) uses an `AppContext` dataclass in its lifespan to share state across tool invocations:
+- `db: Database` — shared database connection
+- `scrape_manager: ScrapeJobManager` — singleton, same instance used by all scrape tools
+- `download_tasks: set[asyncio.Task]` — tracked background download tasks with done callbacks
+
+This ensures MCP tools (scrape, cancel, status, download) operate on the same state rather than creating orphan instances.
+
+## Authentication
+
+State-modifying API endpoints (POST/PUT) are protected by Bearer token authentication via the `API_SECRET` environment variable.
+
+- **If `API_SECRET` is not set**: All requests are allowed (development mode)
+- **If `API_SECRET` is set**: All POST/PUT endpoints require `Authorization: Bearer <API_SECRET>` header
+- **Protected endpoints**: `/api/scrape/*`, `/api/transfer/*`, `/api/datasource` (PUT), `/api/downloads/*` (POST)
+- **Auth check endpoint**: `GET /api/auth/check` — returns 200 if token is valid, 401 otherwise
+
+The frontend reads the token from environment and includes it in requests to protected endpoints.
+
+```bash
+# Test auth is working
+curl -X POST http://localhost:8000/api/scrape/start \
+  -H "Authorization: Bearer your_secret_here" \
+  -H "Content-Type: application/json" \
+  -d '{"guild_id": "123456789"}'
+
+# Without token (should return 401 when API_SECRET is set)
+curl -X POST http://localhost:8000/api/scrape/start
+```
 
 ## Environment Variables
 
@@ -246,9 +280,18 @@ See `.env.example` for all options. Key variables:
 - `DATABASE_URL` — SQLite connection string (default: `sqlite+aiosqlite:///./wumpus_archive.db`)
 - `POSTGRES_URL` — PostgreSQL connection string (optional, enables dual-database mode)
 - `API_HOST` / `API_PORT` — API server binding
+- `API_SECRET` — Bearer token for API authentication (optional; if unset, all requests allowed)
 - `BATCH_SIZE` / `RATE_LIMIT_DELAY` — Scraping configuration
 - `DOWNLOAD_ATTACHMENTS` / `ATTACHMENTS_PATH` — Attachment management
 - `LOG_LEVEL` — Logging verbosity
+
+## Security Notes
+
+- Docker container runs as non-root `archiver` user (UID 1000)
+- API request body size limited to 1 MB (`limit_max_request_size`)
+- CORS restricted to `GET`, `POST`, `PUT`, `OPTIONS` methods and `Content-Type`, `Authorization` headers
+- All path parameters validated with `Path(gt=0)` to reject invalid IDs
+- Pydantic `@field_validator` on `ScrapeStartRequest` validates snowflake ID format
 
 ## Known Issues / TODOs
 
@@ -259,6 +302,8 @@ See `.env.example` for all options. Key variables:
 5. Search uses SQL LIKE — should migrate to FTS5 for performance
 6. No export functionality yet
 7. `control/+page.svelte` is ~1,900 lines — should extract `ChannelSelector` component
+8. No rate limiting on API endpoints
+9. Pre-existing svelte-check TypeScript errors (24) in Nav.svelte, control page, and user pages
 
 ## Resources
 
