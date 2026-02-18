@@ -210,7 +210,7 @@ def serve(
         click.echo("Attachments: not found (images served from Discord CDN)")
     if pg_url:
         click.echo("PostgreSQL: configured")
-    uvicorn.run(app, host=host, port=port, limit_max_request_size=1_048_576)
+    uvicorn.run(app, host=host, port=port, h11_max_incomplete_event_size=1_048_576)
 
 
 def _build_portal_static() -> None:
