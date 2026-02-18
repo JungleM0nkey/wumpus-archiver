@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { invalidateAll } from '$app/navigation';
 	import { getDataSource, setDataSource } from '$lib/api';
 	import type { DataSourceResponse } from '$lib/types';
 
@@ -37,8 +36,8 @@
 		try {
 			await setDataSource(name);
 			datasource = await getDataSource();
-			// Reactively refresh data without full page reload
-			await invalidateAll();
+			// Full reload required — SPA uses onMount() fetching, not SvelteKit load functions
+			window.location.reload();
 		} catch (e) {
 			console.error('Failed to switch data source:', e);
 		} finally {

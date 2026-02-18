@@ -1,5 +1,6 @@
 """FastAPI application factory."""
 
+import hmac
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -66,8 +67,7 @@ def create_app(
         allow_headers=["Content-Type", "Authorization"],
     )
 
-    # Store database registry on app state
-    app.state.database = registry.get_active()
+    # Store database registry on app state (routes use get_db() via registry)
     app.state.db_registry = registry
 
     # Scrape control panel: manager + token
@@ -126,7 +126,7 @@ def create_app(
         if secret is None:
             return {"authenticated": True, "auth_required": False}
         auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer ") and auth_header[7:] == secret:
+        if auth_header.startswith("Bearer ") and hmac.compare_digest(auth_header[7:], secret):
             return {"authenticated": True, "auth_required": True}
         return {"authenticated": False, "auth_required": True}
 
@@ -153,8 +153,9 @@ def create_app(
         @app.get("/{full_path:path}", include_in_schema=False)
         async def spa_fallback(full_path: str) -> FileResponse:
             # Try serving exact file first (e.g. favicon.ico)
-            file_path = portal_dist / full_path
-            if file_path.is_file():
+            file_path = (portal_dist / full_path).resolve()
+            # Prevent path traversal — resolved path must stay within portal_dist
+            if file_path.is_file() and str(file_path).startswith(str(portal_dist.resolve())):
                 return FileResponse(str(file_path))
             # Fallback to index.html for SPA routing
             return FileResponse(str(portal_dist / "index.html"))

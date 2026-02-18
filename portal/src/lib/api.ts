@@ -23,13 +23,33 @@ import type {
 
 const API_BASE = '/api';
 
+let _apiToken: string | null = null;
+
+/** Set the API authentication token for all subsequent requests. */
+export function setApiToken(token: string | null) {
+	_apiToken = token;
+}
+
+/** Get the current API token (if set). */
+export function getApiToken(): string | null {
+	return _apiToken;
+}
+
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
-	const res = await fetch(`${API_BASE}${path}`, init);
+	const headers = new Headers(init?.headers);
+	if (_apiToken) {
+		headers.set('Authorization', `Bearer ${_apiToken}`);
+	}
+	const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
 	if (!res.ok) {
 		const body = await res.json().catch(() => ({ error: res.statusText }));
 		throw new Error(body.error || `API error: ${res.status} ${res.statusText}`);
 	}
 	return res.json();
+}
+
+export async function checkAuth(): Promise<{ authenticated: boolean; auth_required: boolean }> {
+	return fetchJSON<{ authenticated: boolean; auth_required: boolean }>('/auth/check');
 }
 
 export async function getGuilds(): Promise<Guild[]> {

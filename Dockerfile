@@ -29,9 +29,9 @@ LABEL org.opencontainers.image.title="Wumpus Archiver" \
       org.opencontainers.image.source="https://github.com/JungleM0nkey/wumpus-archiver" \
       org.opencontainers.image.licenses="MIT"
 
-# System deps for aiosqlite and general health
+# System deps for aiosqlite, signal handling, and privilege drop
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends tini && \
+    apt-get install -y --no-install-recommends tini gosu && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -58,12 +58,14 @@ EXPOSE 8000 9100
 
 VOLUME ["/data"]
 
-# Run as non-root user for security
+# Create non-root user for security
 RUN useradd -m -u 1000 archiver && chown -R archiver:archiver /app /data
-USER archiver
 
-# Use tini as init to handle signals properly
-ENTRYPOINT ["tini", "--", "wumpus-archiver"]
+# Copy entrypoint that fixes volume ownership then drops to non-root
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh", "wumpus-archiver"]
 
 # Default command: serve the portal
 # Override with: docker run <image> mcp /data/archive.db --http --host 0.0.0.0

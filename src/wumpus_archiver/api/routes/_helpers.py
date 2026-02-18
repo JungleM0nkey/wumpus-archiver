@@ -15,10 +15,8 @@ from wumpus_archiver.storage.database import Database
 
 def get_db(request: Request) -> Database:
     """Get the active database from the registry."""
-    registry = getattr(request.app.state, "db_registry", None)
-    if registry is not None:
-        return registry.get_active()
-    return request.app.state.database  # type: ignore[no-any-return]
+    registry = request.app.state.db_registry
+    return registry.get_active()
 
 
 def get_attachments_path(request: Request) -> Path | None:

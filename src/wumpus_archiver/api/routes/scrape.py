@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from wumpus_archiver.api.auth import require_auth
+from wumpus_archiver.api.routes._helpers import get_db
 from wumpus_archiver.api.schemas import (
     AnalyzeChannelSchema,
     AnalyzeResponse,
@@ -160,7 +161,7 @@ async def list_scrapeable_channels(
     DB-only if no token is configured or the API call fails.
     """
     manager = _get_scrape_manager(request)
-    db = request.app.state.database
+    db = get_db(request)
     token = getattr(request.app.state, "discord_token", None)
 
     # Fetch DB channels and guild info
@@ -274,7 +275,7 @@ async def analyze_guild(
     channels with new messages.
     """
     manager = _get_scrape_manager(request)
-    db = request.app.state.database
+    db = get_db(request)
     token = getattr(request.app.state, "discord_token", None)
 
     if not token:

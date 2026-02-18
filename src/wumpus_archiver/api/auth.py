@@ -1,5 +1,6 @@
 """API authentication middleware."""
 
+import hmac
 import logging
 
 from fastapi import HTTPException, Request, Security
@@ -25,7 +26,7 @@ async def require_auth(
     if api_secret is None:
         return
 
-    if credentials is None or credentials.credentials != api_secret:
+    if credentials is None or not hmac.compare_digest(credentials.credentials, api_secret):
         raise HTTPException(
             status_code=401,
             detail="Invalid or missing API key",

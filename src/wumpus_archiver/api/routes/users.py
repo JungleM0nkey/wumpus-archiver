@@ -196,9 +196,15 @@ async def get_user_profile(
         ]
 
         cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=730)
+        # Use dialect-compatible date formatting
+        db_url = str(db.engine.url)
+        if "postgresql" in db_url:
+            period_expr = func.to_char(Message.created_at, "YYYY-MM").label("period")
+        else:
+            period_expr = func.strftime("%Y-%m", Message.created_at).label("period")
         monthly_r = await session.execute(
             select(
-                func.strftime("%Y-%m", Message.created_at).label("period"),
+                period_expr,
                 func.count(Message.id).label("cnt"),
             )
             .where(
