@@ -66,4 +66,8 @@ Thumbs.db
 # ========================
 packages.microsoft.gpg
 .claude/
+.claude*
+CLAUDE.md
+CLAUDE.local.md
+**/CLAUDE.md
 src/wumpus_archiver/api/_dev_app.py

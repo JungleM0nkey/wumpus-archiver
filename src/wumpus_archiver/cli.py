@@ -298,6 +298,15 @@ def download(
     click.echo(f"Concurrency: {concurrency}")
     click.echo()
 
+    # Fall back to GUILD_ID from settings when not passed explicitly.
+    # Resolve before the nested closure so it reads the enclosing scope
+    # rather than becoming a local of run_download().
+    if guild_id is None:
+        try:
+            guild_id = Settings().guild_id  # type: ignore[call-arg]
+        except Exception:
+            pass
+
     async def run_download() -> int:
         """Run the image downloader."""
         await db.connect()
@@ -307,12 +316,6 @@ def download(
             output_dir=output,
             concurrency=concurrency,
         )
-
-        if guild_id is None:
-            try:
-                guild_id = Settings().guild_id  # type: ignore[call-arg]
-            except Exception:
-                pass
 
         def progress(channel_name: str, done: int, total: int) -> None:
             click.echo(f"  #{channel_name}: {done}/{total} processed")
