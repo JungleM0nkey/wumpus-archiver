@@ -208,6 +208,35 @@ class TimelineGalleryResponse(BaseModel):
     offset: int
 
 
+# --- GIF API schemas ---
+
+
+class GifSchema(BaseModel):
+    """Deduplicated GIF with popularity metadata."""
+
+    id: Snowflake
+    content_hash: str | None = None
+    filename: str
+    size: int
+    width: int | None = None
+    height: int | None = None
+    url: str
+    thumbnail_url: str | None = None
+    usage_count: int = 1
+    last_used: datetime | None = None
+    channel_id: OptionalSnowflake = None
+    channel_name: str | None = None
+
+
+class GifListResponse(BaseModel):
+    """Paginated GIF list response."""
+
+    gifs: list[GifSchema]
+    total: int
+    has_more: bool
+    offset: int
+
+
 # --- Scrape control panel schemas ---
 
 
