@@ -109,12 +109,45 @@ def _channel_batches(
             yield chan["name"], payloads[i : i + batch]
 
 
+def _user_entries(db: sqlite3.Connection, guild_id: int) -> list[dict[str, str]]:
+    """Directory entries for every non-bot author seen in the guild's channels."""
+    db.row_factory = sqlite3.Row
+    rows = db.execute(
+        """SELECT DISTINCT u.id, u.username, u.global_name, u.avatar_url
+           FROM users u
+           JOIN messages m ON m.author_id = u.id
+           JOIN channels c ON m.channel_id = c.id
+           WHERE c.guild_id = ? AND COALESCE(u.bot, 0) = 0""",
+        (guild_id,),
+    ).fetchall()
+    entries: list[dict[str, str]] = []
+    for u in rows:
+        display = (u["global_name"] or u["username"] or "user").strip()
+        if not display:
+            continue
+        entries.append(
+            {
+                # ponytail: slug collisions between same-named users share one entry (last wins)
+                "slug": sender_slug(u["username"], u["global_name"]),
+                "display_name": display[:64],
+                "avatar_url": u["avatar_url"] or "",
+            }
+        )
+    return entries
+
+
+async def _push_users(bridge: BridgeClient, entries: list[dict[str, str]]) -> None:
+    for i in range(0, len(entries), 500):
+        await bridge.put_users(entries[i : i + 500])
+
+
 async def run_backfill(
     db_path: Path,
     guild_id: int,
     bridge: BridgeClient,
     cutoff: datetime,
     concurrency: int = 8,
+    skip_messages: bool = False,
 ) -> int:
     """Replay the archive into chat. Returns the number of messages sent."""
     db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -133,15 +166,19 @@ async def run_backfill(
         return ok
 
     try:
-        for chan_name, payloads in _channel_batches(db, guild_id, cutoff):
-            chat_name = mirror_channel_name(chan_name)
-            room_id = await bridge.room_for(chat_name, f"Mirror of Discord #{chan_name}")
-            if room_id is None:
-                logger.warning("could not resolve room for %s; skipping %d messages", chat_name, len(payloads))
-                failed += len(payloads)
-                continue
-            await asyncio.gather(*(send_one(p, room_id) for p in payloads))
-            print(f"  #{chan_name}: {len(payloads)} messages -> {chat_name}", flush=True)
+        entries = _user_entries(db, guild_id)
+        await _push_users(bridge, entries)
+        print(f"Pushed {len(entries)} user directory entries", flush=True)
+        if not skip_messages:
+            for chan_name, payloads in _channel_batches(db, guild_id, cutoff):
+                chat_name = mirror_channel_name(chan_name)
+                room_id = await bridge.room_for(chat_name, f"Mirror of Discord #{chan_name}")
+                if room_id is None:
+                    logger.warning("could not resolve room for %s; skipping %d messages", chat_name, len(payloads))
+                    failed += len(payloads)
+                    continue
+                await asyncio.gather(*(send_one(p, room_id) for p in payloads))
+                print(f"  #{chan_name}: {len(payloads)} messages -> {chat_name}", flush=True)
     finally:
         db.close()
     print(f"Backfill done: sent={sent} failed={failed}", flush=True)

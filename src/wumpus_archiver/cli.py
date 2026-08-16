@@ -589,7 +589,13 @@ def mirror(guild_id: int | None) -> None:
     default=8,
     help="Max concurrent bridge requests",
 )
-def backfill(database: Path, guild_id: int | None, cutoff_iso: str | None, concurrency: int) -> None:
+@click.option(
+    "--skip-messages",
+    is_flag=True,
+    default=False,
+    help="Only push the user directory (avatars/names), no message replay",
+)
+def backfill(database: Path, guild_id: int | None, cutoff_iso: str | None, concurrency: int, skip_messages: bool) -> None:
     """Replay an archived Discord guild into apehost chat (one-shot)."""
     from wumpus_archiver.bot.backfill import run_backfill
     from wumpus_archiver.bot.mirror import BridgeClient
@@ -626,7 +632,7 @@ def backfill(database: Path, guild_id: int | None, cutoff_iso: str | None, concu
             settings.cf_access_client_id,
             settings.cf_access_client_secret,
         ) as bridge:
-            return await run_backfill(database.resolve(), guild_id, bridge, cutoff, concurrency)
+            return await run_backfill(database.resolve(), guild_id, bridge, cutoff, concurrency, skip_messages)
 
     try:
         asyncio.run(run())

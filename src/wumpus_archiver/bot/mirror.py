@@ -148,6 +148,26 @@ class BridgeClient:
         self._rooms[name] = room_id
         return room_id
 
+    async def put_users(self, entries: list[dict[str, str]]) -> dict[str, Any] | None:
+        """Upsert Discord sender directory entries (slug/display_name/avatar_url)."""
+        return await self.post("users", {"users": entries})
+
+
+def user_entry(user: Any) -> dict[str, str] | None:
+    """Bridge directory entry for a Discord user, or None if it cannot be built."""
+    name = getattr(user, "name", None) or ""
+    global_name = getattr(user, "global_name", None)
+    display = (global_name or name or "user").strip()
+    if not display:
+        return None
+    avatar = getattr(user, "avatar", None)
+    avatar_url = str(avatar.url) if avatar else ""
+    return {
+        "slug": sender_slug(name, global_name),
+        "display_name": display[:64],
+        "avatar_url": avatar_url,
+    }
+
 
 class MirrorBot:
     """Forwards live Discord guild messages into apehost chat channels."""
@@ -156,6 +176,7 @@ class MirrorBot:
         self.token = token
         self.guild_id = guild_id
         self.bridge = bridge
+        self._user_cache: dict[int, tuple[str, str]] = {}  # discord id -> (display, avatar)
 
         intents = discord.Intents.default()
         intents.message_content = True
@@ -176,6 +197,7 @@ class MirrorBot:
         payload = build_payload(message)
         if payload is None:
             return
+        await self._push_user(message.author)
         # Guild-checked above; union still includes DM/partial channels without names.
         chan_name = getattr(message.channel, "name", None) or "unknown"
         room_id = await self.bridge.room_for(
@@ -186,6 +208,21 @@ class MirrorBot:
             return
         payload["room_id"] = room_id
         await self.bridge.post("send", payload)
+
+    async def _push_user(self, author: Any) -> None:
+        """Keep the Worker's discord-user directory fresh: push on first sight or change."""
+        entry = user_entry(author)
+        if entry is None:
+            return
+        try:
+            discord_id = int(author.id)
+        except (AttributeError, ValueError, TypeError):
+            return
+        sig = (entry["display_name"], entry["avatar_url"])
+        if self._user_cache.get(discord_id) == sig:
+            return
+        if await self.bridge.put_users([entry]):
+            self._user_cache[discord_id] = sig
 
     async def run(self) -> None:
         await self.client.start(self.token)
