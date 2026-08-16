@@ -84,7 +84,7 @@ def _channel_batches(
     for chan in channels:
         msgs = db.execute(
             """SELECT m.id, m.content, m.clean_content, m.created_at,
-                      u.name, u.global_name, COALESCE(u.bot, 0) AS bot
+                      u.username AS name, u.global_name, COALESCE(u.bot, 0) AS bot
                FROM messages m LEFT JOIN users u ON m.author_id = u.id
                WHERE m.channel_id = ? AND m.created_at < ?
                ORDER BY m.created_at ASC, m.id ASC""",
