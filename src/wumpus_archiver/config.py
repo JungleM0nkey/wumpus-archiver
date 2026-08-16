@@ -56,6 +56,8 @@ class Settings(BaseSettings):
         validation_alias="CHAT_BRIDGE_URL",
     )
     chat_bridge_token: str = Field(default="", validation_alias="CHAT_BRIDGE_TOKEN")
+    cf_access_client_id: str = Field(default="", validation_alias="CF_ACCESS_CLIENT_ID")
+    cf_access_client_secret: str = Field(default="", validation_alias="CF_ACCESS_CLIENT_SECRET")
 
     # Logging
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
