@@ -60,6 +60,7 @@ make serve         # serve only (portal must already be built)
 | `wumpus-archiver init` | Initialize project (creates `.env`, directories) |
 | `wumpus-archiver scrape` | Scrape a Discord server into SQLite (uses `GUILD_ID` from `.env`) |
 | `wumpus-archiver download DB` | Download image attachments locally |
+| `wumpus-archiver mirror` | Live-mirror Discord guild messages into apehost chat (runs until stopped) |
 | `wumpus-archiver dev DB` | Start dev environment (backend + frontend, hot-reload) |
 | `wumpus-archiver serve DB` | Start production server (API + built SPA) |
 | `wumpus-archiver update DB` | Update archive with new messages *(not yet implemented)* |
