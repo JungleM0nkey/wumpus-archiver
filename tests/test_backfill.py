@@ -69,14 +69,15 @@ def archive(tmp_path):
         """
         CREATE TABLE channels (id INTEGER PRIMARY KEY, guild_id INT, name TEXT,
                                type INT, parent_id INT);
-        CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, global_name TEXT, bot INT);
+        CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, discriminator TEXT,
+                            global_name TEXT, avatar_url TEXT, bot INT);
         CREATE TABLE messages (id INTEGER PRIMARY KEY, channel_id INT, author_id INT,
                                content TEXT, clean_content TEXT, created_at TEXT);
         CREATE TABLE attachments (id INTEGER PRIMARY KEY, message_id INT, filename TEXT,
                                   content_type TEXT, url TEXT, width INT, height INT);
         INSERT INTO channels VALUES (10, 1, 'general', 0, NULL), (11, 1, 'voice', 2, NULL),
                                     (12, 1, 'a-thread', 11, 10);
-        INSERT INTO users VALUES (1, 'alice', 'Alice', 0), (2, 'botman', NULL, 1);
+        INSERT INTO users (id, username, global_name, bot) VALUES (1, "alice", "Alice", 0), (2, "botman", NULL, 1);
         INSERT INTO messages VALUES
             (100, 10, 1, 'first', 'first', '2026-01-01 00:00:00.000000'),
             (101, 10, 2, 'botmsg', 'botmsg', '2026-02-01 00:00:00.000000'),
