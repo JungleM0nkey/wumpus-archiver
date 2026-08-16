@@ -13,6 +13,7 @@ import logging
 import re
 from datetime import UTC
 from typing import Any
+from urllib.parse import urlsplit
 
 import aiohttp
 import discord
@@ -23,7 +24,92 @@ BRIDGE_SENDER_PREFIX = "discord-"
 MAX_CONTENT = 4000  # must match the chat Worker's cap
 MAX_CHANNEL_NAME = 64  # must match the chat Worker's validChannelName
 
+# Mirror the chat Worker's MEDIA_HOST allowlist (dashboard/src/worker/chat.ts
+# allowedMediaUrl). The bridge rejects a send with off-allowlist media WHOLESALE
+# (parseBridgeSendBody returns null), so gate here: off-allowlist visuals fall
+# back to a URL line in the content instead of killing the mirrored message.
+_ALLOWED_MEDIA_HOSTS = frozenset(
+    {
+        "gifs.connect.apehost.net",
+        "media.tenor.com",
+        "c.tenor.com",
+        "i.imgur.com",
+        "cdn.discordapp.com",
+        "media.discordapp.net",
+        "static.klipy.com",
+    }
+)
+_ALLOWED_MEDIA_SUFFIXES = (".giphy.com",)
+
+_VIDEO_EXT = re.compile(r"\.(mp4|webm|mov|m4v|gifv)$", re.IGNORECASE)
+_VISUAL_EXT = re.compile(r"\.(gif|jpe?g|png|webp|avif|mp4|webm|mov|m4v)$", re.IGNORECASE)
+
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
+
+
+def _allowed_media_url(url: str) -> bool:
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+    host = parts.hostname or ""
+    return parts.scheme == "https" and (
+        host in _ALLOWED_MEDIA_HOSTS or host.endswith(_ALLOWED_MEDIA_SUFFIXES)
+    )
+
+
+def _is_visual(url: str, content_type: str | None) -> bool:
+    """True for an attachment we can render (image or video), by type or extension."""
+    ct = content_type or ""
+    return ct.startswith(("image/", "video/")) or bool(_VISUAL_EXT.search(url.split("?", 1)[0]))
+
+
+def _media_kind(url: str, content_type: str | None) -> str:
+    """Advisory 'video' | 'gif' | 'image' (the chat client re-sniffs on render)."""
+    if (content_type or "").startswith("video/"):
+        return "video"
+    path = url.split("?", 1)[0]
+    if _VIDEO_EXT.search(path):
+        return "video"
+    if path.lower().endswith(".gif") or content_type == "image/gif":
+        return "gif"
+    return "image"
+
+
+def _media_dict(
+    url: str,
+    kind: str,
+    poster: str = "",
+    width: int | None = None,
+    height: int | None = None,
+    alt: str = "",
+) -> dict[str, Any]:
+    # poster off-allowlist: the Worker's validMedia degrades it back to url.
+    return {
+        "url": url,
+        "thumbnail_url": poster or url,
+        "type": kind,
+        "width": width,
+        "height": height,
+        "alt": alt[:256],
+    }
+
+
+def _embed_visuals(embed: Any) -> tuple[str, str, str]:
+    """(video_url, image_url, poster_url) from a Discord embed ('' when absent)."""
+    video = getattr(embed, "video", None)
+    image = getattr(embed, "image", None)
+    thumb = getattr(embed, "thumbnail", None)
+    video_url = ""
+    if video is not None:
+        video_url = getattr(video, "url", "") or getattr(video, "proxy_url", "") or ""
+    image_url = ""
+    if image is not None:
+        image_url = getattr(image, "proxy_url", "") or getattr(image, "url", "") or ""
+    poster = ""
+    if thumb is not None:
+        poster = getattr(thumb, "proxy_url", "") or getattr(thumb, "url", "") or ""
+    return video_url, image_url, poster
 
 
 def sender_slug(name: str, global_name: str | None = None) -> str:
@@ -41,24 +127,48 @@ def mirror_channel_name(channel_name: str) -> str:
 def build_payload(message: discord.Message) -> dict[str, Any] | None:
     """Build a bridge send body from a Discord message, or None if not mirrorable.
 
-    The first image attachment becomes the message media; every other attachment
-    (any type) is appended to the content as a URL line.
+    The first renderable visual — an image/video attachment, or a GIF/image
+    embed (Tenor & friends) on an allowlisted media host — becomes the message
+    media. Everything else (non-visual attachments, extra visuals, embed URLs)
+    is appended to the content as URL lines, which the chat client renders as
+    clickable links.
     """
     content = message.clean_content.strip()
     media: dict[str, Any] | None = None
     extra: list[str] = []
+
     for att in message.attachments:
-        if media is None and (att.content_type or "").startswith("image/"):
-            media = {
-                "url": att.url,
-                "thumbnail_url": att.url,
-                "type": "image",
-                "width": att.width,
-                "height": att.height,
-                "alt": att.filename[:256],
-            }
+        url = att.url
+        ct = getattr(att, "content_type", None)
+        if media is None and _is_visual(url, ct) and _allowed_media_url(url):
+            media = _media_dict(
+                url,
+                _media_kind(url, ct),
+                width=getattr(att, "width", None),
+                height=getattr(att, "height", None),
+                alt=getattr(att, "filename", "") or "",
+            )
         else:
-            extra.append(att.url)
+            extra.append(url)
+
+    for embed in getattr(message, "embeds", None) or []:
+        video_url, image_url, poster = _embed_visuals(embed)
+        if media is None and video_url and _allowed_media_url(video_url):
+            # GIF-style embed: image/thumbnail are previews of the same visual.
+            media = _media_dict(video_url, "video", poster=poster)
+            continue
+        if media is None and image_url and _allowed_media_url(image_url):
+            media = _media_dict(image_url, _media_kind(image_url, None), poster=poster)
+            continue
+        # No media slot left, or the hosts are off-allowlist: keep links clickable.
+        if video_url:
+            extra.append(video_url)
+        if image_url and image_url != poster:
+            extra.append(image_url)
+        link = getattr(embed, "url", "") or ""
+        if link and link not in content and link not in extra:
+            extra.append(link)
+
     if extra:
         content = f"{content}\n{'\n'.join(extra)}".strip()
     if not content and not media:

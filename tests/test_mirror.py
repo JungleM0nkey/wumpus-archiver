@@ -28,11 +28,24 @@ def _att(
     )
 
 
+def _embed(
+    url: str = "",
+    video_url: str = "",
+    image_url: str = "",
+    thumb_url: str = "",
+) -> SimpleNamespace:
+    video = SimpleNamespace(url=video_url, proxy_url=video_url, width=None, height=None) if video_url else None
+    image = SimpleNamespace(url=image_url, proxy_url=image_url, width=None, height=None) if image_url else None
+    thumb = SimpleNamespace(url=thumb_url, proxy_url=thumb_url) if thumb_url else None
+    return SimpleNamespace(url=url, video=video, image=image, thumbnail=thumb)
+
+
 def _message(
     author: object,
     content: str = "hi",
     clean_content: str | None = None,
     attachments: list | None = None,
+    embeds: list | None = None,
     created_at: datetime | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
@@ -40,6 +53,7 @@ def _message(
         content=content,
         clean_content=clean_content if clean_content is not None else content,
         attachments=attachments or [],
+        embeds=embeds or [],
         created_at=created_at or datetime(2026, 8, 15, 12, 0, tzinfo=UTC),
     )
 
@@ -108,12 +122,78 @@ class TestBuildPayload:
         assert p["media"]["alt"] == "f.png"
         assert p["content"] == "two files\nhttps://cdn.discordapp.com/a/b/data.zip"
 
-    def test_non_image_only_goes_into_content(self):
+    def test_video_attachment_becomes_video_media(self):
         p = build_payload(
-            _message(_user("bob"), "", attachments=[_att(content_type="video/mp4")])
+            _message(
+                _user("bob"),
+                "gif via mp4",
+                attachments=[_att(url="https://cdn.discordapp.com/attachments/1/2/g.mp4",
+                                  filename="g.mp4", content_type="video/mp4")],
+            )
+        )
+        assert p["media"]["type"] == "video"
+        assert p["media"]["url"].endswith("g.mp4")
+        assert p["content"] == "gif via mp4"
+
+    def test_gif_attachment_typed_gif(self):
+        p = build_payload(
+            _message(_user("bob"), "", attachments=[_att(
+                url="https://cdn.discordapp.com/attachments/1/2/g.gif",
+                filename="g.gif", content_type="image/gif")])
+        )
+        assert p["media"]["type"] == "gif"
+        assert p["content"] == ""
+
+    def test_gifv_embed_becomes_video_media_with_poster(self):
+        p = build_payload(
+            _message(_user("alice"), "", embeds=[_embed(
+                video_url="https://media.tenor.com/v/abc/mp4",
+                thumb_url="https://media.tenor.com/v/abc/thumb.png")])
+        )
+        assert p["media"]["type"] == "video"
+        assert p["media"]["url"] == "https://media.tenor.com/v/abc/mp4"
+        assert p["media"]["thumbnail_url"] == "https://media.tenor.com/v/abc/thumb.png"
+        assert p["content"] == ""
+
+    def test_image_embed_becomes_image_media(self):
+        p = build_payload(
+            _message(_user("alice"), "", embeds=[_embed(
+                image_url="https://i.imgur.com/x.png")])
+        )
+        assert p["media"]["type"] == "image"
+        assert p["media"]["url"] == "https://i.imgur.com/x.png"
+
+    def test_attachment_media_wins_over_embed(self):
+        p = build_payload(
+            _message(_user("bob"), "", attachments=[_att()], embeds=[_embed(
+                image_url="https://i.imgur.com/y.png")])
+        )
+        assert p["media"]["url"].endswith("f.png")
+        assert "https://i.imgur.com/y.png" in p["content"]
+
+    def test_off_allowlist_embed_image_becomes_url_line(self):
+        p = build_payload(
+            _message(_user("alice"), "look", embeds=[_embed(
+                url="https://example.com/article",
+                image_url="https://cdn.example.com/pic.jpg")])
         )
         assert p["media"] is None
-        assert p["content"] == "https://cdn.discordapp.com/attachments/1/2/f.png"
+        assert "https://cdn.example.com/pic.jpg" in p["content"]
+        assert "https://example.com/article" in p["content"]
+
+    def test_embed_url_not_duplicated_when_already_in_content(self):
+        p = build_payload(
+            _message(_user("alice"), "see https://example.com/a",
+                     embeds=[_embed(url="https://example.com/a",
+                                    image_url="https://i.imgur.com/z.png")])
+        )
+        assert p["content"].count("https://example.com/a") == 1
+
+    def test_embed_url_line_kept_when_not_in_content(self):
+        p = build_payload(
+            _message(_user("alice"), "", embeds=[_embed(url="https://example.com/b")])
+        )
+        assert p["content"] == "https://example.com/b"
 
     def test_media_only_no_content(self):
         p = build_payload(_message(_user("bob"), "", attachments=[_att()]))
