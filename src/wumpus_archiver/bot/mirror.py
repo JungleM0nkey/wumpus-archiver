@@ -26,10 +26,10 @@ MAX_CHANNEL_NAME = 64  # must match the chat Worker's validChannelName
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
 
 
-def sender_slug(user: discord.abc.User) -> str:
+def sender_slug(name: str, global_name: str | None = None) -> str:
     """Stable chat slug for a Discord author: ``discord-<sanitized name>``."""
-    name = user.global_name or user.name or "user"
-    slug = _SLUG_STRIP.sub("-", name.lower()).strip("-")[:32].strip("-")
+    display = global_name or name or "user"
+    slug = _SLUG_STRIP.sub("-", display.lower()).strip("-")[:32].strip("-")
     return f"{BRIDGE_SENDER_PREFIX}{slug or 'user'}"
 
 
@@ -69,44 +69,49 @@ def build_payload(message: discord.Message) -> dict[str, Any] | None:
     if created_at.tzinfo is None:  # discord.py always returns tz-aware, but be safe
         created_at = created_at.replace(tzinfo=UTC)
     return {
-        "sender": sender_slug(message.author),
+        "sender": sender_slug(message.author.name, message.author.global_name),
         "content": content,
         "media": media,
         "created_at": int(created_at.timestamp() * 1000),
     }
 
 
-class MirrorBot:
-    """Forwards live Discord guild messages into apehost chat channels."""
+class BridgeClient:
+    """HTTP client for the dashboard Worker's chat bridge (secret + optional
+    Cloudflare Access edge passage). Shared by the live mirror and backfill."""
 
     def __init__(
         self,
-        token: str,
-        guild_id: int,
         bridge_url: str,
         bridge_token: str,
         cf_access_client_id: str = "",
         cf_access_client_secret: str = "",
     ) -> None:
-        self.token = token
-        self.guild_id = guild_id
         self.bridge_url = bridge_url.rstrip("/")
         self.bridge_token = bridge_token
         self.cf_access_client_id = cf_access_client_id
         self.cf_access_client_secret = cf_access_client_secret
-        self._rooms: dict[int, str] = {}
+        self._rooms: dict[str, str] = {}  # chat channel name -> room id
         self._session: aiohttp.ClientSession | None = None
 
-        intents = discord.Intents.default()
-        intents.message_content = True
-        self.client = discord.Client(intents=intents)
-        self.client.event(self.on_ready)
-        self.client.event(self.on_message)
+    def _headers(self) -> dict[str, str]:
+        headers = {"Authorization": f"Bearer {self.bridge_token}"}
+        if self.cf_access_client_id and self.cf_access_client_secret:
+            # Edge passage through the Cloudflare Access app in front of connect.apehost.net.
+            headers["CF-Access-Client-Id"] = self.cf_access_client_id
+            headers["CF-Access-Client-Secret"] = self.cf_access_client_secret
+        return headers
 
-    async def on_ready(self) -> None:
-        print(f"Mirror bot connected as {self.client.user} (guild {self.guild_id})")
+    async def __aenter__(self) -> "BridgeClient":
+        self._session = aiohttp.ClientSession(headers=self._headers())
+        return self
 
-    async def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any] | None:
+    async def __aexit__(self, *exc: object) -> None:
+        if self._session:
+            await self._session.close()
+            self._session = None
+
+    async def post(self, path: str, body: dict[str, Any]) -> dict[str, Any] | None:
         assert self._session is not None
         try:
             async with self._session.post(f"{self.bridge_url}/{path}", json=body) as resp:
@@ -119,15 +124,12 @@ class MirrorBot:
             logger.warning("bridge %s unreachable: %s", path, e)
             return None
 
-    async def _room_id(
-        self, channel: discord.TextChannel | discord.VoiceChannel
-    ) -> str | None:
-        """Find-or-create the chat channel mirroring a Discord channel."""
-        cached = self._rooms.get(channel.id)
+    async def room_for(self, name: str, topic: str) -> str | None:
+        """Find-or-create a chat channel by exact name. Cached per process."""
+        cached = self._rooms.get(name)
         if cached:
             return cached
         assert self._session is not None
-        name = mirror_channel_name(channel.name)
         try:
             async with self._session.get(f"{self.bridge_url}/channels") as resp:
                 if resp.status != 200:
@@ -139,15 +141,30 @@ class MirrorBot:
             return None
         room_id = next((str(c["id"]) for c in channels if c.get("name") == name), None)
         if room_id is None:
-            created = await self._post(
-                "create-channel",
-                {"name": name, "topic": f"Mirror of Discord #{channel.name}"[:200]},
-            )
+            created = await self.post("create-channel", {"name": name, "topic": topic[:200]})
             if not created or "channel" not in created:
                 return None
             room_id = created["channel"]["id"]
-        self._rooms[channel.id] = room_id
+        self._rooms[name] = room_id
         return room_id
+
+
+class MirrorBot:
+    """Forwards live Discord guild messages into apehost chat channels."""
+
+    def __init__(self, token: str, guild_id: int, bridge: BridgeClient) -> None:
+        self.token = token
+        self.guild_id = guild_id
+        self.bridge = bridge
+
+        intents = discord.Intents.default()
+        intents.message_content = True
+        self.client = discord.Client(intents=intents)
+        self.client.event(self.on_ready)
+        self.client.event(self.on_message)
+
+    async def on_ready(self) -> None:
+        print(f"Mirror bot connected as {self.client.user} (guild {self.guild_id})", flush=True)
 
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot:
@@ -159,22 +176,19 @@ class MirrorBot:
         payload = build_payload(message)
         if payload is None:
             return
-        # Runtime-checked to be a guild text/voice channel (threads and DMs return above).
-        room_id = await self._room_id(message.channel)  # type: ignore[arg-type]
+        # Guild-checked above; union still includes DM/partial channels without names.
+        chan_name = getattr(message.channel, "name", None) or "unknown"
+        room_id = await self.bridge.room_for(
+            mirror_channel_name(chan_name),
+            f"Mirror of Discord #{chan_name}",
+        )
         if room_id is None:
             return
         payload["room_id"] = room_id
-        await self._post("send", payload)
+        await self.bridge.post("send", payload)
 
     async def run(self) -> None:
-        headers = {"Authorization": f"Bearer {self.bridge_token}"}
-        if self.cf_access_client_id and self.cf_access_client_secret:
-            # Edge passage through the Cloudflare Access app in front of connect.apehost.net.
-            headers["CF-Access-Client-Id"] = self.cf_access_client_id
-            headers["CF-Access-Client-Secret"] = self.cf_access_client_secret
-        async with aiohttp.ClientSession(headers=headers) as session:
-            self._session = session
-            await self.client.start(self.token)
+        await self.client.start(self.token)
 
     def run_sync(self) -> None:
         try:

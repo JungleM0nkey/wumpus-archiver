@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+from datetime import UTC, datetime
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import cast
@@ -533,7 +534,7 @@ app = create_app(
 )
 def mirror(guild_id: int | None) -> None:
     """Live-mirror Discord guild messages into apehost chat (runs until stopped)."""
-    from wumpus_archiver.bot.mirror import MirrorBot
+    from wumpus_archiver.bot.mirror import BridgeClient, MirrorBot
 
     try:
         settings = Settings()  # type: ignore[call-arg]
@@ -553,13 +554,85 @@ def mirror(guild_id: int | None) -> None:
     bot = MirrorBot(
         settings.discord_bot_token,
         guild_id,
-        settings.chat_bridge_url,
-        settings.chat_bridge_token,
-        settings.cf_access_client_id,
-        settings.cf_access_client_secret,
+        BridgeClient(
+            settings.chat_bridge_url,
+            settings.chat_bridge_token,
+            settings.cf_access_client_id,
+            settings.cf_access_client_secret,
+        ),
     )
     click.echo(f"Mirroring guild {guild_id} -> {settings.chat_bridge_url}")
     bot.run_sync()
+
+
+@cli.command()
+@click.argument(
+    "database",
+    type=click.Path(exists=True, path_type=Path),
+)
+@click.option(
+    "--guild-id",
+    type=int,
+    default=None,
+    help="Guild ID to backfill (default: GUILD_ID from .env)",
+)
+@click.option(
+    "--cutoff",
+    "cutoff_iso",
+    default=None,
+    help="Only messages created before this ISO datetime (UTC), e.g. the live"
+    " mirror's container start. Default: no cutoff.",
+)
+@click.option(
+    "--concurrency",
+    type=int,
+    default=8,
+    help="Max concurrent bridge requests",
+)
+def backfill(database: Path, guild_id: int | None, cutoff_iso: str | None, concurrency: int) -> None:
+    """Replay an archived Discord guild into apehost chat (one-shot)."""
+    from wumpus_archiver.bot.backfill import run_backfill
+    from wumpus_archiver.bot.mirror import BridgeClient
+
+    try:
+        settings = Settings()  # type: ignore[call-arg]
+    except Exception as e:
+        click.echo(f"Error: Failed to load settings: {e}", err=True)
+        sys.exit(1)
+
+    if guild_id is None:
+        guild_id = settings.guild_id
+    if guild_id is None:
+        click.echo("Error: --guild-id is required (or set GUILD_ID in .env).", err=True)
+        sys.exit(1)
+    if not settings.chat_bridge_token:
+        click.echo("Error: CHAT_BRIDGE_TOKEN is required (set it in .env).", err=True)
+        sys.exit(1)
+
+    cutoff: datetime
+    if cutoff_iso:
+        try:
+            cutoff = datetime.fromisoformat(cutoff_iso).replace(tzinfo=UTC)
+        except ValueError:
+            click.echo(f"Error: --cutoff not an ISO datetime: {cutoff_iso}", err=True)
+            sys.exit(1)
+    else:
+        cutoff = datetime.now(UTC)
+
+    async def run() -> int:
+        async with BridgeClient(
+            settings.chat_bridge_url,
+            settings.chat_bridge_token,
+            settings.cf_access_client_id,
+            settings.cf_access_client_secret,
+        ) as bridge:
+            return await run_backfill(database.resolve(), guild_id, bridge, cutoff, concurrency)
+
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        click.echo("\nBackfill interrupted.")
+        sys.exit(130)
 
 
 @cli.command()
