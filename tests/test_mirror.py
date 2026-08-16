@@ -45,20 +45,20 @@ def _message(
 
 class TestSenderSlug:
     def test_prefers_global_name(self):
-        assert sender_slug(_user("alice_w", "Alice Wonder")) == "discord-alice-wonder"
+        assert sender_slug("alice_w", "Alice Wonder") == "discord-alice-wonder"
 
     def test_sanitizes_username(self):
-        assert sender_slug(_user("Bob.The-Builder_99")) == "discord-bob-the-builder-99"
+        assert sender_slug("Bob.The-Builder_99") == "discord-bob-the-builder-99"
 
     def test_collapses_and_trims_separators(self):
-        assert sender_slug(_user("!!___---___carol---___!!")) == "discord-carol"
+        assert sender_slug("!!___---___carol---___!!") == "discord-carol"
 
     def test_falls_back_when_name_is_junk(self):
-        assert sender_slug(_user("!!!")) == "discord-user"
-        assert sender_slug(_user("")) == "discord-user"
+        assert sender_slug("!!!") == "discord-user"
+        assert sender_slug("") == "discord-user"
 
     def test_caps_length(self):
-        slug = sender_slug(_user("x" * 100))
+        slug = sender_slug("x" * 100)
         assert len(slug) <= len("discord-") + 32
         assert slug.startswith("discord-")
 
