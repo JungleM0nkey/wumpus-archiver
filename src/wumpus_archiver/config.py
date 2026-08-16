@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     )
     default_page_size: int = Field(default=50, validation_alias="DEFAULT_PAGE_SIZE")
 
+    # Chat mirror bridge (wumpus-archiver mirror)
+    chat_bridge_url: str = Field(
+        default="https://connect.apehost.net/dashboard/chat/bridge",
+        validation_alias="CHAT_BRIDGE_URL",
+    )
+    chat_bridge_token: str = Field(default="", validation_alias="CHAT_BRIDGE_TOKEN")
+
     # Logging
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
     log_file: Path | None = Field(default=None, validation_alias="LOG_FILE")

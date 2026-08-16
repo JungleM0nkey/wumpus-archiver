@@ -526,6 +526,42 @@ app = create_app(
 
 
 @cli.command()
+@click.option(
+    "--guild-id",
+    type=int,
+    default=None,
+    help="Discord guild ID to mirror (default: GUILD_ID from .env)",
+)
+def mirror(guild_id: int | None) -> None:
+    """Live-mirror Discord guild messages into apehost chat (runs until stopped)."""
+    from wumpus_archiver.bot.mirror import MirrorBot
+
+    try:
+        settings = Settings()  # type: ignore[call-arg]
+    except Exception as e:
+        click.echo(f"Error: Failed to load settings: {e}", err=True)
+        sys.exit(1)
+
+    if guild_id is None:
+        guild_id = settings.guild_id
+    if guild_id is None:
+        click.echo("Error: --guild-id is required (or set GUILD_ID in .env).", err=True)
+        sys.exit(1)
+    if not settings.chat_bridge_token:
+        click.echo("Error: CHAT_BRIDGE_TOKEN is required (set it in .env).", err=True)
+        sys.exit(1)
+
+    bot = MirrorBot(
+        settings.discord_bot_token,
+        guild_id,
+        settings.chat_bridge_url,
+        settings.chat_bridge_token,
+    )
+    click.echo(f"Mirroring guild {guild_id} -> {settings.chat_bridge_url}")
+    bot.run_sync()
+
+
+@cli.command()
 def init() -> None:
     """Initialize a new wumpus-archiver project."""
     click.echo("Initializing wumpus-archiver project...")
