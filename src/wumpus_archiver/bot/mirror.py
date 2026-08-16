@@ -85,11 +85,15 @@ class MirrorBot:
         guild_id: int,
         bridge_url: str,
         bridge_token: str,
+        cf_access_client_id: str = "",
+        cf_access_client_secret: str = "",
     ) -> None:
         self.token = token
         self.guild_id = guild_id
         self.bridge_url = bridge_url.rstrip("/")
         self.bridge_token = bridge_token
+        self.cf_access_client_id = cf_access_client_id
+        self.cf_access_client_secret = cf_access_client_secret
         self._rooms: dict[int, str] = {}
         self._session: aiohttp.ClientSession | None = None
 
@@ -163,9 +167,12 @@ class MirrorBot:
         await self._post("send", payload)
 
     async def run(self) -> None:
-        async with aiohttp.ClientSession(
-            headers={"Authorization": f"Bearer {self.bridge_token}"},
-        ) as session:
+        headers = {"Authorization": f"Bearer {self.bridge_token}"}
+        if self.cf_access_client_id and self.cf_access_client_secret:
+            # Edge passage through the Cloudflare Access app in front of connect.apehost.net.
+            headers["CF-Access-Client-Id"] = self.cf_access_client_id
+            headers["CF-Access-Client-Secret"] = self.cf_access_client_secret
+        async with aiohttp.ClientSession(headers=headers) as session:
             self._session = session
             await self.client.start(self.token)
 

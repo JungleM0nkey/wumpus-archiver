@@ -2,10 +2,9 @@
 
 import asyncio
 import sys
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import cast
-
-from importlib.metadata import version as pkg_version
 
 import click
 
@@ -556,6 +555,8 @@ def mirror(guild_id: int | None) -> None:
         guild_id,
         settings.chat_bridge_url,
         settings.chat_bridge_token,
+        settings.cf_access_client_id,
+        settings.cf_access_client_secret,
     )
     click.echo(f"Mirroring guild {guild_id} -> {settings.chat_bridge_url}")
     bot.run_sync()
