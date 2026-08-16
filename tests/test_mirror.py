@@ -37,7 +37,13 @@ def _embed(
     video = SimpleNamespace(url=video_url, proxy_url=video_url, width=None, height=None) if video_url else None
     image = SimpleNamespace(url=image_url, proxy_url=image_url, width=None, height=None) if image_url else None
     thumb = SimpleNamespace(url=thumb_url, proxy_url=thumb_url) if thumb_url else None
-    return SimpleNamespace(url=url, video=video, image=image, thumbnail=thumb)
+    embed = SimpleNamespace(url=url, video=video, image=image, thumbnail=thumb)
+    # Mirror real discord.py Embed: payload building goes through to_dict().
+    embed.to_dict = lambda: {
+        k: ({"url": getattr(v, "url", None), "proxy_url": getattr(v, "proxy_url", None)} if v else None)
+        for k, v in (("video", video), ("image", image), ("thumbnail", thumb))
+    } | {"url": url}
+    return embed
 
 
 def _message(

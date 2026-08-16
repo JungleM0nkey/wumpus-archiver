@@ -7,6 +7,7 @@ so live-forwarded messages are not duplicated.
 """
 
 import asyncio
+import json
 import logging
 import sqlite3
 from collections.abc import Iterator
@@ -17,6 +18,7 @@ from typing import Any
 from wumpus_archiver.bot.mirror import (
     MAX_CONTENT,
     BridgeClient,
+    build_media_payload,
     mirror_channel_name,
     sender_slug,
 )
@@ -36,26 +38,33 @@ def row_payload(
     row: sqlite3.Row,
     attachments: list[sqlite3.Row],
 ) -> dict[str, Any] | None:
-    """Build a bridge send body from an archive row, or None if not mirrorable."""
+    """Build a bridge send body from an archive row, or None if not mirrorable.
+
+    Reuses the live mirror's :func:`build_media_payload` core so replayed
+    history gets identical media/embed treatment (embeds come from the
+    archive's stored discord.py ``to_dict()`` JSON).
+    """
     if row["bot"]:
         return None
     content = (row["clean_content"] or row["content"] or "").strip()
-    media: dict[str, Any] | None = None
-    extra: list[str] = []
-    for att in attachments:
-        if media is None and (att["content_type"] or "").startswith("image/"):
-            media = {
-                "url": att["url"],
-                "thumbnail_url": att["url"],
-                "type": "image",
-                "width": att["width"],
-                "height": att["height"],
-                "alt": (att["filename"] or "")[:256],
+    try:
+        embeds = json.loads(row["embeds"]) if row["embeds"] else []
+    except (TypeError, ValueError):
+        embeds = []
+    content, media = build_media_payload(
+        content,
+        [
+            {
+                "url": a["url"],
+                "content_type": a["content_type"],
+                "width": a["width"],
+                "height": a["height"],
+                "filename": a["filename"],
             }
-        else:
-            extra.append(att["url"])
-    if extra:
-        content = f"{content}\n{'\n'.join(extra)}".strip()
+            for a in attachments
+        ],
+        embeds if isinstance(embeds, list) else [],
+    )
     if not content and not media:
         return None
     if len(content) > MAX_CONTENT:
@@ -83,7 +92,7 @@ def _channel_batches(
     ).fetchall()
     for chan in channels:
         msgs = db.execute(
-            """SELECT m.id, m.content, m.clean_content, m.created_at,
+            """SELECT m.id, m.content, m.clean_content, m.embeds, m.created_at,
                       u.username AS name, u.global_name, COALESCE(u.bot, 0) AS bot
                FROM messages m LEFT JOIN users u ON m.author_id = u.id
                WHERE m.channel_id = ? AND m.created_at < ?

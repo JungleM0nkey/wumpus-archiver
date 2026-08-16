@@ -3,6 +3,7 @@
 import sqlite3
 from datetime import UTC, datetime
 
+import json
 import pytest
 
 from wumpus_archiver.bot.backfill import _channel_batches, _user_entries, row_payload
@@ -13,6 +14,7 @@ def _row(**over):
         "id": 1,
         "content": "raw",
         "clean_content": "clean",
+        "embeds": None,
         "created_at": "2026-08-15 12:00:00.000000",
         "name": "alice_w",
         "global_name": None,
@@ -61,6 +63,39 @@ class TestRowPayload:
         p = row_payload(_row(name=None, global_name=None), [])
         assert p["sender"] == "discord-user"
 
+    def test_embed_json_becomes_media(self):
+        embeds = json.dumps([{
+            "video": {"url": "https://media.tenor.com/v/abc.mp4", "proxy_url": None},
+            "image": {"url": None, "proxy_url": "https://media.tenor.com/i/abc.png"},
+            "thumbnail": {"url": None, "proxy_url": "https://media.tenor.com/i/abc.png"},
+            "url": "https://tenor.com/view/abc",
+        }])
+        p = row_payload(_row(embeds=embeds), [])
+        assert p["media"]["url"].endswith("abc.mp4")
+        assert p["media"]["type"] == "video"
+        assert p["content"] == "clean"  # the embed IS the media; its page link is dropped
+
+    def test_off_allowlist_embed_becomes_url_line(self):
+        embeds = json.dumps([{
+            "video": {},
+            "image": {"url": "https://external-preview.redd.it/x.jpg", "proxy_url": None},
+            "thumbnail": {},
+            "url": "https://redd.it/x",
+        }])
+        p = row_payload(_row(embeds=embeds), [])
+        assert p["media"] is None
+        assert "https://external-preview.redd.it/x.jpg" in p["content"]
+        assert "https://redd.it/x" in p["content"]
+
+    def test_bad_embed_json_is_ignored(self):
+        p = row_payload(_row(embeds="{not json"), [])
+        assert p == {
+            "sender": "discord-alice-w",
+            "content": "clean",
+            "media": None,
+            "created_at": 1786795200000,
+        }
+
 
 @pytest.fixture()
 def archive(tmp_path):
@@ -72,18 +107,18 @@ def archive(tmp_path):
         CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, discriminator TEXT,
                             global_name TEXT, avatar_url TEXT, bot INT);
         CREATE TABLE messages (id INTEGER PRIMARY KEY, channel_id INT, author_id INT,
-                               content TEXT, clean_content TEXT, created_at TEXT);
+                               content TEXT, clean_content TEXT, embeds TEXT, created_at TEXT);
         CREATE TABLE attachments (id INTEGER PRIMARY KEY, message_id INT, filename TEXT,
                                   content_type TEXT, url TEXT, width INT, height INT);
         INSERT INTO channels VALUES (10, 1, 'general', 0, NULL), (11, 1, 'voice', 2, NULL),
                                     (12, 1, 'a-thread', 11, 10);
         INSERT INTO users (id, username, global_name, bot) VALUES (1, "alice", "Alice", 0), (2, "botman", NULL, 1);
         INSERT INTO messages VALUES
-            (100, 10, 1, 'first', 'first', '2026-01-01 00:00:00.000000'),
-            (101, 10, 2, 'botmsg', 'botmsg', '2026-02-01 00:00:00.000000'),
-            (102, 10, 1, 'after-cutoff', 'after-cutoff', '2026-09-01 00:00:00.000000'),
-            (103, 11, 1, 'voicemsg', 'voicemsg', '2026-03-01 00:00:00.000000'),
-            (104, 12, 1, 'threadmsg', 'threadmsg', '2026-03-01 00:00:00.000000');
+            (100, 10, 1, 'first', 'first', NULL, '2026-01-01 00:00:00.000000'),
+            (101, 10, 2, 'botmsg', 'botmsg', NULL, '2026-02-01 00:00:00.000000'),
+            (102, 10, 1, 'after-cutoff', 'after-cutoff', NULL, '2026-09-01 00:00:00.000000'),
+            (103, 11, 1, 'voicemsg', 'voicemsg', NULL, '2026-03-01 00:00:00.000000'),
+            (104, 12, 1, 'threadmsg', 'threadmsg', NULL, '2026-03-01 00:00:00.000000');
         INSERT INTO attachments VALUES
             (1, 100, 'f.png', 'image/png', 'https://cdn.discordapp.com/f.png', 10, 10);
         """
@@ -94,7 +129,7 @@ def archive(tmp_path):
 class TestUserEntries:
     def test_distinct_non_bot_authors_with_names(self, archive):
         archive.execute('INSERT INTO users (id, username, global_name, avatar_url, bot) VALUES (3, "carol", NULL, "https://cdn.discordapp.com/avatars/3/c.png", 0)')
-        archive.execute('INSERT INTO messages VALUES (106, 11, 3, "hi", "hi", "2026-04-01 00:00:00.000000")')
+        archive.execute('INSERT INTO messages VALUES (106, 11, 3, "hi", "hi", NULL, "2026-04-01 00:00:00.000000")')
         archive.commit()
         entries = {e["slug"]: e for e in _user_entries(archive, 1)}
         assert set(entries) == {"discord-alice", "discord-carol"}  # bot excluded
@@ -116,7 +151,7 @@ class TestChannelBatches:
 
     def test_batches_are_chronological(self, archive):
         archive.execute(
-            "INSERT INTO messages VALUES (105, 10, 1, 'later', 'later', '2026-04-01 00:00:00.000000')"
+            "INSERT INTO messages VALUES (105, 10, 1, 'later', 'later', NULL, '2026-04-01 00:00:00.000000')"
         )
         archive.commit()
         cutoff = datetime(2026, 8, 1, tzinfo=UTC)

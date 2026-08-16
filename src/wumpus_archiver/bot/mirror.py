@@ -95,20 +95,19 @@ def _media_dict(
     }
 
 
-def _embed_visuals(embed: Any) -> tuple[str, str, str]:
-    """(video_url, image_url, poster_url) from a Discord embed ('' when absent)."""
-    video = getattr(embed, "video", None)
-    image = getattr(embed, "image", None)
-    thumb = getattr(embed, "thumbnail", None)
-    video_url = ""
-    if video is not None:
-        video_url = getattr(video, "url", "") or getattr(video, "proxy_url", "") or ""
-    image_url = ""
-    if image is not None:
-        image_url = getattr(image, "proxy_url", "") or getattr(image, "url", "") or ""
-    poster = ""
-    if thumb is not None:
-        poster = getattr(thumb, "proxy_url", "") or getattr(thumb, "url", "") or ""
+def _embed_visuals(embed: dict[str, Any]) -> tuple[str, str, str]:
+    """(video_url, image_url, poster_url) from an embed dict ('' when absent).
+
+    Accepts discord.py's ``to_dict()`` shape (live mirror) and the same JSON
+    stored in the archive (backfill) — both prefer proxy_url for images since
+    Discord CDN signed urls expire.
+    """
+    video = embed.get("video") or {}
+    image = embed.get("image") or {}
+    thumb = embed.get("thumbnail") or {}
+    video_url = video.get("url") or video.get("proxy_url") or ""
+    image_url = image.get("proxy_url") or image.get("url") or ""
+    poster = thumb.get("proxy_url") or thumb.get("url") or ""
     return video_url, image_url, poster
 
 
@@ -124,34 +123,39 @@ def mirror_channel_name(channel_name: str) -> str:
     return f"{BRIDGE_SENDER_PREFIX}{channel_name}".strip()[:MAX_CHANNEL_NAME]
 
 
-def build_payload(message: discord.Message) -> dict[str, Any] | None:
-    """Build a bridge send body from a Discord message, or None if not mirrorable.
+def build_media_payload(
+    content: str,
+    attachments: list[dict[str, Any]],
+    embeds: list[dict[str, Any]],
+) -> tuple[str, dict[str, Any] | None]:
+    """Neutral core shared by the live mirror and the archive backfill.
 
+    ``attachments``: dicts with url/content_type/width/height/filename.
+    ``embeds``: discord.py to_dict() shape (also the archive's stored JSON).
     The first renderable visual — an image/video attachment, or a GIF/image
     embed (Tenor & friends) on an allowlisted media host — becomes the message
     media. Everything else (non-visual attachments, extra visuals, embed URLs)
     is appended to the content as URL lines, which the chat client renders as
-    clickable links.
+    clickable links. Returns (content, media).
     """
-    content = message.clean_content.strip()
     media: dict[str, Any] | None = None
     extra: list[str] = []
 
-    for att in message.attachments:
-        url = att.url
-        ct = getattr(att, "content_type", None)
+    for att in attachments:
+        url = att["url"]
+        ct = att.get("content_type")
         if media is None and _is_visual(url, ct) and _allowed_media_url(url):
             media = _media_dict(
                 url,
                 _media_kind(url, ct),
-                width=getattr(att, "width", None),
-                height=getattr(att, "height", None),
-                alt=getattr(att, "filename", "") or "",
+                width=att.get("width"),
+                height=att.get("height"),
+                alt=att.get("filename") or "",
             )
         else:
             extra.append(url)
 
-    for embed in getattr(message, "embeds", None) or []:
+    for embed in embeds:
         video_url, image_url, poster = _embed_visuals(embed)
         if media is None and video_url and _allowed_media_url(video_url):
             # GIF-style embed: image/thumbnail are previews of the same visual.
@@ -165,12 +169,41 @@ def build_payload(message: discord.Message) -> dict[str, Any] | None:
             extra.append(video_url)
         if image_url and image_url != poster:
             extra.append(image_url)
-        link = getattr(embed, "url", "") or ""
+        link = embed.get("url") or ""
         if link and link not in content and link not in extra:
             extra.append(link)
 
     if extra:
         content = f"{content}\n{'\n'.join(extra)}".strip()
+    return content, media
+
+
+def _attachment_dict(att: Any) -> dict[str, Any]:
+    return {
+        "url": att.url,
+        "content_type": getattr(att, "content_type", None),
+        "width": getattr(att, "width", None),
+        "height": getattr(att, "height", None),
+        "filename": getattr(att, "filename", "") or "",
+    }
+
+
+def _embed_dict(embed: Any) -> dict[str, Any]:
+    to_dict = getattr(embed, "to_dict", None)
+    return to_dict() if callable(to_dict) else dict(embed)
+
+
+def build_payload(message: discord.Message) -> dict[str, Any] | None:
+    """Build a bridge send body from a Discord message, or None if not mirrorable.
+
+    Thin adapter over :func:`build_media_payload` (the shared visual/embed
+    selection core); see its docstring for the media/URL-line policy.
+    """
+    content, media = build_media_payload(
+        message.clean_content.strip(),
+        [_attachment_dict(att) for att in message.attachments],
+        [_embed_dict(embed) for embed in getattr(message, "embeds", None) or []],
+    )
     if not content and not media:
         return None
     if len(content) > MAX_CONTENT:
