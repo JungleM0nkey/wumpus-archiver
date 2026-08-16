@@ -8,6 +8,7 @@ from wumpus_archiver.bot.mirror import (
     build_payload,
     mirror_channel_name,
     sender_slug,
+    user_entry,
 )
 
 
@@ -123,3 +124,24 @@ class TestBuildPayload:
         p = build_payload(_message(_user("alice"), "x" * (MAX_CONTENT + 100)))
         assert len(p["content"]) == MAX_CONTENT
         assert p["content"].endswith("…")
+
+
+class TestUserEntry:
+    def test_with_avatar(self):
+        u = SimpleNamespace(
+            id=1, name="alice_w", global_name="Alice Wonder",
+            avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatars/1/abc.png"),
+        )
+        assert user_entry(u) == {
+            "slug": "discord-alice-wonder",
+            "display_name": "Alice Wonder",
+            "avatar_url": "https://cdn.discordapp.com/avatars/1/abc.png",
+        }
+
+    def test_without_avatar(self):
+        u = SimpleNamespace(id=2, name="bob", global_name=None, avatar=None)
+        assert user_entry(u) == {
+            "slug": "discord-bob",
+            "display_name": "bob",
+            "avatar_url": "",
+        }

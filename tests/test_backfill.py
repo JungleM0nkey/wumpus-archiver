@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from wumpus_archiver.bot.backfill import _channel_batches, row_payload
+from wumpus_archiver.bot.backfill import _channel_batches, _user_entries, row_payload
 
 
 def _row(**over):
@@ -91,10 +91,22 @@ def archive(tmp_path):
     return db
 
 
+class TestUserEntries:
+    def test_distinct_non_bot_authors_with_names(self, archive):
+        archive.execute('INSERT INTO users (id, username, global_name, avatar_url, bot) VALUES (3, "carol", NULL, "https://cdn.discordapp.com/avatars/3/c.png", 0)')
+        archive.execute('INSERT INTO messages VALUES (106, 11, 3, "hi", "hi", "2026-04-01 00:00:00.000000")')
+        archive.commit()
+        entries = {e["slug"]: e for e in _user_entries(archive, 1)}
+        assert set(entries) == {"discord-alice", "discord-carol"}  # bot excluded
+        assert entries["discord-carol"]["avatar_url"].endswith("c.png")
+        assert entries["discord-carol"]["display_name"] == "carol"
+        assert entries["discord-alice"]["display_name"] == "Alice"
+
+
 class TestChannelBatches:
     def test_filters_type_threads_bots_and_cutoff(self, archive):
         cutoff = datetime(2026, 8, 1, tzinfo=UTC)
-        out = {name: msgs for name, msgs in _channel_batches(archive, 1, cutoff)}
+        out = dict(_channel_batches(archive, 1, cutoff))
         assert set(out) == {"general", "voice"}
         assert len(out["general"]) == 1  # bot row skipped, post-cutoff row skipped
         assert out["general"][0]["content"] == "first"
