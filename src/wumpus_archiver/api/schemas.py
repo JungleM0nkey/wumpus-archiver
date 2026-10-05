@@ -276,6 +276,8 @@ class ScrapeStatusResponse(BaseModel):
     busy: bool
     current_job: ScrapeJobSchema | None = None
     has_token: bool = False
+    # True when API_AUTH_TOKEN is set, i.e. start/cancel can be used with that bearer token
+    control_enabled: bool = False
 
 
 class ScrapeHistoryResponse(BaseModel):

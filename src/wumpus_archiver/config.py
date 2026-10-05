@@ -1,11 +1,53 @@
 """Configuration management."""
 
+import json
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# Origins allowed to call the API cross-origin unless CORS_ORIGINS overrides them:
+# the SvelteKit dev server, local backends, and the apehost dashboard.
+DEFAULT_CORS_ORIGINS: tuple[str, ...] = (
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "https://connect.apehost.net",
+)
+
+
+def parse_cors_origins(value: str) -> list[str]:
+    """Parse a CORS origin list from an environment string.
+
+    Accepts a comma-separated list (``http://a.example,http://b.example``) or a JSON
+    array of strings. Whitespace, empty entries and trailing slashes are dropped.
+
+    Args:
+        value: Raw string, e.g. the value of the ``CORS_ORIGINS`` environment variable.
+
+    Returns:
+        List of origins (empty if ``value`` is blank).
+
+    Raises:
+        ValueError: If ``value`` looks like a JSON array but is not a list of strings.
+    """
+    text = value.strip()
+    items: list[str]
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"CORS_ORIGINS looks like JSON but is not valid: {e}") from e
+        if not isinstance(parsed, list) or not all(isinstance(i, str) for i in parsed):
+            raise ValueError("CORS_ORIGINS JSON value must be a list of strings")
+        items = parsed
+    else:
+        items = text.split(",")
+    return [origin.strip().rstrip("/") for origin in items if origin.strip()]
+
 
 # Hosts for which a plain-http bridge URL is tolerated (local development only).
 _LOCAL_BRIDGE_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -37,6 +79,15 @@ class Settings(BaseSettings):
     api_host: str = Field(default="127.0.0.1", validation_alias="API_HOST")
     api_port: int = Field(default=8000, validation_alias="API_PORT")
     api_debug: bool = Field(default=False, validation_alias="API_DEBUG")
+
+    # API security
+    # Bearer token required for state-changing scrape endpoints. Unset = scrape control disabled.
+    api_auth_token: SecretStr | None = Field(default=None, validation_alias="API_AUTH_TOKEN")
+    # Browser origins allowed to call the API (comma-separated in CORS_ORIGINS).
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: list(DEFAULT_CORS_ORIGINS),
+        validation_alias="CORS_ORIGINS",
+    )
 
     # Target server
     guild_id: int | None = Field(default=None, validation_alias="GUILD_ID")
@@ -94,6 +145,24 @@ class Settings(BaseSettings):
             "CHAT_BRIDGE_URL must use https:// "
             "(http:// is only allowed for localhost, 127.0.0.1 or [::1])"
         )
+
+    @field_validator("api_auth_token", mode="before")
+    @classmethod
+    def blank_auth_token_is_none(cls, v: object) -> object:
+        """Treat an empty or whitespace-only API auth token as unset."""
+        if isinstance(v, SecretStr):
+            v = v.get_secret_value()
+        if isinstance(v, str):
+            return v.strip() or None
+        return v
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def split_cors_origins(cls, v: object) -> object:
+        """Allow CORS_ORIGINS to be a plain comma-separated string."""
+        if isinstance(v, str):
+            return parse_cors_origins(v)
+        return v
 
     @field_validator("api_port")
     @classmethod

@@ -2,9 +2,10 @@
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from wumpus_archiver.api.auth import require_api_token
 from wumpus_archiver.api.schemas import (
     ScrapeHistoryResponse,
     ScrapeJobSchema,
@@ -53,20 +54,22 @@ async def scrape_status(request: Request) -> ScrapeStatusResponse:
     """Get current scrape job status."""
     manager = _get_scrape_manager(request)
     has_token = getattr(request.app.state, "discord_token", None) is not None
+    control_enabled = bool(getattr(request.app.state, "api_auth_token", None))
 
     if manager.current_job is not None:
         return ScrapeStatusResponse(
             busy=manager.is_busy,
             current_job=_job_to_schema(manager.current_job),
             has_token=has_token,
+            control_enabled=control_enabled,
         )
 
-    return ScrapeStatusResponse(busy=False, has_token=has_token)
+    return ScrapeStatusResponse(busy=False, has_token=has_token, control_enabled=control_enabled)
 
 
-@router.post("/scrape/start")
+@router.post("/scrape/start", dependencies=[Depends(require_api_token)])
 async def scrape_start(request: Request, body: ScrapeStartRequest) -> JSONResponse:
-    """Start a new scrape job."""
+    """Start a new scrape job (requires the API bearer token)."""
     manager = _get_scrape_manager(request)
     token = getattr(request.app.state, "discord_token", None)
 
@@ -92,9 +95,9 @@ async def scrape_start(request: Request, body: ScrapeStartRequest) -> JSONRespon
     )
 
 
-@router.post("/scrape/cancel")
+@router.post("/scrape/cancel", dependencies=[Depends(require_api_token)])
 async def scrape_cancel(request: Request) -> JSONResponse:
-    """Cancel the current scrape job."""
+    """Cancel the current scrape job (requires the API bearer token)."""
     manager = _get_scrape_manager(request)
 
     if manager.cancel():
