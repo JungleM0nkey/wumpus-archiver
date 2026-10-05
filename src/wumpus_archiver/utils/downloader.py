@@ -3,12 +3,21 @@
 Downloads all image attachments from the archive database to local storage,
 updates attachment records with local paths, and supports resumable downloads
 with content hashing for deduplication.
+
+URLs come from the database, so they are treated as untrusted: only HTTPS
+URLs on Discord CDN hosts are fetched (redirects are re-validated hop by hop),
+responses must be images no larger than a size cap, and files are only ever
+written inside the output directory.
 """
 
 import asyncio
 import hashlib
+import ipaddress
 import logging
+import os
+import tempfile
 from pathlib import Path
+from urllib.parse import urljoin, urlsplit
 
 import aiohttp
 from sqlalchemy import select, func
@@ -33,6 +42,80 @@ DEFAULT_CONCURRENCY = 5
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 2.0
 DEFAULT_TIMEOUT = 60
+
+# Safety limits for untrusted, database-supplied URLs
+MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
+DOWNLOAD_CHUNK_SIZE = 64 * 1024
+MAX_REDIRECTS = 3
+_REDIRECT_STATUSES = (301, 302, 303, 307, 308)
+
+# Discord serves attachments from cdn.discordapp.com and media.discordapp.net;
+# any subdomain of these registrable domains is accepted.
+ALLOWED_HOST_SUFFIXES = (".discordapp.com", ".discordapp.net")
+
+
+class _RejectedDownloadError(Exception):
+    """A download was refused for a reason that retrying cannot fix."""
+
+
+def _redact_url(url: str) -> str:
+    """Reduce a URL to scheme, host and path for logging.
+
+    Discord CDN URLs carry signed query tokens (ex, is, hm) that must not be logged.
+
+    Args:
+        url: URL to redact
+
+    Returns:
+        ``scheme://host/path`` without userinfo, port, query or fragment
+    """
+    try:
+        parts = urlsplit(url)
+        return f"{parts.scheme}://{parts.hostname or ''}{parts.path}"
+    except ValueError:
+        return "<invalid url>"
+
+
+def is_allowed_url(url: str) -> bool:
+    """Check whether a URL may be fetched by the downloader.
+
+    Only HTTPS URLs on the default port whose host is a subdomain of
+    ``discordapp.com`` or ``discordapp.net`` are allowed. Userinfo, IP literals
+    and malformed (empty-label, trailing-dot or non-ASCII) hosts are rejected.
+
+    Args:
+        url: URL to validate
+
+    Returns:
+        True if the URL is allowed
+    """
+    # Reject whitespace, control characters and backslashes (parser-differential tricks)
+    if any(ord(char) <= 0x20 or char in ("\\", "\x7f") for char in url):
+        return False
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return False
+
+    if parts.scheme != "https":
+        return False
+    if parts.username is not None or parts.password is not None:
+        return False
+    if port not in (None, 443):
+        return False
+
+    host = parts.hostname
+    if not host or not host.isascii() or not all(host.split(".")):
+        return False
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        return False
+
+    return host.endswith(ALLOWED_HOST_SUFFIXES)
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -65,6 +148,23 @@ def _compute_hash(data: bytes) -> str:
         Hex-encoded SHA-256 hash
     """
     return hashlib.sha256(data).hexdigest()
+
+
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Write a file via a temp file in the same directory, then rename into place.
+
+    Args:
+        path: Destination file path
+        data: File content bytes
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".download-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as tmp_file:
+            tmp_file.write(data)
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 class DownloadStats:
@@ -110,6 +210,7 @@ class ImageDownloader:
         concurrency: Max concurrent downloads
         max_retries: Max retries per failed download
         timeout: HTTP request timeout in seconds
+        max_bytes: Max size in bytes of a single downloaded file
     """
 
     def __init__(
@@ -119,12 +220,14 @@ class ImageDownloader:
         concurrency: int = DEFAULT_CONCURRENCY,
         max_retries: int = DEFAULT_MAX_RETRIES,
         timeout: int = DEFAULT_TIMEOUT,
+        max_bytes: int = MAX_DOWNLOAD_BYTES,
     ) -> None:
         self.database = database
         self.output_dir = output_dir.resolve()
         self.concurrency = concurrency
         self.max_retries = max_retries
         self.timeout = aiohttp.ClientTimeout(total=timeout)
+        self.max_bytes = max_bytes
         self.stats = DownloadStats()
         self._semaphore = asyncio.Semaphore(concurrency)
 
@@ -329,65 +432,159 @@ class ImageDownloader:
             safe_name = _sanitize_filename(attachment.filename)
             local_filename = f"{attachment.id}_{safe_name}"
             file_path = channel_dir / local_filename
+
+            # Refuse to write anywhere outside the output directory (symlinks, odd paths)
+            resolved_path = file_path.resolve()
+            if not resolved_path.is_relative_to(self.output_dir):
+                error_msg = f"Refusing to write outside output directory: {attachment.filename}"
+                logger.error(error_msg)
+                self.stats.failed += 1
+                self.stats.errors.append(error_msg)
+                return None
             # Relative path from output_dir root for DB storage
-            relative_path = str(file_path.relative_to(self.output_dir))
+            relative_path = str(resolved_path.relative_to(self.output_dir))
 
             # Try URL, then proxy_url as fallback
             urls_to_try = [attachment.url]
             if attachment.proxy_url:
                 urls_to_try.append(attachment.proxy_url)
 
+            rejected: dict[str, str] = {}  # url -> reason; never retried
             for attempt in range(self.max_retries):
                 for url in urls_to_try:
+                    if url in rejected:
+                        continue
                     try:
-                        async with http_session.get(url) as response:
-                            if response.status == 200:
-                                data = await response.read()
-                                content_hash = _compute_hash(data)
-
-                                # Write file
-                                file_path.write_bytes(data)
-
-                                logger.debug(
-                                    "Downloaded %s (%d bytes)",
-                                    attachment.filename,
-                                    len(data),
-                                )
-                                return (relative_path, content_hash, len(data))
-
-                            if response.status == 404:
-                                logger.warning(
-                                    "File not found (404): %s", attachment.filename
-                                )
-                                self.stats.skipped += 1
-                                return None
-
-                            logger.warning(
-                                "HTTP %d for %s (attempt %d)",
-                                response.status,
-                                attachment.filename,
-                                attempt + 1,
-                            )
-
-                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                        status, data = await self._fetch(http_session, url)
+                    except _RejectedDownloadError as e:
+                        rejected[url] = str(e)
+                        logger.warning(
+                            "Refusing download for %s from %s: %s",
+                            attachment.filename,
+                            _redact_url(url),
+                            e,
+                        )
+                        continue
+                    except (aiohttp.ClientError, TimeoutError) as e:
                         logger.warning(
                             "Download error for %s (attempt %d): %s",
                             attachment.filename,
                             attempt + 1,
                             e,
                         )
+                        continue
+
+                    if data is not None:
+                        content_hash = _compute_hash(data)
+                        await asyncio.to_thread(_write_atomic, resolved_path, data)
+
+                        logger.debug(
+                            "Downloaded %s (%d bytes)",
+                            attachment.filename,
+                            len(data),
+                        )
+                        return (relative_path, content_hash, len(data))
+
+                    if status == 404:
+                        logger.warning("File not found (404): %s", attachment.filename)
+                        self.stats.skipped += 1
+                        return None
+
+                    logger.warning(
+                        "HTTP %d for %s (attempt %d)",
+                        status,
+                        attachment.filename,
+                        attempt + 1,
+                    )
+
+                if rejected.keys() >= set(urls_to_try):
+                    break  # every URL was refused outright; retrying cannot help
 
                 # Exponential backoff between retries
                 if attempt < self.max_retries - 1:
                     delay = DEFAULT_RETRY_DELAY * (2 ** attempt)
                     await asyncio.sleep(delay)
 
-            # All retries exhausted
-            error_msg = f"Failed after {self.max_retries} retries: {attachment.filename}"
+            # All retries exhausted or every URL refused
+            if rejected:
+                reasons = "; ".join(dict.fromkeys(rejected.values()))
+                error_msg = f"Download refused for {attachment.filename}: {reasons}"
+            else:
+                error_msg = f"Failed after {self.max_retries} retries: {attachment.filename}"
             logger.error(error_msg)
             self.stats.failed += 1
             self.stats.errors.append(error_msg)
             return None
+
+    async def _fetch(
+        self,
+        http_session: aiohttp.ClientSession,
+        url: str,
+    ) -> "tuple[int, bytes | None]":
+        """Fetch a URL, following a few redirects that each pass ``is_allowed_url``.
+
+        Args:
+            http_session: aiohttp client session
+            url: Initial URL to fetch
+
+        Returns:
+            Tuple of (final HTTP status, body). The body is only set for a 200
+            response that passed the Content-Type and size checks.
+
+        Raises:
+            _RejectedDownloadError: If a URL is not allowed, redirects are
+                malformed or excessive, or the response is not an acceptable image
+        """
+        current = url
+        for _ in range(MAX_REDIRECTS + 1):
+            if not is_allowed_url(current):
+                raise _RejectedDownloadError(f"URL not allowed: {_redact_url(current)}")
+
+            async with http_session.get(current, allow_redirects=False) as response:
+                if response.status in _REDIRECT_STATUSES:
+                    location = response.headers.get("Location")
+                    if not location:
+                        raise _RejectedDownloadError(
+                            f"redirect without Location from {_redact_url(current)}"
+                        )
+                    current = urljoin(current, location)
+                    continue
+                if response.status != 200:
+                    return response.status, None
+                return response.status, await self._read_image_body(response)
+
+        raise _RejectedDownloadError(f"too many redirects (more than {MAX_REDIRECTS})")
+
+    async def _read_image_body(self, response: aiohttp.ClientResponse) -> bytes:
+        """Read a 200 response body after checking its type and enforcing the size cap.
+
+        Args:
+            response: Response whose body has not been read yet
+
+        Returns:
+            The response body
+
+        Raises:
+            _RejectedDownloadError: If the Content-Type is not an allowed image
+                type or the body exceeds ``max_bytes``
+        """
+        content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type not in IMAGE_CONTENT_TYPES:
+            raise _RejectedDownloadError(f"unexpected Content-Type {content_type[:100]!r}")
+
+        try:
+            declared_size = int(response.headers.get("Content-Length", ""))
+        except ValueError:
+            declared_size = 0
+        if declared_size > self.max_bytes:
+            raise _RejectedDownloadError(f"file exceeds {self.max_bytes} byte limit")
+
+        body = bytearray()
+        async for chunk in response.content.iter_chunked(DOWNLOAD_CHUNK_SIZE):
+            body.extend(chunk)
+            if len(body) > self.max_bytes:
+                raise _RejectedDownloadError(f"file exceeds {self.max_bytes} byte limit")
+        return bytes(body)
 
     async def _update_attachment_status(
         self,
