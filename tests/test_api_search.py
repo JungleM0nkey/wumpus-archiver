@@ -1,0 +1,361 @@
+"""Tests for search inputs on the API: case-insensitive matching and LIKE-wildcard escaping.
+
+Covers ``/api/gifs``, ``/api/gifs/random``, ``/api/search`` and
+``/api/guilds/{guild_id}/users`` against SQLite (the default database), plus unit tests for
+:func:`wumpus_archiver.api.routes._helpers.escape_like`.
+"""
+
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
+from typing import Any
+
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
+
+from wumpus_archiver.api.routes import router as api_router
+from wumpus_archiver.api.routes._helpers import escape_like
+from wumpus_archiver.models.channel import Channel
+from wumpus_archiver.models.guild import Guild
+from wumpus_archiver.models.message import Message
+from wumpus_archiver.models.user import User
+from wumpus_archiver.storage.database import Database
+
+GUILD_ID = 1
+CHANNEL_ID = 10
+
+# gif_index is not part of Base.metadata (the gifs routes expect it to be created outside of
+# create_tables), so the tests create a minimal stand-in with the columns the routes select.
+GIF_INDEX_DDL = """
+CREATE TABLE gif_index (
+    id INTEGER PRIMARY KEY,
+    content_hash TEXT,
+    filename TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    width INTEGER,
+    height INTEGER,
+    local_path TEXT,
+    url TEXT NOT NULL,
+    proxy_url TEXT,
+    usage_count INTEGER,
+    last_used TEXT,
+    channel_id INTEGER
+)
+"""
+
+GIF_INSERT = """
+INSERT INTO gif_index (
+    id, content_hash, filename, size, width, height, local_path, url, proxy_url,
+    usage_count, last_used, channel_id
+) VALUES (
+    :id, :content_hash, :filename, 1024, 100, 100, NULL, :url, NULL, 1,
+    '2024-01-01T00:00:00', :channel_id
+)
+"""
+
+# (id, filename). The decoys are chosen so wildcard-interpreted queries match them:
+# "100X_real.gif" matches an unescaped "100%_real"; "abc.gif" matches an unescaped "_".
+GIF_FILENAMES: list[tuple[int, str]] = [
+    (1, "100%_real.gif"),
+    (2, "abc.gif"),
+    (3, "Dancing_Cat.GIF"),
+    (4, "100X_real.gif"),
+    (5, "back\\slash.gif"),
+]
+
+# (id, content)
+MESSAGES: list[tuple[int, str]] = [
+    (101, "100% sure about this"),
+    (102, "plain message"),
+    (103, "snake_case name"),
+    (104, "back\\slash path"),
+    (105, "Hello World"),
+]
+
+# (id, username, global_name)
+USERS: list[tuple[int, str, str | None]] = [
+    (201, "plain", "Plain Jane"),
+    (202, "under_score", None),
+    (203, "pct", "100% Bob"),
+    (204, "back\\slash", None),
+]
+
+
+@pytest.fixture
+async def seeded_db(database: Database) -> Database:
+    """Database with a guild, channel, users, messages and a minimal gif_index table."""
+    now = datetime.now(UTC)
+    async with database.session() as session:
+        session.add(Guild(id=GUILD_ID, name="Guild"))
+        session.add(Channel(id=CHANNEL_ID, guild_id=GUILD_ID, name="general", type=0))
+        for user_id, username, global_name in USERS:
+            session.add(User(id=user_id, username=username, global_name=global_name))
+        for message_id, content in MESSAGES:
+            session.add(
+                Message(
+                    id=message_id,
+                    channel_id=CHANNEL_ID,
+                    content=content,
+                    clean_content=content,
+                    created_at=now,
+                    scraped_at=now,
+                )
+            )
+        # Every user posts once so they appear in the guild user listing.
+        for index, (user_id, _, _) in enumerate(USERS):
+            session.add(
+                Message(
+                    id=900 + index,
+                    author_id=user_id,
+                    channel_id=CHANNEL_ID,
+                    content="hi",
+                    clean_content="hi",
+                    created_at=now,
+                    scraped_at=now,
+                )
+            )
+
+    async with database.session() as session:
+        await session.execute(text(GIF_INDEX_DDL))
+        for gif_id, filename in GIF_FILENAMES:
+            await session.execute(
+                text(GIF_INSERT),
+                {
+                    "id": gif_id,
+                    "content_hash": f"hash{gif_id}",
+                    "filename": filename,
+                    "url": f"https://cdn.example.test/{gif_id}.gif",
+                    "channel_id": CHANNEL_ID,
+                },
+            )
+    return database
+
+
+@pytest.fixture
+async def client(seeded_db: Database) -> AsyncGenerator[AsyncClient, None]:
+    """HTTP client for a minimal app that mounts the API routers on the seeded database."""
+    app = FastAPI()
+    app.state.database = seeded_db
+    app.state.attachments_path = None
+    app.include_router(api_router, prefix="/api")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
+        yield http
+
+
+def _gif_ids(payload: dict[str, Any]) -> set[str]:
+    return {gif["id"] for gif in payload["gifs"]}
+
+
+def _message_ids(payload: dict[str, Any]) -> set[str]:
+    return {result["message"]["id"] for result in payload["results"]}
+
+
+def _user_ids(payload: dict[str, Any]) -> set[str]:
+    return {user["id"] for user in payload["users"]}
+
+
+class TestEscapeLike:
+    """Unit tests for escape_like."""
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("", ""),
+            ("plain text", "plain text"),
+            ("%", "\\%"),
+            ("_", "\\_"),
+            ("\\", "\\\\"),
+            ("100%_real", "100\\%\\_real"),
+            ("%_%", "\\%\\_\\%"),
+            # The escape character must be escaped first, so it is not double-processed.
+            ("a\\%", "a\\\\\\%"),
+            ("a\\_b", "a\\\\\\_b"),
+        ],
+    )
+    def test_default_escape(self, value: str, expected: str) -> None:
+        """Test that %, _ and the backslash are each prefixed with a backslash."""
+        assert escape_like(value) == expected
+
+    def test_custom_escape_character(self) -> None:
+        """Test escaping with a non-default escape character."""
+        assert escape_like("a!b%c_d", escape="!") == "a!!b!%c!_d"
+
+    def test_backslash_is_not_special_with_custom_escape(self) -> None:
+        """Test that a backslash is left alone when another escape character is used."""
+        assert escape_like("a\\b", escape="!") == "a\\b"
+
+
+class TestGifSearch:
+    """Tests for GET /api/gifs?q=."""
+
+    async def test_no_query_returns_all(self, client: AsyncClient) -> None:
+        """Test listing without q still works."""
+        response = await client.get("/api/gifs")
+        assert response.status_code == 200
+        assert response.json()["total"] == len(GIF_FILENAMES)
+
+    async def test_query_does_not_error_on_sqlite(self, client: AsyncClient) -> None:
+        """Test that q works on SQLite (ILIKE is not valid SQLite syntax)."""
+        response = await client.get("/api/gifs", params={"q": "abc"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert _gif_ids(payload) == {"2"}
+        assert payload["total"] == 1
+
+    @pytest.mark.parametrize("q", ["dancing", "DANCING", "cat.gif", "Dancing_Cat.GIF"])
+    async def test_match_is_case_insensitive(self, client: AsyncClient, q: str) -> None:
+        """Test that filenames match regardless of case."""
+        response = await client.get("/api/gifs", params={"q": q})
+        assert response.status_code == 200
+        assert _gif_ids(response.json()) == {"3"}
+
+    @pytest.mark.parametrize(
+        ("q", "expected_ids"),
+        [
+            ("%", {"1"}),
+            ("_", {"1", "3", "4"}),
+            ("100%_real", {"1"}),
+            ("_%_%", set()),
+            ("\\", {"5"}),
+            ("back\\slash", {"5"}),
+            ("\\%", set()),
+            ("%%", set()),
+        ],
+    )
+    async def test_wildcards_match_literally(
+        self, client: AsyncClient, q: str, expected_ids: set[str]
+    ) -> None:
+        """Test that %, _ and backslash in q only match those literal characters."""
+        response = await client.get("/api/gifs", params={"q": q})
+        assert response.status_code == 200
+        payload = response.json()
+        assert _gif_ids(payload) == expected_ids
+        assert payload["total"] == len(expected_ids)
+
+    async def test_query_combines_with_channel_filter(self, client: AsyncClient) -> None:
+        """Test that the escaped query composes with the other filters."""
+        response = await client.get("/api/gifs", params={"q": "%", "channel_id": CHANNEL_ID})
+        assert response.status_code == 200
+        assert _gif_ids(response.json()) == {"1"}
+
+        response = await client.get("/api/gifs", params={"q": "%", "channel_id": CHANNEL_ID + 1})
+        assert response.status_code == 200
+        assert _gif_ids(response.json()) == set()
+
+
+class TestRandomGif:
+    """Tests for GET /api/gifs/random?q=."""
+
+    async def test_random_with_query(self, client: AsyncClient) -> None:
+        """Test that random works with q on SQLite and matches case-insensitively."""
+        response = await client.get("/api/gifs/random", params={"q": "ABC"})
+        assert response.status_code == 200
+        assert response.json()["id"] == "2"
+
+    async def test_random_without_query(self, client: AsyncClient) -> None:
+        """Test that random without q returns one of the seeded GIFs."""
+        response = await client.get("/api/gifs/random")
+        assert response.status_code == 200
+        assert response.json()["id"] in {str(gif_id) for gif_id, _ in GIF_FILENAMES}
+
+    @pytest.mark.parametrize(("q", "expected_id"), [("%", "1"), ("100%_real", "1"), ("\\", "5")])
+    async def test_random_wildcards_match_literally(
+        self, client: AsyncClient, q: str, expected_id: str
+    ) -> None:
+        """Test that wildcards in q are literal; repeat to defeat random ordering."""
+        for _ in range(10):
+            response = await client.get("/api/gifs/random", params={"q": q})
+            assert response.status_code == 200
+            assert response.json()["id"] == expected_id
+
+    @pytest.mark.parametrize("q", ["_%_%", "%%", "nosuchgif"])
+    async def test_random_no_match_is_404(self, client: AsyncClient, q: str) -> None:
+        """Test that a query with no literal match returns 404, not an error."""
+        response = await client.get("/api/gifs/random", params={"q": q})
+        assert response.status_code == 404
+
+
+class TestMessageSearch:
+    """Tests for GET /api/search?q=."""
+
+    async def test_case_insensitive_match(self, client: AsyncClient) -> None:
+        """Test that message search is case-insensitive."""
+        response = await client.get("/api/search", params={"q": "HELLO"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert _message_ids(payload) == {"105"}
+        assert payload["total"] == 1
+
+    @pytest.mark.parametrize(
+        ("q", "expected_ids"),
+        [
+            ("%", {"101"}),
+            ("_", {"103"}),
+            ("100%", {"101"}),
+            ("_%_%", set()),
+            ("\\", {"104"}),
+            ("back\\slash", {"104"}),
+        ],
+    )
+    async def test_wildcards_match_literally(
+        self, client: AsyncClient, q: str, expected_ids: set[str]
+    ) -> None:
+        """Test that wildcards only match literal characters in both results and total."""
+        response = await client.get("/api/search", params={"q": q})
+        assert response.status_code == 200
+        payload = response.json()
+        assert _message_ids(payload) == expected_ids
+        # The count query is built separately from the results query.
+        assert payload["total"] == len(expected_ids)
+        assert payload["query"] == q
+
+    async def test_wildcard_with_channel_and_guild_filters(self, client: AsyncClient) -> None:
+        """Test that the escaped query composes with the channel and guild filters."""
+        for params in ({"channel_id": CHANNEL_ID}, {"guild_id": GUILD_ID}):
+            response = await client.get("/api/search", params={"q": "%", **params})
+            assert response.status_code == 200
+            payload = response.json()
+            assert _message_ids(payload) == {"101"}
+            assert payload["total"] == 1
+
+        response = await client.get("/api/search", params={"q": "%", "channel_id": CHANNEL_ID + 1})
+        assert response.status_code == 200
+        assert response.json()["total"] == 0
+
+
+class TestUserSearch:
+    """Tests for GET /api/guilds/{guild_id}/users?q=."""
+
+    async def test_no_query_lists_all_users(self, client: AsyncClient) -> None:
+        """Test listing guild users without q."""
+        response = await client.get(f"/api/guilds/{GUILD_ID}/users")
+        assert response.status_code == 200
+        assert response.json()["total"] == len(USERS)
+
+    async def test_case_insensitive_match_on_global_name(self, client: AsyncClient) -> None:
+        """Test that q matches the global name case-insensitively."""
+        response = await client.get(f"/api/guilds/{GUILD_ID}/users", params={"q": "JANE"})
+        assert response.status_code == 200
+        assert _user_ids(response.json()) == {"201"}
+
+    @pytest.mark.parametrize(
+        ("q", "expected_ids"),
+        [
+            ("_", {"202"}),
+            ("%", {"203"}),
+            ("100%", {"203"}),
+            ("_%_%", set()),
+            ("\\", {"204"}),
+            ("back\\slash", {"204"}),
+        ],
+    )
+    async def test_wildcards_match_literally(
+        self, client: AsyncClient, q: str, expected_ids: set[str]
+    ) -> None:
+        """Test that wildcards in q only match literal characters in username/global_name."""
+        response = await client.get(f"/api/guilds/{GUILD_ID}/users", params={"q": q})
+        assert response.status_code == 200
+        payload = response.json()
+        assert _user_ids(payload) == expected_ids
+        assert payload["total"] == len(expected_ids)
