@@ -95,8 +95,9 @@ def create_app(
     app.include_router(api_router, prefix="/api")
 
     # Serve portal static files if built (SPA with fallback to index.html)
-    portal_dist = Path(__file__).parent.parent.parent.parent / "portal" / "build"
+    portal_dist = _portal_dist()
     if portal_dist.exists():
+        portal_root = portal_dist.resolve()
         from fastapi.responses import FileResponse
 
         # Mount static assets (JS, CSS, etc.) at /_app/
@@ -116,12 +117,49 @@ def create_app(
         # SPA fallback: serve index.html for all unmatched routes
         @app.get("/{full_path:path}", include_in_schema=False)
         async def spa_fallback(full_path: str) -> FileResponse:
-            # Try serving exact file first (e.g. favicon.ico)
-            file_path = portal_dist / full_path
-            if file_path.is_file():
+            # Try serving exact file first (e.g. favicon.ico), but never anything
+            # that resolves outside the build directory.
+            file_path = _resolve_portal_file(portal_root, full_path)
+            if file_path is not None:
                 return FileResponse(str(file_path))
             # Fallback to index.html for SPA routing
             return FileResponse(str(portal_dist / "index.html"))
 
     return app
 
+
+def _portal_dist() -> Path:
+    """Return the directory containing the built SvelteKit portal.
+
+    Returns:
+        Path to ``portal/build`` (it may not exist if the portal was not built)
+    """
+    return Path(__file__).parent.parent.parent.parent / "portal" / "build"
+
+
+def _resolve_portal_file(portal_root: Path, requested: str) -> Path | None:
+    """Map a request path to a file inside the portal build directory.
+
+    The request path is untrusted (it is URL-decoded before routing), so the
+    candidate is fully resolved (``..`` segments and symlinks) and only returned
+    if it is a regular file located inside ``portal_root``.
+
+    Args:
+        portal_root: Resolved absolute path of the portal build directory
+        requested: Request path relative to the site root (URL-decoded)
+
+    Returns:
+        The resolved file path, or None if the path is empty, malformed, escapes
+        ``portal_root`` or is not a regular file
+    """
+    if not requested or "\x00" in requested or "\\" in requested:
+        return None
+    try:
+        # An absolute `requested` replaces portal_root here; the containment check rejects it.
+        candidate = (portal_root / requested).resolve()
+        if candidate.is_relative_to(portal_root) and candidate.is_file():
+            return candidate
+    except (OSError, ValueError, RuntimeError):
+        # Unresolvable (e.g. symlink loop, over-long name) -> treat as not found
+        return None
+    return None
