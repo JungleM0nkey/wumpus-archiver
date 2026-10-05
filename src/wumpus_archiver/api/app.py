@@ -71,7 +71,7 @@ def create_app(
             from wumpus_archiver.config import Settings
 
             settings = Settings()  # type: ignore[call-arg]
-            resolved_token = settings.discord_bot_token
+            resolved_token = settings.discord_bot_token.get_secret_value()
             logger.info("Loaded Discord bot token from settings — scrape control enabled")
         except Exception:
             logger.info("No Discord bot token found — scrape control panel will be read-only")
