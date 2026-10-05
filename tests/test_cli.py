@@ -3,6 +3,8 @@
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 
+import discord
+import pytest
 from click.testing import CliRunner
 
 from wumpus_archiver.cli import cli
@@ -25,15 +27,35 @@ class TestCLI:
         assert result.exit_code == 0
         assert "Wumpus Archiver" in result.output
 
-    def test_scrape_missing_token(self) -> None:
-        """Test scrape command fails without token."""
+    def test_scrape_missing_token(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test scrape command fails without token.
+
+        An empty token still passes ``Settings`` validation, so ``scrape`` goes on to
+        build the bot. The bot is replaced with a fake that fails to log in, exactly as
+        discord.py does for an improper token, so the test never touches the network.
+        """
+        created: list[object] = []
+
+        class FakeBot:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                created.append(self)
+
+            async def start(self) -> None:
+                raise discord.LoginFailure("Improper token has been passed.")
+
+            async def close(self) -> None:
+                pass
+
+        monkeypatch.setattr("wumpus_archiver.cli.ArchiverBot", FakeBot)
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            ["scrape", "--guild-id", "12345"],
+            ["scrape", "--guild-id", "12345", "--output", str(tmp_path / "archive.db")],
             env={"DISCORD_BOT_TOKEN": ""},
         )
+        assert len(created) == 1
         assert result.exit_code != 0
+        assert "Improper token" in result.output
 
     def test_scrape_missing_guild_id(self) -> None:
         """Test scrape command requires --guild-id."""
@@ -57,14 +79,24 @@ class TestCLI:
         assert result.exit_code != 0
         assert "does not exist" in result.output
 
-    def test_serve_starts(self, tmp_path) -> None:
+    def test_serve_starts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test serve command starts the portal."""
         db_file = tmp_path / "test.db"
         db_file.touch()
+        calls: list[tuple[object, str, int]] = []
+
+        def fake_run(app: object, host: str, port: int, **kwargs: object) -> None:
+            calls.append((app, host, port))
+
+        # `serve` does `import uvicorn` at call time, so patching the module attribute
+        # keeps the test from binding a real port and blocking forever.
+        monkeypatch.setattr("uvicorn.run", fake_run)
         runner = CliRunner()
-        # Serve will try to start uvicorn — catch the SystemExit or verify
-        # it gets past validation and into the startup path.
         result = runner.invoke(cli, ["serve", str(db_file)])
+        assert result.exit_code == 0
+        assert len(calls) == 1
+        _, host, port = calls[0]
+        assert (host, port) == ("127.0.0.1", 8000)
         # Should not report 'not yet implemented'
         assert "not yet implemented" not in (result.output or "")
 
