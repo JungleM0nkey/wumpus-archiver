@@ -1,0 +1,39 @@
+version: 2
+
+updates:
+  # Python backend (pyproject.toml at the repository root)
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      python-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # SvelteKit portal
+  - package-ecosystem: npm
+    directory: "/portal"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(portal)"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions used in .github/workflows (pinned to commit SHAs)
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
