@@ -6,12 +6,15 @@
 		startScrape,
 		cancelScrape,
 		getScrapeHistory,
-		getDownloadStats
+		getDownloadStats,
+		getApiToken,
+		setApiToken,
+		ApiError
 	} from '$lib/api';
 	import type { Guild, ScrapeJob, ScrapeStatusResponse, ScrapeHistoryResponse, DownloadStatsResponse } from '$lib/types';
 
 	let guilds: Guild[] = $state([]);
-	let status: ScrapeStatusResponse | null = $state(null);
+	let status = $state<ScrapeStatusResponse | null>(null);
 	let history: ScrapeJob[] = $state([]);
 	let dlStats: DownloadStatsResponse | null = $state(null);
 	let loading = $state(true);
@@ -19,12 +22,14 @@
 	let actionError = $state('');
 	let selectedGuildId = $state('');
 	let customGuildId = $state('');
+	let apiToken = $state('');
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 	// Computed
 	let currentJob = $derived(status?.current_job ?? null);
 	let isBusy = $derived(status?.busy ?? false);
 	let hasToken = $derived(status?.has_token ?? false);
+	let controlEnabled = $derived(status?.control_enabled ?? false);
 
 	let resolvedGuildId = $derived(() => {
 		if (customGuildId.trim()) return Number(customGuildId.trim());
@@ -33,6 +38,7 @@
 	});
 
 	onMount(async () => {
+		apiToken = getApiToken();
 		await loadAll();
 		// Poll for status updates every 2s
 		pollTimer = setInterval(pollStatus, 2000);
@@ -77,6 +83,20 @@
 		}
 	}
 
+	function handleTokenInput() {
+		setApiToken(apiToken.trim());
+	}
+
+	function describeActionError(e: unknown, fallback: string): string {
+		if (e instanceof ApiError && e.status === 401) {
+			return "Invalid or missing API token. Enter the server's API_AUTH_TOKEN above.";
+		}
+		if (e instanceof ApiError && e.status === 403) {
+			return 'Scrape control is disabled on the server. Set API_AUTH_TOKEN and restart it.';
+		}
+		return e instanceof Error ? e.message : fallback;
+	}
+
 	async function handleStart() {
 		actionError = '';
 		const gid = resolvedGuildId();
@@ -88,7 +108,7 @@
 			await startScrape(gid);
 			status = await getScrapeStatus();
 		} catch (e) {
-			actionError = e instanceof Error ? e.message : 'Failed to start scrape';
+			actionError = describeActionError(e, 'Failed to start scrape');
 		}
 	}
 
@@ -100,7 +120,7 @@
 			const hist = await getScrapeHistory();
 			history = hist.jobs;
 		} catch (e) {
-			actionError = e instanceof Error ? e.message : 'Failed to cancel';
+			actionError = describeActionError(e, 'Failed to cancel');
 		}
 	}
 
@@ -188,6 +208,16 @@
 			</div>
 		{/if}
 
+		{#if !controlEnabled}
+			<div class="alert alert-warning fade-in">
+				<span class="alert-icon">⚠</span>
+				<div>
+					<strong>Scrape control is disabled.</strong>
+					<p>Set <code>API_AUTH_TOKEN</code> in your <code>.env</code> file and restart the server, then enter it below to start or cancel scrapes.</p>
+				</div>
+			</div>
+		{/if}
+
 		<div class="panel-grid">
 			<!-- Start Scrape Card -->
 			<section class="card start-card fade-in">
@@ -225,6 +255,20 @@
 						/>
 					</div>
 
+					<div class="form-group">
+						<label class="form-label" for="api-token-input">API token</label>
+						<input
+							id="api-token-input"
+							class="form-input"
+							type="password"
+							autocomplete="off"
+							placeholder="API_AUTH_TOKEN"
+							bind:value={apiToken}
+							oninput={handleTokenInput}
+						/>
+						<p class="form-hint">Kept in this browser tab only (sessionStorage).</p>
+					</div>
+
 					{#if actionError}
 						<div class="inline-error">{actionError}</div>
 					{/if}
@@ -235,7 +279,7 @@
 								⊘ Cancel Scrape
 							</button>
 						{:else}
-							<button class="btn btn-primary" onclick={handleStart} disabled={!hasToken}>
+							<button class="btn btn-primary" onclick={handleStart} disabled={!hasToken || !controlEnabled}>
 								▶ Start Scrape
 							</button>
 						{/if}
@@ -631,6 +675,12 @@
 	.form-select option {
 		background: var(--bg-raised);
 		color: var(--text-primary);
+	}
+
+	.form-hint {
+		margin-top: var(--sp-1);
+		font-size: 12px;
+		color: var(--text-muted);
 	}
 
 	.inline-error {

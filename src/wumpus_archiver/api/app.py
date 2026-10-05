@@ -1,6 +1,7 @@
 """FastAPI application factory."""
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -15,10 +16,44 @@ from wumpus_archiver.storage.database import Database
 logger = logging.getLogger(__name__)
 
 
+def _load_api_security_settings() -> tuple[str | None, list[str]]:
+    """Resolve the API auth token and allowed CORS origins from env/.env.
+
+    ``Settings()`` requires ``DISCORD_BOT_TOKEN``, which a read-only portal deployment may
+    not have, so a placeholder bot token is supplied: only the API fields are read here.
+    If settings still cannot be loaded, fall back to the raw environment variables.
+
+    Returns:
+        Tuple of (API auth token or None, allowed CORS origins).
+    """
+    from pydantic import SecretStr
+
+    from wumpus_archiver.config import DEFAULT_CORS_ORIGINS, Settings, parse_cors_origins
+
+    try:
+        settings = Settings(discord_bot_token=SecretStr("unused"))
+        token = settings.api_auth_token.get_secret_value() if settings.api_auth_token else None
+        return token, list(settings.cors_origins)
+    except Exception:
+        logger.warning("Could not load settings; reading API_AUTH_TOKEN/CORS_ORIGINS from env")
+
+    env_token = os.environ.get("API_AUTH_TOKEN", "").strip() or None
+    raw_origins = os.environ.get("CORS_ORIGINS")
+    if raw_origins is None:
+        return env_token, list(DEFAULT_CORS_ORIGINS)
+    try:
+        return env_token, parse_cors_origins(raw_origins)
+    except ValueError:
+        # Fail closed: an unparseable allow-list must not widen cross-origin access
+        logger.warning("Invalid CORS_ORIGINS; no cross-origin requests will be allowed")
+        return env_token, []
+
+
 def create_app(
     database: Database,
     attachments_path: Path | None = None,
     discord_token: str | None = None,
+    api_auth_token: str | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -26,6 +61,9 @@ def create_app(
         database: Database instance for storage
         attachments_path: Path to local attachments directory (enables local image serving)
         discord_token: Optional Discord bot token for scrape control panel
+        api_auth_token: Optional bearer token required for scrape start/cancel. If omitted,
+            ``API_AUTH_TOKEN`` is read from the environment/.env; with no token at all,
+            scrape control is disabled (those endpoints return 403).
 
     Returns:
         Configured FastAPI application
@@ -45,22 +83,25 @@ def create_app(
         lifespan=lifespan,
     )
 
-    # CORS for SvelteKit dev server + the apehost dashboard
+    env_auth_token, cors_origins = _load_api_security_settings()
+
+    # CORS: only the configured origins (default: SvelteKit dev server + apehost dashboard).
+    # Auth is a bearer header, not cookies, so credentials are never allowed.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",
-            "http://localhost:3000",
-            "http://localhost:8000",
-            "https://connect.apehost.net",
-        ],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
     )
 
     # Store database on app state
     app.state.database = database
+
+    # Bearer token guarding scrape start/cancel; None disables scrape control (fail closed)
+    app.state.api_auth_token = api_auth_token or env_auth_token
+    if not app.state.api_auth_token:
+        logger.info("No API_AUTH_TOKEN set — scrape start/cancel are disabled")
 
     # Scrape control panel: manager + token
     app.state.scrape_manager = ScrapeJobManager(database)

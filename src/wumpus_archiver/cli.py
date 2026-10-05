@@ -1,6 +1,7 @@
 """Command-line interface for wumpus-archiver."""
 
 import asyncio
+import ipaddress
 import sys
 from datetime import UTC, datetime
 from importlib.metadata import version as pkg_version
@@ -185,12 +186,38 @@ def serve(
     app = create_app(db, attachments_path=att_path)
 
     click.echo(f"Starting portal at http://{host}:{port}")
+    _warn_if_not_loopback(host)
     click.echo(f"Database: {db_path}")
     if att_path:
         click.echo(f"Attachments: {att_path}")
     else:
         click.echo("Attachments: not found (images served from Discord CDN)")
     uvicorn.run(app, host=host, port=port)
+
+
+def _warn_if_not_loopback(host: str) -> None:
+    """Print a loud warning to stderr when the server binds to a non-loopback address.
+
+    Args:
+        host: Host/interface the server will bind to.
+    """
+    name = host.strip().strip("[]").lower()
+    try:
+        is_loopback = ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        is_loopback = name == "localhost"
+    if is_loopback:
+        return
+    click.echo(
+        click.style(
+            f"WARNING: binding to {host} exposes the API and all archived data to your "
+            "network. Scrape start/cancel are disabled unless API_AUTH_TOKEN is set; "
+            "clients must then send it as 'Authorization: Bearer <token>'.",
+            fg="red",
+            bold=True,
+        ),
+        err=True,
+    )
 
 
 def _build_portal_static() -> None:
@@ -482,6 +509,7 @@ def dev(
     ]
 
     click.echo("Starting development environment...")
+    _warn_if_not_loopback(host)
     click.echo(f"  Backend:  http://{host}:{port} (API + uvicorn reload)")
     click.echo(f"  Frontend: http://localhost:{frontend_port} (Vite HMR)")
     click.echo(f"  Database: {db_path}")
@@ -669,6 +697,8 @@ DATABASE_URL=sqlite+aiosqlite:///./wumpus_archive.db
 API_HOST=127.0.0.1
 API_PORT=8000
 API_DEBUG=false
+# Bearer token required to start/cancel scrapes from the portal/API (empty = disabled)
+API_AUTH_TOKEN=
 
 # Scraper Configuration
 BATCH_SIZE=1000

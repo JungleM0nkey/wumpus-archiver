@@ -168,11 +168,19 @@ See `.env.example` for all options. Key variables:
 | `DATABASE_URL` | `sqlite+aiosqlite:///./wumpus_archive.db` | Database connection |
 | `API_HOST` | `127.0.0.1` | API bind host |
 | `API_PORT` | `8000` | API bind port |
+| `API_AUTH_TOKEN` | *(none)* | Bearer token required by `POST /api/scrape/start` and `/api/scrape/cancel`; scrape control is disabled while unset |
+| `CORS_ORIGINS` | `http://localhost:5173,http://localhost:3000,http://localhost:8000,https://connect.apehost.net` | Comma-separated browser origins allowed to call the API cross-origin |
 | `BATCH_SIZE` | `1000` | Messages per scrape batch |
 | `RATE_LIMIT_DELAY` | `0.5` | Delay between API calls |
 | `DOWNLOAD_ATTACHMENTS` | `true` | Auto-download attachments |
 | `ATTACHMENTS_PATH` | `./attachments` | Local attachment storage |
 | `LOG_LEVEL` | `INFO` | Logging level |
+
+**Behaviour change:** starting or cancelling a scrape (`POST /api/scrape/start` and
+`/api/scrape/cancel`, including from the portal's control panel) now requires `API_AUTH_TOKEN`,
+sent as `Authorization: Bearer <token>`. If it is not set, those endpoints return `403` rather
+than being open. Read-only endpoints are unchanged, and CORS no longer allows credentials,
+arbitrary methods or arbitrary headers.
 
 ## Development
 
@@ -197,6 +205,11 @@ make test-cov
   is unauthenticated for reads: anyone who can reach it can read the whole archive. Do not expose
   `serve` to the public internet or an untrusted network (for example with `--host 0.0.0.0`)
   without putting a reverse proxy with authentication in front of it.
+- **Scrape control needs `API_AUTH_TOKEN`.** The endpoints that start or cancel a scrape (which
+  use the server's Discord bot token) are only usable with this bearer token, and are disabled
+  while it is unset. Pick a long random value, e.g.
+  `python -c "import secrets; print(secrets.token_urlsafe(32))"`, and send it over HTTPS if the
+  server is reachable beyond your own machine. It does not protect the read endpoints.
 - **The archive is private data.** The database and downloaded attachments contain private Discord
   messages, usernames, and files. Treat them like any other sensitive backup: restrict file
   permissions, keep them out of version control, and don't share them without consent.
