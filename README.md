@@ -187,6 +187,23 @@ make test
 make test-cov
 ```
 
+## Security notes
+
+- **Protect `.env`.** It holds live secrets (your Discord bot token). Never commit it, and restrict
+  it to your user with `chmod 600 .env`. If a token is ever exposed (committed, pasted in a
+  screenshot or log, or leaked in any other way), rotate it immediately in the Discord Developer
+  Portal.
+- **Keep the server on loopback.** `serve` and `dev` bind to `127.0.0.1` by default, and the API
+  is unauthenticated for reads: anyone who can reach it can read the whole archive. Do not expose
+  `serve` to the public internet or an untrusted network (for example with `--host 0.0.0.0`)
+  without putting a reverse proxy with authentication in front of it.
+- **The archive is private data.** The database and downloaded attachments contain private Discord
+  messages, usernames, and files. Treat them like any other sensitive backup: restrict file
+  permissions, keep them out of version control, and don't share them without consent.
+- **Use a least-privilege bot token.** Invite the bot with only the permissions it needs (view
+  channels and read message history) and enable only the gateway intents the archiver actually
+  requires.
+
 ## License
 
 MIT
