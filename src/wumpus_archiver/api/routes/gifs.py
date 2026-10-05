@@ -3,7 +3,12 @@
 from fastapi import APIRouter, Query, Request
 from sqlalchemy import text
 
-from wumpus_archiver.api.routes._helpers import get_db, get_attachments_path, raise_not_found
+from wumpus_archiver.api.routes._helpers import (
+    escape_like,
+    get_attachments_path,
+    get_db,
+    raise_not_found,
+)
 from wumpus_archiver.api.schemas import GifListResponse, GifSchema
 
 router = APIRouter()
@@ -13,6 +18,10 @@ _SELECT_COLS = """\
     g.local_path, g.url, g.proxy_url, g.usage_count, g.last_used,
     g.channel_id, c.name as channel_name
 """
+
+# Case-insensitive filename match that is valid on both SQLite (no ILIKE) and PostgreSQL.
+# The bound value must be built with escape_like(); '\' is a single backslash literal.
+_FILENAME_LIKE = "lower(g.filename) LIKE lower(:q) ESCAPE '\\'"
 
 
 def _gif_url(request: Request, local_path: str | None) -> str:
@@ -74,8 +83,8 @@ async def list_gifs(
     params: dict[str, object] = {"limit": limit, "offset": offset}
 
     if q:
-        conditions.append("g.filename ILIKE :q")
-        params["q"] = f"%{q}%"
+        conditions.append(_FILENAME_LIKE)
+        params["q"] = f"%{escape_like(q)}%"
     if channel_id:
         conditions.append("g.channel_id = :channel_id")
         params["channel_id"] = channel_id
@@ -158,10 +167,10 @@ async def random_gif(
     """Get a random GIF, optionally filtered by filename search."""
     db = get_db(request)
 
-    where_clause = "WHERE g.filename ILIKE :q" if q else ""
+    where_clause = f"WHERE {_FILENAME_LIKE}" if q else ""
     params: dict[str, object] = {}
     if q:
-        params["q"] = f"%{q}%"
+        params["q"] = f"%{escape_like(q)}%"
 
     sql = f"""\
         SELECT {_SELECT_COLS}

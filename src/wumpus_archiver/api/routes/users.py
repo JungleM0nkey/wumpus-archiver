@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, Request
 
 from sqlalchemy import func, select
 
-from wumpus_archiver.api.routes._helpers import get_db, raise_not_found
+from wumpus_archiver.api.routes._helpers import escape_like, get_db, raise_not_found
 from wumpus_archiver.api.schemas import (
     UserChannelActivity,
     UserListItem,
@@ -66,8 +66,10 @@ async def list_guild_users(
         )
 
         if q:
+            like_pattern = f"%{escape_like(q)}%"
             base = base.where(
-                User.username.ilike(f"%{q}%") | User.global_name.ilike(f"%{q}%")
+                User.username.ilike(like_pattern, escape="\\")
+                | User.global_name.ilike(like_pattern, escape="\\")
             )
 
         if sort == "name":

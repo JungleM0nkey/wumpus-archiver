@@ -5,7 +5,7 @@ from fastapi import APIRouter, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from wumpus_archiver.api.routes._helpers import get_db, rewrite_attachment_url
+from wumpus_archiver.api.routes._helpers import escape_like, get_db, rewrite_attachment_url
 from wumpus_archiver.api.schemas import (
     MessageSchema,
     SearchResponse,
@@ -29,6 +29,7 @@ async def search_messages(
 ) -> SearchResponse:
     """Search messages by content."""
     db = get_db(request)
+    like_pattern = f"%{escape_like(q)}%"
     async with db.session() as session:
         query = (
             select(Message)
@@ -37,7 +38,7 @@ async def search_messages(
                 selectinload(Message.attachments),
                 selectinload(Message.reactions),
             )
-            .where(Message.content.ilike(f"%{q}%"))
+            .where(Message.content.ilike(like_pattern, escape="\\"))
             .order_by(Message.created_at.desc())
             .limit(limit)
         )
@@ -63,7 +64,7 @@ async def search_messages(
         channel_map = {ch.id: ch.name for ch in ch_result.scalars().all()}
 
         count_query = select(func.count(Message.id)).where(
-            Message.content.ilike(f"%{q}%")
+            Message.content.ilike(like_pattern, escape="\\")
         )
         if channel_id:
             count_query = count_query.where(Message.channel_id == channel_id)

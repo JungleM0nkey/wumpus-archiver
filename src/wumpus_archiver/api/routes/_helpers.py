@@ -61,6 +61,27 @@ def raise_not_found(detail: str) -> None:
     raise HTTPException(status_code=404, detail=detail)
 
 
+def escape_like(value: str, escape: str = "\\") -> str:
+    """Escape SQL ``LIKE`` wildcards so user input matches literally.
+
+    The escape character is escaped first, then ``%`` and ``_``. The caller must
+    pass the same escape character to the ``LIKE`` clause (``ESCAPE '\\'`` in raw
+    SQL or ``escape="\\\\"`` in SQLAlchemy ``like``/``ilike``).
+
+    Args:
+        value: Raw user-supplied search text
+        escape: Escape character used by the ``LIKE`` clause
+
+    Returns:
+        The value with ``escape``, ``%`` and ``_`` each prefixed by ``escape``
+    """
+    return (
+        value.replace(escape, escape + escape)
+        .replace("%", escape + "%")
+        .replace("_", escape + "_")
+    )
+
+
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/avif")
 
 
