@@ -80,7 +80,7 @@
 		<div class="attachments">
 			{#each message.attachments as att}
 				{#if isImageType(att.content_type)}
-					<a href={att.url} target="_blank" rel="noopener" class="attachment-img-link">
+					<a href={att.url} target="_blank" rel="noopener noreferrer" class="attachment-img-link">
 						<img
 							class="attachment-img"
 							src={att.proxy_url || att.url}
@@ -89,7 +89,7 @@
 						/>
 					</a>
 				{:else}
-					<a href={att.url} target="_blank" rel="noopener" class="attachment-file">
+					<a href={att.url} target="_blank" rel="noopener noreferrer" class="attachment-file">
 						<span class="file-icon">📎</span>
 						<span class="file-name truncate">{att.filename}</span>
 						<span class="file-size mono">{formatSize(att.size)}</span>

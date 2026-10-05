@@ -503,12 +503,17 @@ def _write_dev_app_module(db_path: Path, attachments_path: Path | None) -> None:
     Creates src/wumpus_archiver/api/_dev_app.py with a module-level `app`
     instance configured for the given database.
 
+    The paths are rendered with ``repr()`` so that quotes, backslashes, newlines, or any other
+    character in them stay inside a single string literal and can never be parsed as code when
+    uvicorn imports the generated module.
+
     Args:
         db_path: Resolved path to the SQLite database.
         attachments_path: Resolved path to attachments directory, or None.
     """
     dev_module = Path(__file__).parent / "api" / "_dev_app.py"
-    att_line = f'    attachments_path=Path("{attachments_path}"),' if attachments_path else ""
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    att_line = f"    attachments_path=Path({str(attachments_path)!r})," if attachments_path else ""
     content = f'''"""Auto-generated dev app instance for uvicorn --reload. DO NOT EDIT."""
 
 from pathlib import Path
@@ -516,13 +521,14 @@ from pathlib import Path
 from wumpus_archiver.api.app import create_app
 from wumpus_archiver.storage.database import Database
 
-_db = Database("sqlite+aiosqlite:///{db_path}")
+_db = Database({db_url!r})
 app = create_app(
     _db,
 {att_line}
 )
 '''
-    dev_module.write_text(content)
+    # Python source is UTF-8 by default; don't depend on the locale encoding for non-ASCII paths.
+    dev_module.write_text(content, encoding="utf-8")
 
 
 @cli.command()
