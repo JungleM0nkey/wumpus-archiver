@@ -66,7 +66,7 @@ def scrape(
         )
         sys.exit(1)
 
-    token = settings.discord_bot_token
+    token = settings.discord_bot_token.get_secret_value()
 
     # Validate output path — resolve and ensure parent exists, reject traversal
     output = output.resolve()
@@ -553,18 +553,18 @@ def mirror(guild_id: int | None) -> None:
     if guild_id is None:
         click.echo("Error: --guild-id is required (or set GUILD_ID in .env).", err=True)
         sys.exit(1)
-    if not settings.chat_bridge_token:
+    if not settings.chat_bridge_token.get_secret_value():
         click.echo("Error: CHAT_BRIDGE_TOKEN is required (set it in .env).", err=True)
         sys.exit(1)
 
     bot = MirrorBot(
-        settings.discord_bot_token,
+        settings.discord_bot_token.get_secret_value(),
         guild_id,
         BridgeClient(
             settings.chat_bridge_url,
-            settings.chat_bridge_token,
+            settings.chat_bridge_token.get_secret_value(),
             settings.cf_access_client_id,
-            settings.cf_access_client_secret,
+            settings.cf_access_client_secret.get_secret_value(),
         ),
     )
     click.echo(f"Mirroring guild {guild_id} -> {settings.chat_bridge_url}")
@@ -617,7 +617,7 @@ def backfill(database: Path, guild_id: int | None, cutoff_iso: str | None, concu
     if guild_id is None:
         click.echo("Error: --guild-id is required (or set GUILD_ID in .env).", err=True)
         sys.exit(1)
-    if not settings.chat_bridge_token:
+    if not settings.chat_bridge_token.get_secret_value():
         click.echo("Error: CHAT_BRIDGE_TOKEN is required (set it in .env).", err=True)
         sys.exit(1)
 
@@ -634,9 +634,9 @@ def backfill(database: Path, guild_id: int | None, cutoff_iso: str | None, concu
     async def run() -> int:
         async with BridgeClient(
             settings.chat_bridge_url,
-            settings.chat_bridge_token,
+            settings.chat_bridge_token.get_secret_value(),
             settings.cf_access_client_id,
-            settings.cf_access_client_secret,
+            settings.cf_access_client_secret.get_secret_value(),
         ) as bridge:
             return await run_backfill(database.resolve(), guild_id, bridge, cutoff, concurrency, skip_messages)
 

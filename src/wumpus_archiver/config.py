@@ -2,9 +2,13 @@
 
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Hosts for which a plain-http bridge URL is tolerated (local development only).
+_LOCAL_BRIDGE_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 class Settings(BaseSettings):
@@ -15,10 +19,13 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
+        # Validation errors otherwise echo the raw input (every env value, secrets
+        # included) when a required field is missing; the CLI prints these errors.
+        hide_input_in_errors=True,
     )
 
     # Discord
-    discord_bot_token: str = Field(..., validation_alias="DISCORD_BOT_TOKEN")
+    discord_bot_token: SecretStr = Field(..., validation_alias="DISCORD_BOT_TOKEN")
 
     # Database
     database_url: str = Field(
@@ -55,13 +62,38 @@ class Settings(BaseSettings):
         default="https://connect.apehost.net/dashboard/chat/bridge",
         validation_alias="CHAT_BRIDGE_URL",
     )
-    chat_bridge_token: str = Field(default="", validation_alias="CHAT_BRIDGE_TOKEN")
+    chat_bridge_token: SecretStr = Field(
+        default=SecretStr(""), validation_alias="CHAT_BRIDGE_TOKEN"
+    )
     cf_access_client_id: str = Field(default="", validation_alias="CF_ACCESS_CLIENT_ID")
-    cf_access_client_secret: str = Field(default="", validation_alias="CF_ACCESS_CLIENT_SECRET")
+    cf_access_client_secret: SecretStr = Field(
+        default=SecretStr(""), validation_alias="CF_ACCESS_CLIENT_SECRET"
+    )
 
     # Logging
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
     log_file: Path | None = Field(default=None, validation_alias="LOG_FILE")
+
+    @field_validator("chat_bridge_url")
+    @classmethod
+    def validate_chat_bridge_url(cls, v: str) -> str:
+        """Require https for the bridge URL (http only for localhost development).
+
+        The bridge client sends bearer and Cloudflare Access credentials with every
+        request, so a plain-http remote URL would leak them in cleartext.
+        """
+        v = v.strip()
+        parts = urlsplit(v)
+        if not parts.hostname:
+            raise ValueError("CHAT_BRIDGE_URL must be an absolute URL with a host")
+        if parts.scheme == "https":
+            return v
+        if parts.scheme == "http" and parts.hostname in _LOCAL_BRIDGE_HOSTS:
+            return v
+        raise ValueError(
+            "CHAT_BRIDGE_URL must use https:// "
+            "(http:// is only allowed for localhost, 127.0.0.1 or [::1])"
+        )
 
     @field_validator("api_port")
     @classmethod
