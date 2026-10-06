@@ -1,52 +1,27 @@
-"""Background scrape job manager for the API."""
+"""Background scrape job manager for the API.
+
+This is the production adapter of :class:`~wumpus_archiver.api.scrape_control.ScrapeControl`.
+It is the only module under ``api/`` that reaches Discord, and it does so lazily, inside
+``_run_scrape``, so importing it (and the API package) never imports discord.py.
+"""
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
-from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
-
-from wumpus_archiver.bot.scraper import ArchiverBot
+from wumpus_archiver.api.scrape_control import JobStatus, ScrapeJob, ScrapeProgress
 from wumpus_archiver.storage.database import Database
+
+if TYPE_CHECKING:
+    from wumpus_archiver.bot.scraper import ArchiverBot
 
 logger = logging.getLogger(__name__)
 
-
-class JobStatus(str, Enum):
-    """Scrape job status."""
-
-    PENDING = "pending"
-    CONNECTING = "connecting"
-    SCRAPING = "scraping"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
-class ScrapeProgress(BaseModel):
-    """Progress data for a running scrape job."""
-
-    current_channel: str = ""
-    channels_done: int = 0
-    messages_scraped: int = 0
-    attachments_found: int = 0
-    errors: list[str] = []
-
-
-class ScrapeJob(BaseModel):
-    """Represents a single scrape job."""
-
-    id: str
-    guild_id: int
-    status: JobStatus = JobStatus.PENDING
-    progress: ScrapeProgress = ScrapeProgress()
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    result: dict[str, Any] | None = None
-    error_message: str | None = None
+__all__ = ["JobStatus", "ScrapeJob", "ScrapeJobManager", "ScrapeProgress"]
 
 
 class ScrapeJobManager:
@@ -154,6 +129,8 @@ class ScrapeJobManager:
             # Phase 1: Connect to Discord
             job.status = JobStatus.CONNECTING
             logger.info("Scrape job %s: connecting to Discord...", job.id)
+
+            from wumpus_archiver.bot.scraper import ArchiverBot
 
             bot = ArchiverBot(token, self.database)
             self._bot = bot

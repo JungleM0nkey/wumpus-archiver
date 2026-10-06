@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -130,3 +130,16 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()  # type: ignore[call-arg]
+
+
+def optional_bot_token() -> str | None:
+    """The bot token from the environment or ``.env``, or ``None``.
+
+    ``None`` means no usable token: the variable is unset, empty or whitespace.
+    This is the only way composition roots (``serve``, the dev module) decide
+    whether scrape control is enabled; the API itself never reads settings.
+    """
+    try:
+        return Settings().discord_bot_token  # type: ignore[call-arg]
+    except ValidationError:
+        return None

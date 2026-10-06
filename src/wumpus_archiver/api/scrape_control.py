@@ -1,0 +1,113 @@
+"""Scrape control: the port the scrape routes talk to, and the job it reports on.
+
+This module imports pydantic only. The production adapter, ``ScrapeJobManager`` in
+``scrape_manager.py``, is the one place under ``api/`` that reaches Discord, and it
+does so only once a job actually starts.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from enum import Enum
+from typing import Any, Protocol, runtime_checkable
+
+from pydantic import BaseModel
+
+
+class JobStatus(str, Enum):
+    """Scrape job status."""
+
+    PENDING = "pending"
+    CONNECTING = "connecting"
+    SCRAPING = "scraping"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class ScrapeProgress(BaseModel):
+    """Progress data for a running scrape job."""
+
+    current_channel: str = ""
+    channels_done: int = 0
+    messages_scraped: int = 0
+    attachments_found: int = 0
+    errors: list[str] = []
+
+
+class ScrapeJob(BaseModel):
+    """Represents a single scrape job."""
+
+    id: str
+    guild_id: int
+    status: JobStatus = JobStatus.PENDING
+    progress: ScrapeProgress = ScrapeProgress()
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    result: dict[str, Any] | None = None
+    error_message: str | None = None
+
+
+@runtime_checkable
+class ScrapeControl(Protocol):
+    """Everything the ``/api/scrape`` routes may ask of scrape control.
+
+    Invariants every adapter keeps:
+
+    - ``configured`` is fixed for the adapter's lifetime. It is the one predicate
+      behind the ``has_token`` field of the status response and behind the 400
+      on ``/scrape/start``.
+    - When not configured: ``current_job`` is ``None``, ``history`` is empty and
+      ``cancel()`` returns ``False``.
+    - ``history`` is most recent first and never contains the job that is busy.
+    - ``start_scrape`` is legal only when configured and not busy; it raises
+      ``RuntimeError`` otherwise. Routes check first so callers see 400 or 409,
+      never the exception.
+    """
+
+    @property
+    def configured(self) -> bool: ...
+
+    @property
+    def is_busy(self) -> bool: ...
+
+    @property
+    def current_job(self) -> ScrapeJob | None: ...
+
+    @property
+    def history(self) -> list[ScrapeJob]: ...
+
+    def start_scrape(self, guild_id: int) -> ScrapeJob: ...
+
+    def cancel(self) -> bool: ...
+
+
+class ReadOnlyScrape:
+    """Scrape control without a bot token: reports nothing and starts nothing.
+
+    This is what the app runs with whenever no token was configured, and the
+    default the test fixtures build with, so both go through the same object.
+    """
+
+    configured: bool = False
+    is_busy: bool = False
+    current_job: ScrapeJob | None = None
+
+    @property
+    def history(self) -> list[ScrapeJob]:
+        return []
+
+    def start_scrape(self, guild_id: int) -> ScrapeJob:
+        raise RuntimeError("scrape control is read-only: no bot token was configured")
+
+    def cancel(self) -> bool:
+        return False
+
+
+__all__ = [
+    "JobStatus",
+    "ReadOnlyScrape",
+    "ScrapeControl",
+    "ScrapeJob",
+    "ScrapeProgress",
+]

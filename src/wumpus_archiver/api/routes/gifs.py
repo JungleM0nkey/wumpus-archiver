@@ -7,6 +7,7 @@ from wumpus_archiver.api.routes._helpers import (
     escape_like,
     get_attachments_path,
     get_db,
+    local_attachment_url,
     raise_not_found,
 )
 from wumpus_archiver.api.schemas import GifListResponse, GifSchema
@@ -22,14 +23,6 @@ _SELECT_COLS = """\
 # Case-insensitive filename match that is valid on both SQLite (no ILIKE) and PostgreSQL.
 # The bound value must be built with escape_like(); '\' is a single backslash literal.
 _FILENAME_LIKE = "lower(g.filename) LIKE lower(:q) ESCAPE '\\'"
-
-
-def _gif_url(request: Request, local_path: str | None) -> str:
-    """Build a local URL for the GIF if the file exists on disk."""
-    attachments_dir = get_attachments_path(request)
-    if attachments_dir and local_path and (attachments_dir / local_path).exists():
-        return f"/attachments/{local_path}"
-    return ""
 
 
 def _row_to_gif(request: Request, row: tuple) -> GifSchema:
@@ -50,7 +43,7 @@ def _row_to_gif(request: Request, row: tuple) -> GifSchema:
         channel_name,
     ) = row
 
-    resolved_url = _gif_url(request, local_path) or url
+    resolved_url = local_attachment_url(get_attachments_path(request), local_path) or url
     return GifSchema(
         id=att_id,
         content_hash=content_hash,

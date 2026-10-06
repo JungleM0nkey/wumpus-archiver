@@ -38,15 +38,29 @@ def rewrite_attachment_url(
     Returns:
         Local URL if downloaded, otherwise original URL
     """
-    attachments_dir = get_attachments_path(request)
-    if (
-        attachments_dir
-        and local_path
-        and download_status == "downloaded"
-        and (attachments_dir / local_path).exists()
-    ):
+    if download_status != "downloaded":
+        return original_url
+    return local_attachment_url(get_attachments_path(request), local_path) or original_url
+
+
+def local_attachment_url(attachments_dir: Path | None, local_path: str | None) -> str | None:
+    """The portal URL of a local attachment, or ``None`` if it is not served locally.
+
+    A local attachment is served at ``/attachments/<local_path>`` (a path relative to
+    the site root; nothing here depends on the request) when an attachments dir is
+    configured and the file is present in it.
+
+    Args:
+        attachments_dir: The configured attachments directory, or None
+        local_path: The attachment's path relative to that directory, or None
+
+    Returns:
+        The local URL, or None when there is no attachments dir, no local path, or
+        the file is missing
+    """
+    if attachments_dir and local_path and (attachments_dir / local_path).exists():
         return f"/attachments/{local_path}"
-    return original_url
+    return None
 
 
 def rewrite_attachment_schema(request: Request, schema: AttachmentSchema) -> AttachmentSchema:

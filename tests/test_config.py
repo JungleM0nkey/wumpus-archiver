@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from wumpus_archiver.config import Settings
+from wumpus_archiver.config import Settings, optional_bot_token
 
 
 class TestSettings:
@@ -108,3 +108,29 @@ class TestSettings:
         settings = Settings(_env_file=None)
         assert settings.discord_bot_token == "env-token"
         assert settings.api_port == 9999
+
+
+class TestOptionalBotToken:
+    """``optional_bot_token`` is how composition roots decide whether scrape control is on."""
+
+    def test_returns_the_token_from_the_environment(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "env-token")
+        assert optional_bot_token() == "env-token"
+
+    def test_reads_dot_env_in_the_working_directory(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        (tmp_path / ".env").write_text("DISCORD_BOT_TOKEN=file-token\n")
+        assert optional_bot_token() == "file-token"
+
+    def test_none_when_unset(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        assert optional_bot_token() is None
+
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_none_when_blank(self, monkeypatch, tmp_path, blank: str) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", blank)
+        assert optional_bot_token() is None
