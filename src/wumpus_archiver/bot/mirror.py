@@ -225,7 +225,10 @@ class MirrorBot:
             self._user_cache[discord_id] = sig
 
     async def run(self) -> None:
-        await self.client.start(self.token)
+        # The bridge session must exist for as long as Discord is connected (on_message posts
+        # through it) and is released on every exit path, including a failed login.
+        async with self.bridge:
+            await self.client.start(self.token)
 
     def run_sync(self) -> None:
         try:
