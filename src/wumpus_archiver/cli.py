@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import cast
 
 import click
+from pydantic import ValidationError
 
 from wumpus_archiver.bot.scraper import ArchiverBot
 from wumpus_archiver.config import Settings
@@ -183,7 +184,11 @@ def serve(
     db = Database(f"sqlite+aiosqlite:///{db_path}")  # unconnected: the app's lifespan owns it
     att_path = attachments_dir.resolve() if attachments_dir.is_dir() else None
     portal = portal_build_dir()
-    scrape = scrape_from_settings(db)
+    try:
+        scrape = scrape_from_settings(db)
+    except ValidationError as e:
+        click.echo(f"Error: Failed to load settings: {e}", err=True)
+        sys.exit(1)
     app = create_app(db, attachments_dir=att_path, portal_build=portal, scrape=scrape)
 
     click.echo(f"Starting portal at http://{host}:{port}")

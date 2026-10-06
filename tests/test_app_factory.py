@@ -27,6 +27,7 @@ FORBIDDEN_MODULES = (
     "wumpus_archiver.config",
     "wumpus_archiver.api.scrape_manager",
     "wumpus_archiver.compose",
+    "wumpus_archiver.utils.process_manager",
 )
 
 LOADED_FORBIDDEN = (
@@ -60,6 +61,30 @@ class TestReadsNothingFromTheEnvironment:
             status = await http.get("/api/scrape/status")
             assert status.json()["has_token"] is False
             assert (await http.post("/api/scrape/start", json={"guild_id": 1})).status_code == 400
+
+    async def test_a_discoverable_portal_build_is_not_picked_up(
+        self, database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A portal build where the old package-relative or cwd lookups would find it is ignored."""
+        import wumpus_archiver.api.app as app_module
+
+        for root in (tmp_path / "cwd", tmp_path / "pkg"):
+            build = root / "portal" / "build"
+            build.mkdir(parents=True)
+            (root / "portal" / "package.json").write_text("{}")
+            (build / "index.html").write_text("<!doctype html><title>should not be served</title>")
+        monkeypatch.chdir(tmp_path / "cwd")
+        monkeypatch.setattr(
+            app_module,
+            "__file__",
+            str(tmp_path / "pkg" / "src" / "wumpus_archiver" / "api" / "app.py"),
+        )
+
+        app = create_app(database)
+
+        assert wiring_of(app).portal_build is None
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as http:
+            assert (await http.get("/")).status_code == 404
 
     def test_read_only_app_imports_no_discord_no_config(self) -> None:
         """Building a read-only app loads neither discord.py nor the settings machinery."""

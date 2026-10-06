@@ -56,7 +56,8 @@ def wired_app(wiring: Wiring) -> FastAPI:
 
 
 @pytest.fixture
-async def client(wired_app: FastAPI) -> AsyncIterator[AsyncClient]:
+async def deps_client(wired_app: FastAPI) -> AsyncIterator[AsyncClient]:
+    """A client over the hand-wired toy app, not the factory-built shared ``client``."""
     async with AsyncClient(transport=ASGITransport(app=wired_app), base_url="http://t") as http:
         yield http
 
@@ -80,11 +81,13 @@ class TestWiring:
 
 class TestDependencies:
     async def test_handlers_receive_each_collaborator(
-        self, client: AsyncClient, wiring: Wiring
+        self, deps_client: AsyncClient, wiring: Wiring
     ) -> None:
-        assert (await client.get("/api/db")).json() == {"url": "sqlite+aiosqlite:///:memory:"}
-        assert (await client.get("/api/attachments")).json() == {"dir": str(wiring.attachments_dir)}
-        assert (await client.get("/api/scrape")).json() == {"configured": False}
+        assert (await deps_client.get("/api/db")).json() == {"url": "sqlite+aiosqlite:///:memory:"}
+        assert (await deps_client.get("/api/attachments")).json() == {
+            "dir": str(wiring.attachments_dir)
+        }
+        assert (await deps_client.get("/api/scrape")).json() == {"configured": False}
 
     async def test_dependencies_add_no_parameters_to_openapi(self, wired_app: FastAPI) -> None:
         paths = wired_app.openapi()["paths"]

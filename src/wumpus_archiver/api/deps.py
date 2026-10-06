@@ -22,19 +22,21 @@ from wumpus_archiver.storage.database import Database
 
 @dataclass(frozen=True, slots=True)
 class Wiring:
-    """What ``create_app`` was handed, exactly as handed.
+    """What ``create_app`` bound to the app, after normalisation.
+
+    Directory paths are stored resolved to absolute paths, and ``scrape`` is never
+    ``None``; otherwise the values are the ones the factory was handed.
 
     Attributes:
         database: The archive. Must be connected, with its schema present, before
             the first ``/api`` request is served; see the lifespan rule on
             ``create_app`` for who connects it.
-        attachments_dir: Directory of local attachments, mounted at
+        attachments_dir: Resolved directory of local attachments, mounted at
             ``/attachments``; ``None`` means attachment URLs stay on the CDN.
-        portal_build: The portal's built output, served as the SPA; ``None``
-            means the app is API-only. No handler reads this; it is kept so
+        portal_build: Resolved portal build, served as the SPA; ``None`` means
+            the app is API-only. No handler reads this; it is kept so
             ``wiring_of`` can answer what the app was built with.
-        scrape: Scrape control. Never ``None``: ``create_app`` substitutes
-            ``ReadOnlyScrape`` when no adapter is given.
+        scrape: Scrape control; ``ReadOnlyScrape`` when no adapter was given.
     """
 
     database: Database

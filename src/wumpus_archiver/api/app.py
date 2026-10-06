@@ -7,7 +7,6 @@ test fixtures) resolve those and pass values in. See ``wumpus_archiver.compose``
 for the helpers they share.
 """
 
-import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,8 +19,6 @@ from fastapi.staticfiles import StaticFiles
 from wumpus_archiver.api.deps import Wiring, bind
 from wumpus_archiver.api.scrape_control import ReadOnlyScrape, ScrapeControl
 from wumpus_archiver.storage.database import Database
-
-logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -43,7 +40,8 @@ def create_app(
 
     Routes are mounted in this order, and the order is part of the contract:
     CORS, ``/attachments``, the ``/api`` router, then the portal (``/_app``,
-    ``/robots.txt`` and the SPA fallback last), so ``/api`` always wins.
+    ``/robots.txt`` and the SPA fallback last), so every defined ``/api`` route
+    wins over the fallback.
 
     Args:
         database: The archive to serve.

@@ -3,6 +3,7 @@
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from wumpus_archiver.api.deps import wiring_of
@@ -69,6 +70,11 @@ class TestCLI:
         # serve resolves the bot token from the environment and .env; pin both to "none".
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        # serve discovers the portal build on disk; pin it to a fake one.
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "index.html").write_text("<!doctype html>")
+        monkeypatch.setattr("wumpus_archiver.compose.portal_build_dir", lambda: build)
 
         calls: list[tuple[object, dict[str, object]]] = []
 
@@ -91,6 +97,8 @@ class TestCLI:
         assert wiring.database.database_url == f"sqlite+aiosqlite:///{db_file.resolve()}"
         assert wiring.database.connected is False, "the app's lifespan owns the connection"
         assert wiring.attachments_dir == attachments.resolve()
+        assert wiring.portal_build == build.resolve()
+        assert f"Portal: {build}" in result.output
         assert wiring.scrape.configured is False
         assert "Scrape control: read-only" in result.output
 
@@ -100,6 +108,7 @@ class TestCLI:
         db_file.touch()
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        monkeypatch.setattr("wumpus_archiver.compose.portal_build_dir", lambda: None)
         apps: list[object] = []
         monkeypatch.setattr("uvicorn.run", lambda app, **kw: apps.append(app))
 
@@ -107,7 +116,9 @@ class TestCLI:
 
         assert result.exit_code == 0, result.output
         assert "images served from Discord CDN" in result.output
+        assert "Portal: not built" in result.output
         assert wiring_of(apps[0]).attachments_dir is None
+        assert wiring_of(apps[0]).portal_build is None
 
     def test_serve_enables_scrape_control_with_a_token(self, tmp_path, monkeypatch) -> None:
         """A bot token in the environment turns scrape control on without starting anything."""
@@ -115,6 +126,7 @@ class TestCLI:
         db_file.touch()
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("DISCORD_BOT_TOKEN", "a-real-looking-token")
+        monkeypatch.setattr("wumpus_archiver.compose.portal_build_dir", lambda: None)
         apps: list[object] = []
         monkeypatch.setattr("uvicorn.run", lambda app, **kw: apps.append(app))
 
@@ -123,6 +135,24 @@ class TestCLI:
         assert result.exit_code == 0, result.output
         assert "Scrape control: enabled" in result.output
         assert wiring_of(apps[0]).scrape.configured is True
+
+    def test_serve_reports_invalid_settings_instead_of_going_read_only(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A bad setting next to a valid token is an error, not silently read-only."""
+        db_file = tmp_path / "test.db"
+        db_file.touch()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "a-real-looking-token")
+        monkeypatch.setenv("API_PORT", "70000")
+        monkeypatch.setattr("wumpus_archiver.compose.portal_build_dir", lambda: None)
+        monkeypatch.setattr("uvicorn.run", lambda app, **kw: pytest.fail("uvicorn must not run"))
+
+        result = CliRunner().invoke(cli, ["serve", str(db_file)])
+
+        assert result.exit_code == 1
+        assert "Failed to load settings" in result.output
+        assert "Port must be between" in result.output
 
     def test_update_not_implemented(self, tmp_path) -> None:
         """Test update command returns error (not implemented)."""

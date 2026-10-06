@@ -138,8 +138,15 @@ def optional_bot_token() -> str | None:
     ``None`` means no usable token: the variable is unset, empty or whitespace.
     This is the only way composition roots (``serve``, the dev module) decide
     whether scrape control is enabled; the API itself never reads settings.
+
+    Raises:
+        ValidationError: If settings are invalid for any other reason (for
+            example a bad ``API_PORT``), so a misconfiguration is reported
+            rather than silently read as "no token".
     """
     try:
         return Settings().discord_bot_token  # type: ignore[call-arg]
-    except ValidationError:
-        return None
+    except ValidationError as exc:
+        if all(error["loc"] == ("DISCORD_BOT_TOKEN",) for error in exc.errors()):
+            return None
+        raise

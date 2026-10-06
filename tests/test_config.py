@@ -23,8 +23,9 @@ class TestSettings:
         assert settings.log_level == "INFO"
         assert settings.log_file is None
 
-    def test_token_required(self) -> None:
+    def test_token_required(self, monkeypatch) -> None:
         """Test that discord_bot_token is required."""
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
         with pytest.raises(ValidationError):
             Settings(_env_file=None)
 
@@ -134,3 +135,20 @@ class TestOptionalBotToken:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("DISCORD_BOT_TOKEN", blank)
         assert optional_bot_token() is None
+
+    def test_unrelated_invalid_settings_are_not_read_as_no_token(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A valid token next to a bad API_PORT is a misconfiguration, not read-only mode."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "env-token")
+        monkeypatch.setenv("API_PORT", "70000")
+        with pytest.raises(ValidationError, match="Port must be between"):
+            optional_bot_token()
+
+    def test_blank_token_next_to_invalid_settings_still_raises(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "")
+        monkeypatch.setenv("API_PORT", "70000")
+        with pytest.raises(ValidationError, match="Port must be between"):
+            optional_bot_token()
