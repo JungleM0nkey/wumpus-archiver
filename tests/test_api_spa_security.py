@@ -490,6 +490,20 @@ class TestRequestPathCaps:
         assert _resolve_portal_file(root, within) == root / within
         assert _resolve_portal_file(root, beyond) is None
 
+    @pytest.mark.parametrize("length", [300, 1000])
+    def test_single_overlong_component_is_not_found_not_an_error(
+        self, site: SimpleNamespace, length: int
+    ) -> None:
+        """A component under the char cap but over the filesystem's name limit must not raise.
+
+        The stat fails with ENAMETOOLONG (not one of the errors Path.is_file() swallows), so
+        the function's OSError handler is what turns it into "not found" instead of a 500.
+        """
+        root = site.build.resolve()
+        assert length <= CHAR_CAP
+        assert _resolve_portal_file(root, "a" * length) is None
+        assert _resolve_portal_file(root, f"d/{'b' * length}") is None
+
 
 class TestNestedAssets:
     """Legitimate nested build output (SvelteKit hashed chunks, fonts) keeps working."""
