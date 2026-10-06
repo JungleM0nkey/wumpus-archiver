@@ -188,11 +188,17 @@ _MAX_REQUEST_PATH_SEGMENTS = 64
 def _resolve_portal_file(portal_root: Path, requested: str) -> Path | None:
     """Map a request path to a file inside the portal build directory.
 
-    The request path is untrusted (it is URL-decoded before routing), so the
-    candidate is fully resolved (``..`` segments and symlinks) and only returned
-    if it is a regular file located inside ``portal_root``. Over-long paths and
-    paths that are not an existing file are rejected first, with at most one
-    ``stat``, so a junk request cannot stall the event loop in ``resolve()``.
+    The request path is untrusted (it is URL-decoded before routing), so it is checked in
+    layers, cheapest first, and the filesystem is only touched once the path is proven to
+    stay inside ``portal_root``:
+
+    1. size caps and a NUL/backslash guard;
+    2. a lexical check - ``..`` segments are collapsed with ``os.path.normpath`` (linear, no
+       filesystem access) and anything that is not under ``portal_root`` is rejected;
+    3. one ``stat``: only an existing regular file goes on, so a junk request cannot stall
+       the event loop in the quadratic ``resolve()``;
+    4. ``resolve()`` follows symlinks and the final location must still be inside
+       ``portal_root`` (a symlink in the build directory cannot lead outside it).
 
     Args:
         portal_root: Resolved absolute path of the portal build directory
@@ -209,14 +215,17 @@ def _resolve_portal_file(portal_root: Path, requested: str) -> Path | None:
         or requested.count("/") + 1 > _MAX_REQUEST_PATH_SEGMENTS
     ):
         return None
+    root = str(portal_root)
+    # An absolute `requested` replaces `root` in join(); the prefix check below rejects it.
+    candidate = os.path.normpath(os.path.join(root, requested))
+    if not candidate.startswith(root.rstrip(os.sep) + os.sep):
+        return None
     try:
-        # An absolute `requested` replaces portal_root here; the containment check rejects it.
-        candidate = portal_root / requested
-        if not candidate.is_file():
-            # Cheap single stat: the kernel enforces PATH_MAX, so nothing costly runs below
-            # for paths that do not exist (ENAMETOOLONG and friends land in the except).
+        path = Path(candidate)
+        if not path.is_file():
+            # Cheap single stat; ENAMETOOLONG and friends land in the except below.
             return None
-        resolved = candidate.resolve()
+        resolved = path.resolve()
         if resolved.is_relative_to(portal_root) and resolved.is_file():
             return resolved
     except (OSError, ValueError, RuntimeError):
