@@ -174,6 +174,10 @@ See `.env.example` for all options. Key variables:
 | `ATTACHMENTS_PATH` | `./attachments` | Local attachment storage |
 | `LOG_LEVEL` | `INFO` | Logging level |
 
+## UI / UX refresh proposal
+
+A redesign of the portal (audit of the current UI, new information architecture, dark-theme tokens, components, desktop and mobile screens, motion spec) lives in [docs/UI_UX_PROPOSAL.md](docs/UI_UX_PROPOSAL.md) with the matching Figma file linked at the top of that document.
+
 ## Development
 
 ```bash
