@@ -63,6 +63,19 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
     log_file: Path | None = Field(default=None, validation_alias="LOG_FILE")
 
+    @field_validator("discord_bot_token")
+    @classmethod
+    def validate_token_not_blank(cls, v: str) -> str:
+        """Reject an empty or whitespace-only bot token.
+
+        A blank value usually comes from a placeholder in .env or an unset shell
+        variable; accepting it would let a scrape reach the Discord gateway with
+        no credential and hang there.
+        """
+        if not v.strip():
+            raise ValueError("DISCORD_BOT_TOKEN must not be empty")
+        return v
+
     @field_validator("api_port")
     @classmethod
     def validate_port(cls, v: int) -> int:

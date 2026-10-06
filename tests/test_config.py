@@ -28,6 +28,18 @@ class TestSettings:
         with pytest.raises(ValidationError):
             Settings(_env_file=None)
 
+    @pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+    def test_token_must_not_be_blank(self, blank: str) -> None:
+        """An empty or whitespace-only token is rejected, not stored."""
+        with pytest.raises(ValidationError, match="must not be empty"):
+            Settings(discord_bot_token=blank, _env_file=None)
+
+    def test_blank_token_from_env_is_rejected(self, monkeypatch) -> None:
+        """A blank DISCORD_BOT_TOKEN in the environment fails loading settings."""
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "")
+        with pytest.raises(ValidationError, match="must not be empty"):
+            Settings(_env_file=None)
+
     def test_port_validation_low(self) -> None:
         """Test port validation rejects 0."""
         with pytest.raises(ValueError, match="Port must be between"):
