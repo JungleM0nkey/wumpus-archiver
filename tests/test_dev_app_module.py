@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 
+from wumpus_archiver.api.deps import wiring_of
 from wumpus_archiver.cli import _write_dev_app_module
 
 # Placeholder swapped for a real marker path inside each hostile payload.
@@ -61,21 +62,33 @@ def dev_module_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def captured(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Replace ``create_app`` so importing the generated module records its arguments.
 
+    ``scrape_from_settings`` is replaced too, so the generated module never reads the
+    developer's environment here.
+
     Returns:
-        Dict filled with ``database`` and ``attachments_path`` once the module is imported.
+        Dict filled with ``database``, ``attachments_dir`` and ``scrape`` once the module
+        is imported.
     """
     calls: dict[str, Any] = {}
 
     def fake_create_app(
         database: Any,
-        attachments_path: Path | None = None,
-        discord_token: str | None = None,
+        *,
+        attachments_dir: Path | None = None,
+        portal_build: Path | None = None,
+        scrape: Any = None,
     ) -> object:
         calls["database"] = database
-        calls["attachments_path"] = attachments_path
+        calls["attachments_dir"] = attachments_dir
+        calls["portal_build"] = portal_build
+        calls["scrape"] = scrape
         return object()
 
+    def fake_scrape_from_settings(database: Any) -> str:
+        return f"scrape-for:{database.database_url}"
+
     monkeypatch.setattr("wumpus_archiver.api.app.create_app", fake_create_app)
+    monkeypatch.setattr("wumpus_archiver.compose.scrape_from_settings", fake_scrape_from_settings)
     return calls
 
 
@@ -121,7 +134,7 @@ class TestNormalPaths:
         constants = _string_constants(tree)
         assert f"sqlite+aiosqlite:///{NORMAL_DB}" in constants
         assert NORMAL_ATT in constants
-        assert _called_names(tree) == {"Database", "Path", "create_app"}
+        assert _called_names(tree) == {"Database", "Path", "create_app", "scrape_from_settings"}
 
     def test_import_yields_configured_app(
         self, dev_module_path: Path, captured: dict[str, Any]
@@ -133,20 +146,22 @@ class TestNormalPaths:
 
         assert hasattr(module, "app")
         assert captured["database"].database_url == f"sqlite+aiosqlite:///{NORMAL_DB}"
-        assert captured["attachments_path"] == Path(NORMAL_ATT)
+        assert captured["attachments_dir"] == Path(NORMAL_ATT)
+        assert captured["portal_build"] is None
+        assert captured["scrape"] == f"scrape-for:sqlite+aiosqlite:///{NORMAL_DB}"
 
-    def test_no_attachments_path(self, dev_module_path: Path, captured: dict[str, Any]) -> None:
-        """Without an attachments directory no attachments_path argument is generated."""
+    def test_no_attachments_dir(self, dev_module_path: Path, captured: dict[str, Any]) -> None:
+        """Without an attachments directory no attachments_dir argument is generated."""
         _write_dev_app_module(Path(NORMAL_DB), None)
 
         source = dev_module_path.read_text(encoding="utf-8")
         compile(source, str(dev_module_path), "exec")
-        assert "attachments_path" not in source
-        assert _called_names(ast.parse(source)) == {"Database", "create_app"}
+        assert "attachments_dir" not in source
+        assert _called_names(ast.parse(source)) == {"Database", "create_app", "scrape_from_settings"}
 
         _import_generated(dev_module_path)
         assert captured["database"].database_url == f"sqlite+aiosqlite:///{NORMAL_DB}"
-        assert captured["attachments_path"] is None
+        assert captured["attachments_dir"] is None
 
     def test_works_with_real_create_app(
         self,
@@ -154,7 +169,11 @@ class TestNormalPaths:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """End to end with the real app factory (no fake) for ordinary paths."""
+        """End to end with the real factory for ordinary paths.
+
+        The generated module is dev's composition root and reads the bot token from the
+        environment, so the test pins both to "no token" and expects read-only scrape control.
+        """
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
         db_path = tmp_path / "archive.db"
@@ -164,8 +183,11 @@ class TestNormalPaths:
 
         module = _import_generated(dev_module_path)
 
-        assert module.app.state.database.database_url == f"sqlite+aiosqlite:///{db_path}"
-        assert module.app.state.attachments_path == att_path.resolve()
+        wiring = wiring_of(module.app)
+        assert wiring.database.database_url == f"sqlite+aiosqlite:///{db_path}"
+        assert wiring.attachments_dir == att_path.resolve()
+        assert wiring.portal_build is None
+        assert wiring.scrape.configured is False
 
 
 @pytest.mark.parametrize("name", list(HOSTILE_PATHS))
@@ -192,15 +214,20 @@ class TestHostilePaths:
 
         source = dev_module_path.read_text(encoding="utf-8")
         compile(source, str(dev_module_path), "exec")
-        assert _called_names(ast.parse(source)) == {"Database", "Path", "create_app"}
+        assert _called_names(ast.parse(source)) == {
+            "Database",
+            "Path",
+            "create_app",
+            "scrape_from_settings",
+        }
 
         _import_generated(dev_module_path)
 
         assert not marker.exists(), "injected code was executed"
         assert captured["database"].database_url == f"sqlite+aiosqlite:///{hostile}"
-        assert captured["attachments_path"] == Path(NORMAL_ATT)
+        assert captured["attachments_dir"] == Path(NORMAL_ATT)
 
-    def test_attachments_path(
+    def test_attachments_dir(
         self,
         name: str,
         tmp_path: Path,
@@ -215,13 +242,18 @@ class TestHostilePaths:
 
         source = dev_module_path.read_text(encoding="utf-8")
         compile(source, str(dev_module_path), "exec")
-        assert _called_names(ast.parse(source)) == {"Database", "Path", "create_app"}
+        assert _called_names(ast.parse(source)) == {
+            "Database",
+            "Path",
+            "create_app",
+            "scrape_from_settings",
+        }
 
         _import_generated(dev_module_path)
 
         assert not marker.exists(), "injected code was executed"
         assert captured["database"].database_url == f"sqlite+aiosqlite:///{NORMAL_DB}"
-        assert str(captured["attachments_path"]) == str(hostile)
+        assert str(captured["attachments_dir"]) == str(hostile)
 
     def test_both_paths_hostile(
         self,
@@ -240,4 +272,4 @@ class TestHostilePaths:
 
         assert not marker.exists(), "injected code was executed"
         assert captured["database"].database_url == f"sqlite+aiosqlite:///{hostile}"
-        assert str(captured["attachments_path"]) == str(hostile)
+        assert str(captured["attachments_dir"]) == str(hostile)

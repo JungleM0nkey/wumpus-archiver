@@ -20,7 +20,6 @@ Layout (``root`` is ``tmp_path``)::
 """
 
 import os
-from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -28,9 +27,7 @@ from typing import Any
 import httpx
 import pytest
 
-from wumpus_archiver.api import app as app_module
-from wumpus_archiver.api.app import _resolve_portal_file, create_app
-from wumpus_archiver.storage.database import Database
+from wumpus_archiver.api.app import _resolve_portal_file
 
 SECRET = "FAKE-SECRET-DO-NOT-SERVE-0123456789"
 INDEX_HTML = "<!doctype html><title>fake portal index</title>"
@@ -74,22 +71,15 @@ def site(tmp_path: Path) -> SimpleNamespace:
 
 
 @pytest.fixture
-def app(site: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Create the app wired to the fake portal build and attachments directories."""
-    monkeypatch.setattr(app_module, "_portal_dist", lambda: site.build)
-    return create_app(
-        Database("sqlite+aiosqlite:///:memory:"),
-        attachments_path=site.attachments,
-        discord_token="fake-discord-token-for-tests",
-    )
+def attachments_dir(site: SimpleNamespace) -> Path:
+    """Serve the fake attachments directory through the shared app fixture."""
+    return site.attachments
 
 
 @pytest.fixture
-async def client(app: Any) -> AsyncIterator[httpx.AsyncClient]:
-    """HTTP client talking to the app in-process (no lifespan, no network)."""
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
-        yield http
+def portal_build(site: SimpleNamespace) -> Path:
+    """Serve the fake portal build through the shared app fixture."""
+    return site.build
 
 
 def _symlink(link: Path, target: Path) -> None:
@@ -383,11 +373,3 @@ class TestResolvePortalFile:
         root = site.build.resolve()
         assert _resolve_portal_file(root, "loop") is None
         assert _resolve_portal_file(root, "a" * 5000) is None
-
-
-def test_portal_dist_points_at_repo_portal_build() -> None:
-    """The monkeypatchable helper keeps pointing at <repo>/portal/build."""
-    helper: Callable[[], Path] = app_module._portal_dist
-    result = helper()
-    assert result.name == "build"
-    assert result.parent.name == "portal"

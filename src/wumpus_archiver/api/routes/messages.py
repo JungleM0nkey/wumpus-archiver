@@ -1,11 +1,12 @@
 """Message API route handlers."""
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from wumpus_archiver.api.routes._helpers import get_db, rewrite_attachment_url
+from wumpus_archiver.api.deps import AttachmentsDir, Db
+from wumpus_archiver.api.routes._helpers import rewrite_attachment_url
 from wumpus_archiver.api.schemas import (
     MessageListResponse,
     MessageSchema,
@@ -18,14 +19,14 @@ router = APIRouter()
 
 @router.get("/channels/{channel_id}/messages", response_model=MessageListResponse)
 async def list_messages(
-    request: Request,
+    db: Db,
+    attachments_dir: AttachmentsDir,
     channel_id: int,
     before: int | None = Query(None, description="Get messages before this ID"),
     after: int | None = Query(None, description="Get messages after this ID"),
     limit: int = Query(50, ge=1, le=200, description="Number of messages to return"),
 ) -> MessageListResponse:
     """Get messages from a channel with pagination."""
-    db = get_db(request)
     async with db.session() as session:
         query = (
             select(Message)
@@ -65,7 +66,7 @@ async def list_messages(
                 schema.author = author_schema
             for att_orm, att_schema in zip(msg.attachments, schema.attachments):
                 rewritten = rewrite_attachment_url(
-                    request,
+                    attachments_dir,
                     att_orm.local_path,
                     att_orm.download_status,
                     att_orm.url,

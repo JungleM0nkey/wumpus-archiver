@@ -5,7 +5,10 @@ import sys
 
 import pytest
 
+from tests.fakes import FakeScrapeControl
 from wumpus_archiver.api.scrape_control import ReadOnlyScrape, ScrapeControl
+from wumpus_archiver.api.scrape_manager import ScrapeJobManager
+from wumpus_archiver.storage.database import Database
 
 
 class TestReadOnlyScrape:
@@ -26,6 +29,42 @@ class TestReadOnlyScrape:
         with pytest.raises(RuntimeError, match="read-only"):
             scrape.start_scrape(123)
         assert scrape.cancel() is False
+
+
+class TestScrapeJobManager:
+    """The production adapter owns its token and satisfies the port."""
+
+    def test_satisfies_the_port(self) -> None:
+        manager = ScrapeJobManager(Database("sqlite+aiosqlite:///:memory:"), "token")
+        assert isinstance(manager, ScrapeControl)
+        assert manager.configured is True
+        assert manager.is_busy is False
+        assert manager.current_job is None
+        assert manager.history == []
+        assert manager.cancel() is False
+
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_rejects_a_blank_token(self, blank: str) -> None:
+        with pytest.raises(ValueError, match="non-empty bot token"):
+            ScrapeJobManager(Database("sqlite+aiosqlite:///:memory:"), blank)
+
+
+class TestFakeScrapeControl:
+    """The test adapter satisfies the port and can be preset."""
+
+    def test_satisfies_the_port(self) -> None:
+        assert isinstance(FakeScrapeControl(), ScrapeControl)
+
+    def test_start_busy_finish_history(self) -> None:
+        fake = FakeScrapeControl()
+        job = fake.start_scrape(42)
+        assert fake.is_busy and fake.current_job is job
+        with pytest.raises(RuntimeError):
+            fake.start_scrape(43)
+        finished = fake.finish(messages_scraped=5)
+        assert finished.result == {"messages_scraped": 5}
+        assert fake.is_busy is False
+        assert fake.history == [finished]
 
 
 def test_scrape_manager_module_does_not_import_discord() -> None:

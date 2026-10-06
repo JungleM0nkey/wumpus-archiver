@@ -2,11 +2,12 @@
 
 import datetime as dt
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 
 from sqlalchemy import func, select
 
-from wumpus_archiver.api.routes._helpers import escape_like, get_db, raise_not_found
+from wumpus_archiver.api.deps import Db
+from wumpus_archiver.api.routes._helpers import escape_like, raise_not_found
 from wumpus_archiver.api.schemas import (
     UserChannelActivity,
     UserListItem,
@@ -25,9 +26,8 @@ router = APIRouter()
 
 
 @router.get("/users/{user_id}", response_model=UserSchema)
-async def get_user(request: Request, user_id: int) -> UserSchema:
+async def get_user(db: Db, user_id: int) -> UserSchema:
     """Get user details."""
-    db = get_db(request)
     async with db.session() as session:
         result = await session.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
@@ -41,7 +41,7 @@ async def get_user(request: Request, user_id: int) -> UserSchema:
 
 @router.get("/guilds/{guild_id}/users", response_model=UserListResponse)
 async def list_guild_users(
-    request: Request,
+    db: Db,
     guild_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -49,7 +49,6 @@ async def list_guild_users(
     q: str | None = Query(None, description="Search by username"),
 ) -> UserListResponse:
     """List users who have posted in a guild, with message counts."""
-    db = get_db(request)
     guild_channels = select(Channel.id).where(Channel.guild_id == guild_id)
 
     async with db.session() as session:
@@ -117,12 +116,11 @@ async def list_guild_users(
 
 @router.get("/users/{user_id}/profile", response_model=UserProfileSchema)
 async def get_user_profile(
-    request: Request,
+    db: Db,
     user_id: int,
     guild_id: int | None = Query(None, description="Scope stats to a guild"),
 ) -> UserProfileSchema:
     """Get detailed user profile with statistics."""
-    db = get_db(request)
     async with db.session() as session:
         user_result = await session.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()

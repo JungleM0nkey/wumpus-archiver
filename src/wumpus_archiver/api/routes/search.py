@@ -1,11 +1,12 @@
 """Search API route handlers."""
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from wumpus_archiver.api.routes._helpers import escape_like, get_db, rewrite_attachment_url
+from wumpus_archiver.api.deps import AttachmentsDir, Db
+from wumpus_archiver.api.routes._helpers import escape_like, rewrite_attachment_url
 from wumpus_archiver.api.schemas import (
     MessageSchema,
     SearchResponse,
@@ -20,7 +21,8 @@ router = APIRouter()
 
 @router.get("/search", response_model=SearchResponse)
 async def search_messages(
-    request: Request,
+    db: Db,
+    attachments_dir: AttachmentsDir,
     q: str = Query(..., min_length=1, description="Search query"),
     guild_id: int | None = Query(None, description="Filter by guild"),
     channel_id: int | None = Query(None, description="Filter by channel"),
@@ -28,7 +30,6 @@ async def search_messages(
     limit: int = Query(50, ge=1, le=100, description="Max results"),
 ) -> SearchResponse:
     """Search messages by content."""
-    db = get_db(request)
     like_pattern = f"%{escape_like(q)}%"
     async with db.session() as session:
         query = (
@@ -86,7 +87,7 @@ async def search_messages(
                 msg_schema.author = author_schema
             for att_orm, att_schema in zip(msg.attachments, msg_schema.attachments):
                 rewritten = rewrite_attachment_url(
-                    request,
+                    attachments_dir,
                     att_orm.local_path,
                     att_orm.download_status,
                     att_orm.url,

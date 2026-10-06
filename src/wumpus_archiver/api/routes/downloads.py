@@ -1,10 +1,11 @@
 """Download statistics API route handlers."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
 from sqlalchemy import func, select
 
-from wumpus_archiver.api.routes._helpers import IMAGE_TYPES, get_attachments_path, get_db
+from wumpus_archiver.api.deps import AttachmentsDir, Db
+from wumpus_archiver.api.routes._helpers import IMAGE_TYPES
 from wumpus_archiver.api.schemas import DownloadChannelStats, DownloadStatsResponse
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
@@ -14,11 +15,8 @@ router = APIRouter()
 
 
 @router.get("/downloads/stats", response_model=DownloadStatsResponse)
-async def download_stats(request: Request) -> DownloadStatsResponse:
+async def download_stats(db: Db, attachments_dir: AttachmentsDir) -> DownloadStatsResponse:
     """Get download statistics for image attachments."""
-    db = get_db(request)
-    attachments_path = get_attachments_path(request)
-
     async with db.session() as session:
         status_counts = await session.execute(
             select(Attachment.download_status, func.count(Attachment.id))
@@ -89,6 +87,6 @@ async def download_stats(request: Request) -> DownloadStatsResponse:
             failed=counts.get("failed", 0),
             skipped=counts.get("skipped", 0),
             downloaded_bytes=downloaded_bytes,
-            attachments_dir=str(attachments_path) if attachments_path else None,
+            attachments_dir=str(attachments_dir) if attachments_dir else None,
             channels=[DownloadChannelStats(**ch) for ch in channels_sorted],  # type: ignore[arg-type]
         )

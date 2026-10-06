@@ -1,10 +1,10 @@
 """Channel API route handlers."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
 from sqlalchemy import select
 
-from wumpus_archiver.api.routes._helpers import get_db
+from wumpus_archiver.api.deps import Db
 from wumpus_archiver.api.schemas import ChannelListResponse, ChannelSchema
 from wumpus_archiver.models.channel import Channel
 
@@ -12,9 +12,8 @@ router = APIRouter()
 
 
 @router.get("/guilds/{guild_id}/channels", response_model=ChannelListResponse)
-async def list_channels(request: Request, guild_id: int) -> ChannelListResponse:
+async def list_channels(db: Db, guild_id: int) -> ChannelListResponse:
     """List channels for a guild."""
-    db = get_db(request)
     async with db.session() as session:
         result = await session.execute(
             select(Channel)

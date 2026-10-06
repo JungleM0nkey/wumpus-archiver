@@ -5,16 +5,13 @@ Covers ``/api/gifs``, ``/api/gifs/random``, ``/api/search`` and
 :func:`wumpus_archiver.api.routes._helpers.escape_like`.
 """
 
-from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from sqlalchemy import text
 
-from wumpus_archiver.api.routes import router as api_router
 from wumpus_archiver.api.routes._helpers import escape_like
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.guild import Guild
@@ -132,15 +129,9 @@ async def seeded_db(database: Database) -> Database:
     return database
 
 
-@pytest.fixture
-async def client(seeded_db: Database) -> AsyncGenerator[AsyncClient, None]:
-    """HTTP client for a minimal app that mounts the API routers on the seeded database."""
-    app = FastAPI()
-    app.state.database = seeded_db
-    app.state.attachments_path = None
-    app.include_router(api_router, prefix="/api")
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
-        yield http
+@pytest.fixture(autouse=True)
+async def _seeded(seeded_db: Database) -> None:
+    """Every test here runs the shared ``client`` over the seeded database."""
 
 
 def _gif_ids(payload: dict[str, Any]) -> set[str]:

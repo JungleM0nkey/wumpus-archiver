@@ -1,10 +1,11 @@
 """Stats API route handlers."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
 from sqlalchemy import func, select
 
-from wumpus_archiver.api.routes._helpers import get_db, raise_not_found
+from wumpus_archiver.api.deps import Db
+from wumpus_archiver.api.routes._helpers import raise_not_found
 from wumpus_archiver.api.schemas import StatsSchema
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
@@ -16,9 +17,8 @@ router = APIRouter()
 
 
 @router.get("/guilds/{guild_id}/stats", response_model=StatsSchema)
-async def get_guild_stats(request: Request, guild_id: int) -> StatsSchema:
+async def get_guild_stats(db: Db, guild_id: int) -> StatsSchema:
     """Get statistics for a guild."""
-    db = get_db(request)
     async with db.session() as session:
         guild_result = await session.execute(select(Guild).where(Guild.id == guild_id))
         guild = guild_result.scalar_one_or_none()

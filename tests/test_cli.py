@@ -5,6 +5,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
+from wumpus_archiver.api.deps import wiring_of
 from wumpus_archiver.cli import cli
 
 
@@ -65,8 +66,7 @@ class TestCLI:
         db_file.touch()
         attachments = tmp_path / "attachments"
         attachments.mkdir()
-        # The factory still reads Settings()/.env when no token is given; keep the
-        # test hermetic until create_app stops doing so.
+        # serve resolves the bot token from the environment and .env; pin both to "none".
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
 
@@ -87,9 +87,12 @@ class TestCLI:
         assert len(calls) == 1
         app, kwargs = calls[0]
         assert kwargs == {"host": "0.0.0.0", "port": 9999}
-        assert app.state.database.database_url == f"sqlite+aiosqlite:///{db_file.resolve()}"
-        assert app.state.attachments_path == attachments.resolve()
-        assert app.state.discord_token is None
+        wiring = wiring_of(app)
+        assert wiring.database.database_url == f"sqlite+aiosqlite:///{db_file.resolve()}"
+        assert wiring.database.connected is False, "the app's lifespan owns the connection"
+        assert wiring.attachments_dir == attachments.resolve()
+        assert wiring.scrape.configured is False
+        assert "Scrape control: read-only" in result.output
 
     def test_serve_without_attachments_dir(self, tmp_path, monkeypatch) -> None:
         """A missing attachments directory means images are served from the CDN."""
@@ -104,7 +107,22 @@ class TestCLI:
 
         assert result.exit_code == 0, result.output
         assert "images served from Discord CDN" in result.output
-        assert apps[0].state.attachments_path is None
+        assert wiring_of(apps[0]).attachments_dir is None
+
+    def test_serve_enables_scrape_control_with_a_token(self, tmp_path, monkeypatch) -> None:
+        """A bot token in the environment turns scrape control on without starting anything."""
+        db_file = tmp_path / "test.db"
+        db_file.touch()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "a-real-looking-token")
+        apps: list[object] = []
+        monkeypatch.setattr("uvicorn.run", lambda app, **kw: apps.append(app))
+
+        result = CliRunner().invoke(cli, ["serve", str(db_file)])
+
+        assert result.exit_code == 0, result.output
+        assert "Scrape control: enabled" in result.output
+        assert wiring_of(apps[0]).scrape.configured is True
 
     def test_update_not_implemented(self, tmp_path) -> None:
         """Test update command returns error (not implemented)."""

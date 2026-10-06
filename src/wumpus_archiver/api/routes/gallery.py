@@ -3,15 +3,12 @@
 import datetime as dt
 from collections import OrderedDict
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 
 from sqlalchemy import func, select
 
-from wumpus_archiver.api.routes._helpers import (
-    IMAGE_TYPES,
-    get_db,
-    rows_to_gallery_schemas,
-)
+from wumpus_archiver.api.deps import AttachmentsDir, Db
+from wumpus_archiver.api.routes._helpers import IMAGE_TYPES, rows_to_gallery_schemas
 from wumpus_archiver.api.schemas import (
     GalleryResponse,
     TimelineGalleryGroup,
@@ -27,13 +24,13 @@ router = APIRouter()
 
 @router.get("/channels/{channel_id}/gallery", response_model=GalleryResponse)
 async def channel_gallery(
-    request: Request,
+    db: Db,
+    attachments_dir: AttachmentsDir,
     channel_id: int,
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     limit: int = Query(60, ge=1, le=200, description="Number of images to return"),
 ) -> GalleryResponse:
     """Get image attachments from a channel for gallery view."""
-    db = get_db(request)
     image_types = IMAGE_TYPES
     async with db.session() as session:
         query = (
@@ -72,7 +69,7 @@ async def channel_gallery(
         )
         total = count_result.scalar() or 0
 
-        attachments = rows_to_gallery_schemas(request, rows)
+        attachments = rows_to_gallery_schemas(attachments_dir, rows)
 
         return GalleryResponse(
             attachments=attachments,
@@ -84,7 +81,8 @@ async def channel_gallery(
 
 @router.get("/guilds/{guild_id}/gallery", response_model=GalleryResponse)
 async def guild_gallery(
-    request: Request,
+    db: Db,
+    attachments_dir: AttachmentsDir,
     guild_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(60, ge=1, le=200),
@@ -92,7 +90,6 @@ async def guild_gallery(
     content_type: str | None = Query(None, description="Filter by type: image, gif, video"),
 ) -> GalleryResponse:
     """Get all image attachments across a guild, optionally filtered."""
-    db = get_db(request)
     guild_channels = select(Channel.id).where(Channel.guild_id == guild_id)
 
     if content_type == "gif":
@@ -145,7 +142,7 @@ async def guild_gallery(
         )
         ch_map = dict(ch_result.all())
 
-        attachments = rows_to_gallery_schemas(request, rows, ch_map)
+        attachments = rows_to_gallery_schemas(attachments_dir, rows, ch_map)
 
         return GalleryResponse(
             attachments=attachments,
@@ -176,7 +173,8 @@ def _period_label(date: dt.datetime, group_by: str) -> tuple[str, str]:
 
 @router.get("/guilds/{guild_id}/gallery/timeline", response_model=TimelineGalleryResponse)
 async def guild_gallery_timeline(
-    request: Request,
+    db: Db,
+    attachments_dir: AttachmentsDir,
     guild_id: int,
     offset: int = Query(0, ge=0),
     limit: int = Query(120, ge=1, le=500),
@@ -184,7 +182,6 @@ async def guild_gallery_timeline(
     group_by: str = Query("month", description="Group by: week, month, year"),
 ) -> TimelineGalleryResponse:
     """Get guild images grouped by time period for timeline view."""
-    db = get_db(request)
     guild_channels = select(Channel.id).where(Channel.guild_id == guild_id)
 
     async with db.session() as session:
@@ -241,7 +238,7 @@ async def guild_gallery_timeline(
 
         timeline_groups = []
         for period, group_rows in groups.items():
-            att_schemas = rows_to_gallery_schemas(request, group_rows, ch_map)
+            att_schemas = rows_to_gallery_schemas(attachments_dir, group_rows, ch_map)
             _period_key, label = _period_label(group_rows[0][1], group_by)
             timeline_groups.append(
                 TimelineGalleryGroup(

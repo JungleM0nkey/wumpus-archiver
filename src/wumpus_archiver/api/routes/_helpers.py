@@ -2,27 +2,13 @@
 
 from pathlib import Path
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 
-from wumpus_archiver.api.schemas import (
-    AttachmentSchema,
-    GalleryAttachmentSchema,
-)
-from wumpus_archiver.storage.database import Database
-
-
-def get_db(request: Request) -> Database:
-    """Get database from app state."""
-    return request.app.state.database  # type: ignore[no-any-return]
-
-
-def get_attachments_path(request: Request) -> Path | None:
-    """Get local attachments path from app state."""
-    return getattr(request.app.state, "attachments_path", None)
+from wumpus_archiver.api.schemas import GalleryAttachmentSchema
 
 
 def rewrite_attachment_url(
-    request: Request,
+    attachments_dir: Path | None,
     local_path: str | None,
     download_status: str,
     original_url: str,
@@ -30,17 +16,17 @@ def rewrite_attachment_url(
     """Rewrite attachment URL to local version if downloaded.
 
     Args:
-        request: Current request (for base URL)
+        attachments_dir: The configured attachments directory, or None
         local_path: Relative local path from attachment record
         download_status: Download status of the attachment
         original_url: Original Discord CDN URL
 
     Returns:
-        Local URL if downloaded, otherwise original URL
+        Local URL if downloaded and present locally, otherwise original URL
     """
     if download_status != "downloaded":
         return original_url
-    return local_attachment_url(get_attachments_path(request), local_path) or original_url
+    return local_attachment_url(attachments_dir, local_path) or original_url
 
 
 def local_attachment_url(attachments_dir: Path | None, local_path: str | None) -> str | None:
@@ -61,13 +47,6 @@ def local_attachment_url(attachments_dir: Path | None, local_path: str | None) -
     if attachments_dir and local_path and (attachments_dir / local_path).exists():
         return f"/attachments/{local_path}"
     return None
-
-
-def rewrite_attachment_schema(request: Request, schema: AttachmentSchema) -> AttachmentSchema:
-    """Rewrite URLs in an AttachmentSchema if local file exists."""
-    # We need to query the DB for local_path — but schemas don't have it.
-    # Instead the caller should pass the ORM object data.
-    return schema
 
 
 def raise_not_found(detail: str) -> None:
@@ -100,14 +79,14 @@ IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/avif
 
 
 def rows_to_gallery_schemas(
-    request: Request,
-    rows: list[tuple],  # type: ignore[type-arg]
+    attachments_dir: Path | None,
+    rows: list[tuple],  # noqa: UP006
     channel_map: dict[int, str] | None = None,
 ) -> list[GalleryAttachmentSchema]:
     """Convert raw DB rows to GalleryAttachmentSchema list.
 
     Args:
-        request: Current request for URL rewriting
+        attachments_dir: The configured attachments directory, or None
         rows: Tuples of (Attachment, created_at, channel_id, username, global_name, avatar_url)
         channel_map: Optional map of channel_id -> channel_name
 
@@ -116,9 +95,7 @@ def rows_to_gallery_schemas(
     """
     attachments = []
     for att, created_at, msg_channel_id, username, global_name, avatar_url in rows:
-        url = rewrite_attachment_url(
-            request, att.local_path, att.download_status, att.url
-        )
+        url = rewrite_attachment_url(attachments_dir, att.local_path, att.download_status, att.url)
         proxy_url = att.proxy_url
         if url != att.url:
             proxy_url = None

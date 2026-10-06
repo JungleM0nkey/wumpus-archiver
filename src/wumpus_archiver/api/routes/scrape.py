@@ -1,10 +1,11 @@
-"""Scrape control panel API route handlers."""
+"""Scrape control API route handlers."""
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from wumpus_archiver.api.deps import Scrape
 from wumpus_archiver.api.schemas import (
     ScrapeHistoryResponse,
     ScrapeJobSchema,
@@ -12,17 +13,17 @@ from wumpus_archiver.api.schemas import (
     ScrapeStartRequest,
     ScrapeStatusResponse,
 )
+from wumpus_archiver.api.scrape_control import ScrapeJob
 
 router = APIRouter()
 
+READ_ONLY_ERROR = (
+    "Scrape control is read-only: no Discord bot token was configured when the server started."
+)
 
-def _get_scrape_manager(request: Request):  # type: ignore[no-untyped-def]
-    """Get the scrape job manager from app state."""
-    return request.app.state.scrape_manager
 
-
-def _job_to_schema(job) -> ScrapeJobSchema:  # type: ignore[no-untyped-def]
-    """Convert a ScrapeJob model to a response schema."""
+def _job_to_schema(job: ScrapeJob) -> ScrapeJobSchema:
+    """Convert a ScrapeJob to a response schema."""
     duration: float | None = None
     if job.started_at and job.completed_at:
         duration = (job.completed_at - job.started_at).total_seconds()
@@ -49,43 +50,31 @@ def _job_to_schema(job) -> ScrapeJobSchema:  # type: ignore[no-untyped-def]
 
 
 @router.get("/scrape/status", response_model=ScrapeStatusResponse)
-async def scrape_status(request: Request) -> ScrapeStatusResponse:
+async def scrape_status(scrape: Scrape) -> ScrapeStatusResponse:
     """Get current scrape job status."""
-    manager = _get_scrape_manager(request)
-    has_token = getattr(request.app.state, "discord_token", None) is not None
-
-    if manager.current_job is not None:
+    if scrape.current_job is not None:
         return ScrapeStatusResponse(
-            busy=manager.is_busy,
-            current_job=_job_to_schema(manager.current_job),
-            has_token=has_token,
+            busy=scrape.is_busy,
+            current_job=_job_to_schema(scrape.current_job),
+            has_token=scrape.configured,
         )
 
-    return ScrapeStatusResponse(busy=False, has_token=has_token)
+    return ScrapeStatusResponse(busy=False, has_token=scrape.configured)
 
 
 @router.post("/scrape/start")
-async def scrape_start(request: Request, body: ScrapeStartRequest) -> JSONResponse:
+async def scrape_start(scrape: Scrape, body: ScrapeStartRequest) -> JSONResponse:
     """Start a new scrape job."""
-    manager = _get_scrape_manager(request)
-    token = getattr(request.app.state, "discord_token", None)
+    if not scrape.configured:
+        return JSONResponse(status_code=400, content={"error": READ_ONLY_ERROR})
 
-    if not token:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "No Discord bot token configured. "
-                "Set DISCORD_BOT_TOKEN in .env or environment."
-            },
-        )
-
-    if manager.is_busy:
+    if scrape.is_busy:
         return JSONResponse(
             status_code=409,
             content={"error": "A scrape job is already running"},
         )
 
-    job = manager.start_scrape(body.guild_id, token)
+    job = scrape.start_scrape(body.guild_id)
     return JSONResponse(
         status_code=202,
         content={"job": _job_to_schema(job).model_dump()},
@@ -93,11 +82,9 @@ async def scrape_start(request: Request, body: ScrapeStartRequest) -> JSONRespon
 
 
 @router.post("/scrape/cancel")
-async def scrape_cancel(request: Request) -> JSONResponse:
+async def scrape_cancel(scrape: Scrape) -> JSONResponse:
     """Cancel the current scrape job."""
-    manager = _get_scrape_manager(request)
-
-    if manager.cancel():
+    if scrape.cancel():
         return JSONResponse(content={"message": "Cancellation requested"})
 
     return JSONResponse(
@@ -107,9 +94,6 @@ async def scrape_cancel(request: Request) -> JSONResponse:
 
 
 @router.get("/scrape/history", response_model=ScrapeHistoryResponse)
-async def scrape_history(request: Request) -> ScrapeHistoryResponse:
+async def scrape_history(scrape: Scrape) -> ScrapeHistoryResponse:
     """Get scrape job history."""
-    manager = _get_scrape_manager(request)
-    return ScrapeHistoryResponse(
-        jobs=[_job_to_schema(j) for j in manager.history],
-    )
+    return ScrapeHistoryResponse(jobs=[_job_to_schema(j) for j in scrape.history])

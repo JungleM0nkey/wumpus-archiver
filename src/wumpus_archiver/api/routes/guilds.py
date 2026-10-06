@@ -1,10 +1,11 @@
 """Guild API route handlers."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
 from sqlalchemy import func, select
 
-from wumpus_archiver.api.routes._helpers import get_db, raise_not_found
+from wumpus_archiver.api.deps import Db
+from wumpus_archiver.api.routes._helpers import raise_not_found
 from wumpus_archiver.api.schemas import (
     ChannelSchema,
     GuildDetailSchema,
@@ -18,9 +19,8 @@ router = APIRouter()
 
 
 @router.get("/guilds", response_model=list[GuildSchema])
-async def list_guilds(request: Request) -> list[GuildSchema]:
+async def list_guilds(db: Db) -> list[GuildSchema]:
     """List all archived guilds."""
-    db = get_db(request)
     async with db.session() as session:
         result = await session.execute(select(Guild))
         guilds = result.scalars().all()
@@ -46,9 +46,8 @@ async def list_guilds(request: Request) -> list[GuildSchema]:
 
 
 @router.get("/guilds/{guild_id}", response_model=GuildDetailSchema)
-async def get_guild(request: Request, guild_id: int) -> GuildDetailSchema:
+async def get_guild(db: Db, guild_id: int) -> GuildDetailSchema:
     """Get guild details with channels."""
-    db = get_db(request)
     async with db.session() as session:
         result = await session.execute(
             select(Guild).where(Guild.id == guild_id)
