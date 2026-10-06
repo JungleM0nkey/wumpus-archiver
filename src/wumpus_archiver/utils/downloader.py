@@ -15,7 +15,7 @@ import hashlib
 import ipaddress
 import logging
 import os
-import tempfile
+import uuid
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
@@ -153,17 +153,22 @@ def _compute_hash(data: bytes) -> str:
 def _write_atomic(path: Path, data: bytes) -> None:
     """Write a file via a temp file in the same directory, then rename into place.
 
+    The temp file is created with mode 0o666 so the process umask decides the
+    final permissions (``tempfile.mkstemp`` would force 0o600 onto every download).
+    ``O_EXCL`` plus a random name means it can never clobber or follow an existing file.
+
     Args:
         path: Destination file path
         data: File content bytes
     """
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".download-", suffix=".tmp")
+    tmp_path = path.parent / f".download-{uuid.uuid4().hex}.tmp"
+    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
     try:
         with os.fdopen(fd, "wb") as tmp_file:
             tmp_file.write(data)
-        os.replace(tmp_name, path)
+        os.replace(tmp_path, path)
     except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)
         raise
 
 
@@ -547,7 +552,11 @@ class ImageDownloader:
                         raise _RejectedDownloadError(
                             f"redirect without Location from {_redact_url(current)}"
                         )
-                    current = urljoin(current, location)
+                    try:
+                        current = urljoin(current, location)
+                    except ValueError:
+                        # Never echo the Location: it can carry signed query tokens
+                        raise _RejectedDownloadError("malformed redirect Location") from None
                     continue
                 if response.status != 200:
                     return response.status, None

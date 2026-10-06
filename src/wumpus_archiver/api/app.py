@@ -178,28 +178,56 @@ def _portal_dist() -> Path:
     return Path(__file__).parent.parent.parent.parent / "portal" / "build"
 
 
+# ``Path.resolve()`` is quadratic in the number of path segments and runs on the event loop,
+# so untrusted request paths are bounded before it. Real build output (for example
+# ``_app/immutable/chunks/<hash>.js``) is far below both caps.
+_MAX_REQUEST_PATH_CHARS = 1024
+_MAX_REQUEST_PATH_SEGMENTS = 64
+
+
 def _resolve_portal_file(portal_root: Path, requested: str) -> Path | None:
     """Map a request path to a file inside the portal build directory.
 
-    The request path is untrusted (it is URL-decoded before routing), so the
-    candidate is fully resolved (``..`` segments and symlinks) and only returned
-    if it is a regular file located inside ``portal_root``.
+    The request path is untrusted (it is URL-decoded before routing), so it is checked in
+    layers, cheapest first, and the filesystem is only touched once the path is proven to
+    stay inside ``portal_root``:
+
+    1. size caps and a NUL/backslash guard;
+    2. a lexical check - ``..`` segments are collapsed with ``os.path.normpath`` (linear, no
+       filesystem access) and anything that is not under ``portal_root`` is rejected;
+    3. one ``stat``: only an existing regular file goes on, so a junk request cannot stall
+       the event loop in the quadratic ``resolve()``;
+    4. ``resolve()`` follows symlinks and the final location must still be inside
+       ``portal_root`` (a symlink in the build directory cannot lead outside it).
 
     Args:
         portal_root: Resolved absolute path of the portal build directory
         requested: Request path relative to the site root (URL-decoded)
 
     Returns:
-        The resolved file path, or None if the path is empty, malformed, escapes
-        ``portal_root`` or is not a regular file
+        The resolved file path, or None if the path is empty, malformed, too long,
+        escapes ``portal_root`` or is not a regular file
     """
     if not requested or "\x00" in requested or "\\" in requested:
         return None
+    if (
+        len(requested) > _MAX_REQUEST_PATH_CHARS
+        or requested.count("/") + 1 > _MAX_REQUEST_PATH_SEGMENTS
+    ):
+        return None
+    root = str(portal_root)
+    # An absolute `requested` replaces `root` in join(); the prefix check below rejects it.
+    candidate = os.path.normpath(os.path.join(root, requested))
+    if not candidate.startswith(root.rstrip(os.sep) + os.sep):
+        return None
     try:
-        # An absolute `requested` replaces portal_root here; the containment check rejects it.
-        candidate = (portal_root / requested).resolve()
-        if candidate.is_relative_to(portal_root) and candidate.is_file():
-            return candidate
+        path = Path(candidate)
+        if not path.is_file():
+            # Cheap single stat; ENAMETOOLONG and friends land in the except below.
+            return None
+        resolved = path.resolve()
+        if resolved.is_relative_to(portal_root) and resolved.is_file():
+            return resolved
     except (OSError, ValueError, RuntimeError):
         # Unresolvable (e.g. symlink loop, over-long name) -> treat as not found
         return None

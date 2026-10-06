@@ -569,6 +569,7 @@ app = create_app(
 def mirror(guild_id: int | None) -> None:
     """Live-mirror Discord guild messages into apehost chat (runs until stopped)."""
     from wumpus_archiver.bot.mirror import BridgeClient, MirrorBot
+    from wumpus_archiver.config import validate_bridge_url
 
     try:
         settings = Settings()  # type: ignore[call-arg]
@@ -584,18 +585,23 @@ def mirror(guild_id: int | None) -> None:
     if not settings.chat_bridge_token.get_secret_value():
         click.echo("Error: CHAT_BRIDGE_TOKEN is required (set it in .env).", err=True)
         sys.exit(1)
+    try:
+        bridge_url = validate_bridge_url(settings.chat_bridge_url)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
     bot = MirrorBot(
         settings.discord_bot_token.get_secret_value(),
         guild_id,
         BridgeClient(
-            settings.chat_bridge_url,
+            bridge_url,
             settings.chat_bridge_token.get_secret_value(),
             settings.cf_access_client_id,
             settings.cf_access_client_secret.get_secret_value(),
         ),
     )
-    click.echo(f"Mirroring guild {guild_id} -> {settings.chat_bridge_url}")
+    click.echo(f"Mirroring guild {guild_id} -> {bridge_url}")
     bot.run_sync()
 
 
@@ -633,6 +639,7 @@ def backfill(database: Path, guild_id: int | None, cutoff_iso: str | None, concu
     """Replay an archived Discord guild into apehost chat (one-shot)."""
     from wumpus_archiver.bot.backfill import run_backfill
     from wumpus_archiver.bot.mirror import BridgeClient
+    from wumpus_archiver.config import validate_bridge_url
 
     try:
         settings = Settings()  # type: ignore[call-arg]
@@ -648,6 +655,11 @@ def backfill(database: Path, guild_id: int | None, cutoff_iso: str | None, concu
     if not settings.chat_bridge_token.get_secret_value():
         click.echo("Error: CHAT_BRIDGE_TOKEN is required (set it in .env).", err=True)
         sys.exit(1)
+    try:
+        bridge_url = validate_bridge_url(settings.chat_bridge_url)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
     cutoff: datetime
     if cutoff_iso:
@@ -661,7 +673,7 @@ def backfill(database: Path, guild_id: int | None, cutoff_iso: str | None, concu
 
     async def run() -> int:
         async with BridgeClient(
-            settings.chat_bridge_url,
+            bridge_url,
             settings.chat_bridge_token.get_secret_value(),
             settings.cf_access_client_id,
             settings.cf_access_client_secret.get_secret_value(),

@@ -385,6 +385,255 @@ class TestResolvePortalFile:
         assert _resolve_portal_file(root, "a" * 5000) is None
 
 
+# Mirrors of the request-path caps in app.py (pinned by test_caps_are_pinned below).
+CHAR_CAP = 1024
+SEGMENT_CAP = 64
+
+
+@pytest.fixture
+def resolve_calls(app: Any, monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """Record every ``Path.resolve()`` call made once the app exists.
+
+    Depending on ``app`` guarantees ``create_app`` (which resolves the build and attachments
+    directories) already ran, so only request-time calls are recorded. ``Path.resolve`` is
+    quadratic in the number of path segments, so it must not run on junk requests.
+    """
+    calls: list[Path] = []
+    real_resolve = Path.resolve
+
+    def counting_resolve(self: Path, strict: bool = False) -> Path:
+        calls.append(self)
+        return real_resolve(self, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", counting_resolve)
+    return calls
+
+
+def _write(path: Path, text: str) -> Path:
+    """Create ``path`` (and its parent directories) with ``text`` as content."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+def test_caps_are_pinned() -> None:
+    assert app_module._MAX_REQUEST_PATH_CHARS == CHAR_CAP
+    assert app_module._MAX_REQUEST_PATH_SEGMENTS == SEGMENT_CAP
+
+
+class TestResolveCostIsBounded:
+    """Requests that cannot be a portal file must never reach the costly ``resolve()``."""
+
+    @pytest.mark.parametrize(
+        "requested",
+        [
+            pytest.param("a" * (CHAR_CAP + 1), id="over-char-cap"),
+            pytest.param("/".join(["a"] * (SEGMENT_CAP + 1)), id="over-segment-cap"),
+            pytest.param("missing/deeper/does-not-exist.js", id="nonexistent-file"),
+            pytest.param("img", id="directory"),
+        ],
+    )
+    async def test_junk_request_falls_back_without_resolve(
+        self, app: Any, resolve_calls: list[Path], requested: str
+    ) -> None:
+        status, body = await _asgi_get(app, "/" + requested)
+        assert status == 200
+        assert body.decode() == INDEX_HTML
+        assert resolve_calls == []
+
+    async def test_existing_asset_is_still_resolved_and_served(
+        self, app: Any, resolve_calls: list[Path]
+    ) -> None:
+        status, body = await _asgi_get(app, "/img/logo.svg")
+        assert status == 200
+        assert body.decode() == LOGO_SVG
+        assert len(resolve_calls) == 1
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            pytest.param("/" + "a" * 5000, id="5000-chars"),
+            pytest.param("/" + "/".join(["a"] * 30000), id="30000-segments"),
+        ],
+    )
+    async def test_oversized_path_end_to_end_returns_index(
+        self, client: httpx.AsyncClient, resolve_calls: list[Path], path: str
+    ) -> None:
+        response = await client.get(path)
+        assert response.status_code == 200
+        assert response.text == INDEX_HTML
+        assert resolve_calls == []
+
+
+class TestRequestPathCaps:
+    """The caps are inclusive: a path exactly at the cap is served, one beyond is not."""
+
+    def test_segment_cap_boundary(self, site: SimpleNamespace) -> None:
+        root = site.build.resolve()
+        within = "/".join(["d"] * (SEGMENT_CAP - 1) + ["f.txt"])
+        beyond = "/".join(["d"] * SEGMENT_CAP + ["f.txt"])
+        assert within.count("/") + 1 == SEGMENT_CAP
+        _write(root / within, "within")
+        _write(root / beyond, "beyond")
+        assert _resolve_portal_file(root, within) == root / within
+        assert _resolve_portal_file(root, beyond) is None
+
+    def test_char_cap_boundary(self, site: SimpleNamespace) -> None:
+        root = site.build.resolve()
+        directories = "/".join(["a" * 200] * 5)  # 1004 chars, 5 segments
+        within = f"{directories}/{'f' * 19}"
+        beyond = f"{directories}/{'f' * 20}"
+        assert len(within) == CHAR_CAP
+        assert len(beyond) == CHAR_CAP + 1
+        _write(root / within, "within")
+        _write(root / beyond, "beyond")
+        assert _resolve_portal_file(root, within) == root / within
+        assert _resolve_portal_file(root, beyond) is None
+
+    @pytest.mark.parametrize("length", [300, 1000])
+    def test_single_overlong_component_is_not_found_not_an_error(
+        self, site: SimpleNamespace, length: int
+    ) -> None:
+        """A component under the char cap but over the filesystem's name limit must not raise.
+
+        The stat fails with ENAMETOOLONG (not one of the errors Path.is_file() swallows), so
+        the function's OSError handler is what turns it into "not found" instead of a 500.
+        """
+        root = site.build.resolve()
+        assert length <= CHAR_CAP
+        assert _resolve_portal_file(root, "a" * length) is None
+        assert _resolve_portal_file(root, f"d/{'b' * length}") is None
+
+
+class TestNestedAssets:
+    """Legitimate nested build output (SvelteKit hashed chunks, fonts) keeps working."""
+
+    CHUNK_JS = "export const chunk = 1;"
+    FONT = "fake-font-bytes"
+
+    def test_resolves_deeply_nested_chunk(self, site: SimpleNamespace) -> None:
+        root = site.build.resolve()
+        chunk = _write(root / "_app" / "immutable" / "chunks" / "x.js", self.CHUNK_JS)
+        assert _resolve_portal_file(root, "_app/immutable/chunks/x.js") == chunk
+
+    async def test_serves_nested_chunk_from_static_mount(
+        self, client: httpx.AsyncClient, site: SimpleNamespace
+    ) -> None:
+        _write(site.build / "_app" / "immutable" / "chunks" / "x.js", self.CHUNK_JS)
+        response = await client.get("/_app/immutable/chunks/x.js")
+        assert response.status_code == 200
+        assert response.text == self.CHUNK_JS
+
+    async def test_serves_nested_asset_from_spa_fallback(
+        self, client: httpx.AsyncClient, site: SimpleNamespace
+    ) -> None:
+        _write(site.build / "assets" / "fonts" / "inter" / "regular.woff2", self.FONT)
+        response = await client.get("/assets/fonts/inter/regular.woff2")
+        assert response.status_code == 200
+        assert response.text == self.FONT
+
+
+class TestSymlinkedBuildDirectory:
+    """``portal/build`` itself may be a symlink (e.g. a deploy that swaps release dirs)."""
+
+    @pytest.fixture
+    def linked_site(self, site: SimpleNamespace) -> SimpleNamespace:
+        """Move the real build to ``root/real-dist`` and make ``portal/build`` a symlink."""
+        real = site.root / "real-dist"
+        site.build.rename(real)
+        _symlink(site.build, real)
+        # Reachable with `..` from the resolved build dir (real-dist) ...
+        _write(site.root / "sibling.txt", SECRET)
+        _write(site.root / "real-dist-evil" / "secret.txt", SECRET)
+        # ... while root/portal/sibling.txt (from the fixture) is reachable with `..` from the
+        # lexical symlink path.
+        site.real = real
+        return site
+
+    @pytest.fixture
+    def app(self, linked_site: SimpleNamespace, app: Any) -> Any:
+        """Same app, but created only after ``portal/build`` became a symlink."""
+        return app
+
+    async def test_normal_assets_are_still_served(
+        self, client: httpx.AsyncClient, linked_site: SimpleNamespace
+    ) -> None:
+        assert linked_site.build.is_symlink()
+        for path, expected in [
+            ("/", INDEX_HTML),
+            ("/favicon.svg", ASSET_SVG),
+            ("/img/logo.svg", LOGO_SVG),
+            ("/robots.txt", ROBOTS),
+            ("/_app/immutable/app.js", APP_JS),
+            ("/archive/channels/123", INDEX_HTML),
+        ]:
+            response = await client.get(path)
+            assert response.status_code == 200, path
+            assert response.text == expected, path
+
+    @pytest.mark.parametrize(
+        "decoded_path",
+        [
+            "/../sibling.txt",
+            "/../secret.txt",
+            "/../.env",
+            "/../portal/sibling.txt",
+            "/../real-dist-evil/secret.txt",
+            "/../build-evil/secret.txt",
+            "/img/../../secret.txt",
+            "/..\\secret.txt",
+            "/../../../../../../../../secret.txt",
+        ],
+    )
+    async def test_traversal_never_leaks_secret(self, app: Any, decoded_path: str) -> None:
+        status, body = await _asgi_get(app, decoded_path)
+        assert SECRET.encode() not in body
+        assert status == 200
+        assert body.decode() == INDEX_HTML
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/%2e%2e/sibling.txt",
+            "/%2e%2e/%2e%2e/secret.txt",
+            "/..%2fsecret.txt",
+            "/%2e%2e/portal/sibling.txt",
+        ],
+    )
+    async def test_encoded_traversal_never_leaks_secret(
+        self, client: httpx.AsyncClient, path: str
+    ) -> None:
+        response = await client.get(path)
+        assert SECRET not in response.text
+        assert response.status_code == 200
+        assert response.text == INDEX_HTML
+
+    async def test_absolute_path_never_leaks_secret(
+        self, app: Any, linked_site: SimpleNamespace
+    ) -> None:
+        status, body = await _asgi_get(app, "/" + str(linked_site.secret))
+        assert SECRET.encode() not in body
+        assert body.decode() == INDEX_HTML
+
+    async def test_symlink_pointing_outside_is_not_served(
+        self, client: httpx.AsyncClient, linked_site: SimpleNamespace
+    ) -> None:
+        _symlink(linked_site.build / "leak.txt", linked_site.secret)
+        _symlink(linked_site.build / "linked", linked_site.root / "outside")
+        for path in ("/leak.txt", "/linked/data.txt"):
+            response = await client.get(path)
+            assert SECRET not in response.text, path
+            assert response.text == INDEX_HTML, path
+
+    async def test_symlink_staying_inside_build_is_still_served(
+        self, client: httpx.AsyncClient, linked_site: SimpleNamespace
+    ) -> None:
+        _symlink(linked_site.build / "alias.svg", linked_site.real / "favicon.svg")
+        response = await client.get("/alias.svg")
+        assert response.status_code == 200
+        assert response.text == ASSET_SVG
+
+
 def test_portal_dist_points_at_repo_portal_build() -> None:
     """The monkeypatchable helper keeps pointing at <repo>/portal/build."""
     helper: Callable[[], Path] = app_module._portal_dist

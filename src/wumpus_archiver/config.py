@@ -4,7 +4,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -51,6 +51,60 @@ def parse_cors_origins(value: str) -> list[str]:
 
 # Hosts for which a plain-http bridge URL is tolerated (local development only).
 _LOCAL_BRIDGE_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+DEFAULT_CHAT_BRIDGE_URL = "https://connect.apehost.net/dashboard/chat/bridge"
+
+
+def validate_bridge_url(url: str) -> str:
+    """Validate a chat bridge URL, i.e. a place where bridge secrets will be sent.
+
+    The bridge client sends a bearer token and Cloudflare Access credentials with every
+    request, so the URL must be absolute, use https (http only for localhost, 127.0.0.1 or
+    [::1] development), carry no username/password and have a parseable port.
+
+    This runs where the secrets are used (``BridgeClient``, the ``mirror`` and ``backfill``
+    commands), not in ``Settings``: a bad value must not break commands that never use the
+    bridge.
+
+    Args:
+        url: Candidate bridge URL; surrounding whitespace is stripped.
+
+    Returns:
+        The stripped URL.
+
+    Raises:
+        ValueError: If the URL is not acceptable. The message never includes the URL (it may
+            embed credentials), and the parser's own error, which quotes the offending text,
+            is neither chained nor kept as ``__context__``.
+    """
+    url = url.strip()
+    parts: SplitResult | None
+    try:
+        parts = urlsplit(url)
+        hostname = parts.hostname
+    except ValueError:
+        parts = hostname = None
+    if parts is None:
+        # Raised outside the except block so the parser's error is not attached
+        raise ValueError("CHAT_BRIDGE_URL is not a valid URL")
+    if not hostname:
+        raise ValueError("CHAT_BRIDGE_URL must be an absolute URL with a host")
+    local_http = parts.scheme == "http" and hostname in _LOCAL_BRIDGE_HOSTS
+    if parts.scheme != "https" and not local_http:
+        raise ValueError(
+            "CHAT_BRIDGE_URL must use https:// "
+            "(http:// is only allowed for localhost, 127.0.0.1 or [::1])"
+        )
+    if "@" in parts.netloc:
+        raise ValueError("CHAT_BRIDGE_URL must not contain credentials (username/password)")
+    try:
+        _ = parts.port  # reading it parses and range-checks the port
+        port_ok = True
+    except ValueError:
+        port_ok = False
+    if not port_ok:
+        raise ValueError("CHAT_BRIDGE_URL has an invalid port")
+    return url
 
 
 class Settings(BaseSettings):
@@ -109,8 +163,9 @@ class Settings(BaseSettings):
     default_page_size: int = Field(default=50, validation_alias="DEFAULT_PAGE_SIZE")
 
     # Chat mirror bridge (wumpus-archiver mirror)
+    # Not validated here: see validate_bridge_url(), applied where the bridge is used.
     chat_bridge_url: str = Field(
-        default="https://connect.apehost.net/dashboard/chat/bridge",
+        default=DEFAULT_CHAT_BRIDGE_URL,
         validation_alias="CHAT_BRIDGE_URL",
     )
     chat_bridge_token: SecretStr = Field(
@@ -125,26 +180,18 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
     log_file: Path | None = Field(default=None, validation_alias="LOG_FILE")
 
-    @field_validator("chat_bridge_url")
+    @field_validator("chat_bridge_url", mode="before")
     @classmethod
-    def validate_chat_bridge_url(cls, v: str) -> str:
-        """Require https for the bridge URL (http only for localhost development).
+    def blank_bridge_url_is_default(cls, v: object) -> object:
+        """Strip whitespace and treat a blank bridge URL as unset (the default URL).
 
-        The bridge client sends bearer and Cloudflare Access credentials with every
-        request, so a plain-http remote URL would leak them in cleartext.
+        Deliberately lenient: Settings is shared by every command, so a blank or plain-http
+        CHAT_BRIDGE_URL must not make it fail for commands that never use the bridge.
+        ``validate_bridge_url`` enforces the real rules where the secrets are sent.
         """
-        v = v.strip()
-        parts = urlsplit(v)
-        if not parts.hostname:
-            raise ValueError("CHAT_BRIDGE_URL must be an absolute URL with a host")
-        if parts.scheme == "https":
-            return v
-        if parts.scheme == "http" and parts.hostname in _LOCAL_BRIDGE_HOSTS:
-            return v
-        raise ValueError(
-            "CHAT_BRIDGE_URL must use https:// "
-            "(http:// is only allowed for localhost, 127.0.0.1 or [::1])"
-        )
+        if isinstance(v, str):
+            return v.strip() or DEFAULT_CHAT_BRIDGE_URL
+        return v
 
     @field_validator("api_auth_token", mode="before")
     @classmethod
