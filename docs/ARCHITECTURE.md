@@ -66,20 +66,35 @@ class MessageRepository:
 ### 4. API Layer (`src/wumpus_archiver/api/`)
 
 **App factory** (`app.py`):
-- `create_app(database, attachments_path, discord_token)` → `FastAPI`
-- Lifespan: connects/disconnects database
+- `create_app(database, *, attachments_dir=None, portal_build=None, scrape=None)` → `FastAPI`
+- A pure function of its arguments: reads nothing from the environment, `.env`, the
+  working directory or the package location. `serve` and the generated dev module resolve
+  those through `wumpus_archiver/compose.py` (`scrape_from_settings`, `portal_build_dir`)
+- Lifespan: connects the database only if it is not already connected and disconnects only
+  what it connected (ADR 0001), so one factory call serves uvicorn and the test fixtures
 - CORS for dev (localhost:5173, :3000, :8000)
-- Mounts local attachments as static files
-- SPA fallback: serves `portal/build/index.html` for unmatched routes
+- Mounts the attachments dir at `/attachments` when given; a missing directory raises
+- Serves the portal build as an SPA when given (`index.html` fallback); `None` means API only
+
+**Dependencies** (`deps.py`):
+- Handlers declare `Db`, `AttachmentsDir` or `Scrape` instead of reading `request.app.state`
+- `Wiring` is bound once by `create_app` and read back with `wiring_of(app)`;
+  an app not built by the factory fails with `NotWiredError`
+
+**Scrape control** (`scrape_control.py`):
+- `ScrapeControl` protocol (`configured`, `is_busy`, `current_job`, `history`,
+  `start_scrape`, `cancel`) plus the job models; imports pydantic only
+- `ReadOnlyScrape`: the adapter used when no bot token is configured;
+  `has_token` and the 400 on `/scrape/start` both come from `configured`
 
 **Schemas** (`schemas.py`):
 - Pydantic response models for all endpoints
 - ~348 lines of typed response definitions
 
 **Scrape Manager** (`scrape_manager.py`):
+- Production adapter of `ScrapeControl`; owns the bot token (`ScrapeJobManager(database, token)`)
 - Background scrape job tracking (start/cancel/status/history)
-- Runs ArchiverBot in asyncio task
-- ~220 lines
+- Runs ArchiverBot in an asyncio task; imports discord.py lazily when a job starts
 
 **Routes** (`routes/` — 9 domain modules):
 
@@ -94,7 +109,7 @@ class MessageRepository:
 | `users.py` | `GET /guilds/{id}/users`, `GET /users/{id}/profile` | User directory and profiles |
 | `scrape.py` | `GET /scrape/status`, `POST /scrape/start`, `POST /scrape/cancel`, `GET /scrape/history` | Scrape control |
 | `downloads.py` | `GET /downloads/stats` | Local attachment download stats |
-| `_helpers.py` | *(shared)* | `get_db()`, `rewrite_attachment_url()`, gallery helpers |
+| `_helpers.py` | *(shared)* | `local_attachment_url()`, `rewrite_attachment_url()`, gallery helpers |
 
 ### 5. Web Portal (`portal/`)
 

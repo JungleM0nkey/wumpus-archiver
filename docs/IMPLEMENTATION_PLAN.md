@@ -24,7 +24,7 @@
 
 ## Phase 2: Storage & API ✅
 
-- FastAPI application factory (`create_app()`) with async lifespan
+- FastAPI application factory (`create_app()`): a pure function of its collaborators, with a connection-owning lifespan (ADR 0001)
 - 17 REST endpoints across 9 domain-split route modules
 - Pydantic response schemas (~348 lines)
 - CORS for dev server
