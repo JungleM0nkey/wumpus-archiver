@@ -19,6 +19,7 @@ from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.user import User
 from wumpus_archiver.storage import archive_reads
 from wumpus_archiver.storage.archive_reads import (
+    GuildCounts,
     Has,
     MediaKind,
     Order,
@@ -93,9 +94,11 @@ class TestEscapeLike:
 
 GUILD = 1
 OTHER_GUILD = 2
+EMPTY_GUILD = 3
 CHANNEL = 10
 SIBLING_CHANNEL = 11
 FOREIGN_CHANNEL = 20
+QUIET_CHANNEL = 12  # first by position, no messages
 ALICE = 100
 BOB = 101
 T0 = datetime(2024, 1, 31, 22, 0, 0)
@@ -139,12 +142,19 @@ async def archive(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Dat
     await db.connect()
     await db.create_tables()
     async with db.session() as session:
-        session.add_all([Guild(id=GUILD, name="one"), Guild(id=OTHER_GUILD, name="two")])
+        session.add_all(
+            [
+                Guild(id=GUILD, name="one"),
+                Guild(id=OTHER_GUILD, name="two"),
+                Guild(id=EMPTY_GUILD, name="empty"),
+            ]
+        )
         session.add_all(
             [
                 Channel(id=CHANNEL, guild_id=GUILD, name="general", type=0),
                 Channel(id=SIBLING_CHANNEL, guild_id=GUILD, name="random", type=0),
                 Channel(id=FOREIGN_CHANNEL, guild_id=OTHER_GUILD, name="elsewhere", type=0),
+                Channel(id=QUIET_CHANNEL, guild_id=GUILD, name="news", type=0, position=-1),
             ]
         )
         session.add_all([User(id=ALICE, username="alice"), User(id=BOB, username="bob")])
@@ -409,7 +419,12 @@ def test_the_module_only_reads_and_imports_models_only() -> None:
 
 # --- search: total agrees with the rows for every filter combination ---------------------
 
-GUILD_OF = {CHANNEL: GUILD, SIBLING_CHANNEL: GUILD, FOREIGN_CHANNEL: OTHER_GUILD}
+GUILD_OF = {
+    CHANNEL: GUILD,
+    SIBLING_CHANNEL: GUILD,
+    QUIET_CHANNEL: GUILD,
+    FOREIGN_CHANNEL: OTHER_GUILD,
+}
 SINCE = T0 + timedelta(minutes=15)
 UNTIL = T0 + timedelta(minutes=60)
 WINDOWS: dict[str, tuple[datetime | None, datetime | None]] = {
@@ -483,3 +498,46 @@ def test_no_route_looks_up_channel_names_for_search_results() -> None:
     source = Path(search.__file__).read_text()
     assert "Channel" not in source
     assert "select(" not in source
+
+
+# --- guilds and channels -------------------------------------------------------------------
+
+
+@in_module_loop
+class TestGuildReads:
+    async def test_guilds_by_id(self, reads: AsyncSession) -> None:
+        assert [g.id for g in await archive_reads.guilds(reads)] == [
+            GUILD,
+            OTHER_GUILD,
+            EMPTY_GUILD,
+        ]
+
+    async def test_guild_or_none(self, reads: AsyncSession) -> None:
+        found = await archive_reads.guild(reads, OTHER_GUILD)
+        assert found is not None and found.name == "two"
+        assert await archive_reads.guild(reads, 999) is None
+
+    async def test_channels_in_position_order_with_an_id_tie_break(
+        self, reads: AsyncSession
+    ) -> None:
+        channels = await archive_reads.guild_channels(reads, GUILD)
+        assert [c.id for c in channels] == [QUIET_CHANNEL, CHANNEL, SIBLING_CHANNEL]
+        assert await archive_reads.guild_channels(reads, EMPTY_GUILD) == []
+
+    async def test_counts_equal_live_counts(self, reads: AsyncSession) -> None:
+        counts = await archive_reads.guild_counts(reads, [GUILD, OTHER_GUILD, EMPTY_GUILD, 999])
+        in_guild = sum(1 for m in SEED_MESSAGES if GUILD_OF[m[1]] == GUILD)
+        in_other = sum(1 for m in SEED_MESSAGES if GUILD_OF[m[1]] == OTHER_GUILD)
+        assert counts == {
+            GUILD: GuildCounts(channels=3, messages=in_guild),
+            OTHER_GUILD: GuildCounts(channels=1, messages=in_other),
+            EMPTY_GUILD: GuildCounts(),
+            999: GuildCounts(),
+        }
+
+    @pytest.mark.parametrize("guild_ids", [[], [GUILD], [GUILD, OTHER_GUILD, EMPTY_GUILD]])
+    async def test_counts_take_two_statements_however_many_guilds(
+        self, reads: AsyncSession, statements: list[str], guild_ids: list[int]
+    ) -> None:
+        await archive_reads.guild_counts(reads, guild_ids)
+        assert len(statements) == 2

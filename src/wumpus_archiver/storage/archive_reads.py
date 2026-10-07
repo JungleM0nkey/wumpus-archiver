@@ -17,6 +17,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
+from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
 
 
@@ -64,6 +65,14 @@ class Scope:
     guild: int | None = None
     channel: int | None = None
     author: int | None = None
+
+
+@dataclass(frozen=True)
+class GuildCounts:
+    """How many channels a guild has and how many messages they hold, counted live."""
+
+    channels: int = 0
+    messages: int = 0
 
 
 @dataclass(frozen=True)
@@ -255,3 +264,48 @@ async def _anchor(session: AsyncSession, cursor: int | None) -> tuple[datetime, 
     )
     row = result.first()
     return (row[0], row[1]) if row else None
+
+
+async def guilds(session: AsyncSession) -> list[Guild]:
+    """Every archived guild, by id."""
+    result = await session.execute(select(Guild).order_by(Guild.id))
+    return list(result.scalars().all())
+
+
+async def guild(session: AsyncSession, guild_id: int) -> Guild | None:
+    """One archived guild, or ``None`` if the archive does not hold it."""
+    result = await session.execute(select(Guild).where(Guild.id == guild_id))
+    return result.scalar_one_or_none()
+
+
+async def guild_channels(session: AsyncSession, guild_id: int) -> list[Channel]:
+    """A guild's channels in position order, ties broken by id."""
+    result = await session.execute(
+        select(Channel).where(Channel.guild_id == guild_id).order_by(Channel.position, Channel.id)
+    )
+    return list(result.scalars().all())
+
+
+async def guild_counts(session: AsyncSession, guild_ids: Sequence[int]) -> dict[int, GuildCounts]:
+    """Live channel and message counts for each of ``guild_ids``, in two statements.
+
+    Every requested id is in the result; a guild with nothing archived counts zero.
+    """
+    channel_counts = await session.execute(
+        select(Channel.guild_id, func.count())
+        .where(Channel.guild_id.in_(guild_ids))
+        .group_by(Channel.guild_id)
+    )
+    message_counts = await session.execute(
+        select(Channel.guild_id, func.count())
+        .select_from(Message)
+        .join(Channel, Message.channel_id == Channel.id)
+        .where(Channel.guild_id.in_(guild_ids))
+        .group_by(Channel.guild_id)
+    )
+    channels: dict[int, int] = dict(channel_counts.all())
+    messages: dict[int, int] = dict(message_counts.all())
+    return {
+        gid: GuildCounts(channels=channels.get(gid, 0), messages=messages.get(gid, 0))
+        for gid in guild_ids
+    }
