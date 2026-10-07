@@ -5,8 +5,6 @@ from collections import OrderedDict
 
 from fastapi import APIRouter, Query
 
-from sqlalchemy import func, select
-
 from wumpus_archiver.api.deps import AttachmentsDir, Db
 from wumpus_archiver.api.routes._helpers import rows_to_gallery_schemas
 from wumpus_archiver.api.schemas import (
@@ -14,13 +12,13 @@ from wumpus_archiver.api.schemas import (
     TimelineGalleryGroup,
     TimelineGalleryResponse,
 )
-from wumpus_archiver.models.attachment import Attachment
-from wumpus_archiver.models.channel import Channel
-from wumpus_archiver.models.message import Message
-from wumpus_archiver.models.user import User
-from wumpus_archiver.storage.archive_reads import MediaKind
+from wumpus_archiver.storage import archive_reads
+from wumpus_archiver.storage.archive_reads import AttachmentRow, MediaKind, Scope
 
 router = APIRouter()
+
+# The guild gallery's ``content_type`` parameter; anything else silently means images.
+_KIND_PARAMS = {"gif": MediaKind.GIF, "video": MediaKind.VIDEO}
 
 
 @router.get("/channels/{channel_id}/gallery", response_model=GalleryResponse)
@@ -32,52 +30,17 @@ async def channel_gallery(
     limit: int = Query(60, ge=1, le=200, description="Number of images to return"),
 ) -> GalleryResponse:
     """Get image attachments from a channel for gallery view."""
-    image_types = MediaKind.IMAGE.content_types
     async with db.session() as session:
-        query = (
-            select(
-                Attachment,
-                Message.created_at,
-                Message.channel_id,
-                User.username,
-                User.global_name,
-                User.avatar_url,
-            )
-            .join(Message, Attachment.message_id == Message.id)
-            .outerjoin(User, Message.author_id == User.id)
-            .where(Attachment.message_id.in_(
-                select(Message.id).where(Message.channel_id == channel_id)
-            ))
-            .where(Attachment.content_type.in_(image_types))
-            .order_by(Message.created_at.desc())
-            .offset(offset)
-            .limit(limit + 1)
+        page = await archive_reads.attachments(
+            session, Scope(channel=channel_id), kind=MediaKind.IMAGE, limit=limit, offset=offset
         )
 
-        result = await session.execute(query)
-        rows = result.all()
-
-        has_more = len(rows) > limit
-        if has_more:
-            rows = rows[:limit]
-
-        count_result = await session.execute(
-            select(func.count(Attachment.id))
-            .where(Attachment.message_id.in_(
-                select(Message.id).where(Message.channel_id == channel_id)
-            ))
-            .where(Attachment.content_type.in_(image_types))
-        )
-        total = count_result.scalar() or 0
-
-        attachments = rows_to_gallery_schemas(attachments_dir, rows)
-
-        return GalleryResponse(
-            attachments=attachments,
-            total=total,
-            has_more=has_more,
-            offset=offset,
-        )
+    return GalleryResponse(
+        attachments=rows_to_gallery_schemas(attachments_dir, page.rows, channel_names=False),
+        total=page.total,
+        has_more=page.has_more,
+        offset=offset,
+    )
 
 
 @router.get("/guilds/{guild_id}/gallery", response_model=GalleryResponse)
@@ -91,66 +54,22 @@ async def guild_gallery(
     content_type: str | None = Query(None, description="Filter by type: image, gif, video"),
 ) -> GalleryResponse:
     """Get all image attachments across a guild, optionally filtered."""
-    guild_channels = select(Channel.id).where(Channel.guild_id == guild_id)
-
-    if content_type == "gif":
-        type_filter = MediaKind.GIF.content_types
-    elif content_type == "video":
-        type_filter = MediaKind.VIDEO.content_types
-    else:
-        type_filter = MediaKind.IMAGE.content_types
-
+    kind = _KIND_PARAMS.get(content_type or "", MediaKind.IMAGE)
     async with db.session() as session:
-        msg_filter = select(Message.id).where(Message.channel_id.in_(guild_channels))
-        if channel_id:
-            msg_filter = select(Message.id).where(Message.channel_id == channel_id)
-
-        query = (
-            select(
-                Attachment,
-                Message.created_at,
-                Message.channel_id,
-                User.username,
-                User.global_name,
-                User.avatar_url,
-            )
-            .join(Message, Attachment.message_id == Message.id)
-            .outerjoin(User, Message.author_id == User.id)
-            .where(Attachment.message_id.in_(msg_filter))
-            .where(Attachment.content_type.in_(type_filter))
-            .order_by(Message.created_at.desc())
-            .offset(offset)
-            .limit(limit + 1)
-        )
-
-        result = await session.execute(query)
-        rows = result.all()
-
-        has_more = len(rows) > limit
-        if has_more:
-            rows = rows[:limit]
-
-        count_result = await session.execute(
-            select(func.count(Attachment.id))
-            .where(Attachment.message_id.in_(msg_filter))
-            .where(Attachment.content_type.in_(type_filter))
-        )
-        total = count_result.scalar() or 0
-
-        ch_ids = {r[2] for r in rows}
-        ch_result = await session.execute(
-            select(Channel.id, Channel.name).where(Channel.id.in_(ch_ids))
-        )
-        ch_map = dict(ch_result.all())
-
-        attachments = rows_to_gallery_schemas(attachments_dir, rows, ch_map)
-
-        return GalleryResponse(
-            attachments=attachments,
-            total=total,
-            has_more=has_more,
+        page = await archive_reads.attachments(
+            session,
+            Scope(guild=guild_id, channel=channel_id),
+            kind=kind,
+            limit=limit,
             offset=offset,
         )
+
+    return GalleryResponse(
+        attachments=rows_to_gallery_schemas(attachments_dir, page.rows),
+        total=page.total,
+        has_more=page.has_more,
+        offset=offset,
+    )
 
 
 def _period_label(date: dt.datetime, group_by: str) -> tuple[str, str]:
@@ -183,76 +102,37 @@ async def guild_gallery_timeline(
     group_by: str = Query("month", description="Group by: week, month, year"),
 ) -> TimelineGalleryResponse:
     """Get guild images grouped by time period for timeline view."""
-    guild_channels = select(Channel.id).where(Channel.guild_id == guild_id)
-
     async with db.session() as session:
-        msg_filter = select(Message.id).where(Message.channel_id.in_(guild_channels))
-        if channel_id:
-            msg_filter = select(Message.id).where(Message.channel_id == channel_id)
-
-        query = (
-            select(
-                Attachment,
-                Message.created_at,
-                Message.channel_id,
-                User.username,
-                User.global_name,
-                User.avatar_url,
-            )
-            .join(Message, Attachment.message_id == Message.id)
-            .outerjoin(User, Message.author_id == User.id)
-            .where(Attachment.message_id.in_(msg_filter))
-            .where(Attachment.content_type.in_(MediaKind.IMAGE.content_types))
-            .order_by(Message.created_at.desc())
-            .offset(offset)
-            .limit(limit + 1)
-        )
-
-        result = await session.execute(query)
-        rows = result.all()
-
-        has_more = len(rows) > limit
-        if has_more:
-            rows = rows[:limit]
-
-        count_result = await session.execute(
-            select(func.count(Attachment.id))
-            .where(Attachment.message_id.in_(msg_filter))
-            .where(Attachment.content_type.in_(MediaKind.IMAGE.content_types))
-        )
-        total = count_result.scalar() or 0
-
-        ch_ids = {r[2] for r in rows}
-        ch_result = await session.execute(
-            select(Channel.id, Channel.name).where(Channel.id.in_(ch_ids))
-        )
-        ch_map = dict(ch_result.all())
-
-        # Group by time period
-        groups: OrderedDict[str, list[tuple]] = OrderedDict()  # type: ignore[type-arg]
-        for row in rows:
-            att, created_at, *_ = row
-            period, _label = _period_label(created_at, group_by)
-            if period not in groups:
-                groups[period] = []
-            groups[period].append(row)
-
-        timeline_groups = []
-        for period, group_rows in groups.items():
-            att_schemas = rows_to_gallery_schemas(attachments_dir, group_rows, ch_map)
-            _period_key, label = _period_label(group_rows[0][1], group_by)
-            timeline_groups.append(
-                TimelineGalleryGroup(
-                    period=period,
-                    label=label,
-                    count=len(att_schemas),
-                    attachments=att_schemas,
-                )
-            )
-
-        return TimelineGalleryResponse(
-            groups=timeline_groups,
-            total=total,
-            has_more=has_more,
+        page = await archive_reads.attachments(
+            session,
+            Scope(guild=guild_id, channel=channel_id),
+            kind=MediaKind.IMAGE,
+            limit=limit,
             offset=offset,
         )
+
+    # Grouping is page-local: it groups what is on this page, not the whole scope.
+    groups: OrderedDict[str, list[AttachmentRow]] = OrderedDict()
+    for row in page.rows:
+        period, _label = _period_label(row.created_at, group_by)
+        groups.setdefault(period, []).append(row)
+
+    timeline_groups = []
+    for period, group_rows in groups.items():
+        att_schemas = rows_to_gallery_schemas(attachments_dir, group_rows)
+        _period_key, label = _period_label(group_rows[0].created_at, group_by)
+        timeline_groups.append(
+            TimelineGalleryGroup(
+                period=period,
+                label=label,
+                count=len(att_schemas),
+                attachments=att_schemas,
+            )
+        )
+
+    return TimelineGalleryResponse(
+        groups=timeline_groups,
+        total=page.total,
+        has_more=page.has_more,
+        offset=offset,
+    )

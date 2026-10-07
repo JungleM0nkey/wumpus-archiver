@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from wumpus_archiver.api.schemas import GalleryAttachmentSchema
-from wumpus_archiver.storage.archive_reads import escape_like
+from wumpus_archiver.storage.archive_reads import AttachmentRow, escape_like
 
 __all__ = [
     "escape_like",
@@ -65,21 +65,23 @@ def raise_not_found(detail: str) -> None:
 
 def rows_to_gallery_schemas(
     attachments_dir: Path | None,
-    rows: list[tuple],  # noqa: UP006
-    channel_map: dict[int, str] | None = None,
+    rows: list[AttachmentRow],
+    *,
+    channel_names: bool = True,
 ) -> list[GalleryAttachmentSchema]:
-    """Convert raw DB rows to GalleryAttachmentSchema list.
+    """Convert attachment rows from archive reads to gallery schemas.
 
     Args:
         attachments_dir: The configured attachments directory, or None
-        rows: Tuples of (Attachment, created_at, channel_id, username, global_name, avatar_url)
-        channel_map: Optional map of channel_id -> channel_name
+        rows: Attachments with their message context
+        channel_names: Whether to fill in each attachment's channel name
 
     Returns:
         List of GalleryAttachmentSchema
     """
     attachments = []
-    for att, created_at, msg_channel_id, username, global_name, avatar_url in rows:
+    for row in rows:
+        att = row.attachment
         url = rewrite_attachment_url(attachments_dir, att.local_path, att.download_status, att.url)
         proxy_url = att.proxy_url
         if url != att.url:
@@ -95,11 +97,11 @@ def rows_to_gallery_schemas(
                 proxy_url=proxy_url,
                 width=att.width,
                 height=att.height,
-                created_at=created_at,
-                author_name=global_name or username,
-                author_avatar_url=avatar_url,
-                channel_id=msg_channel_id,
-                channel_name=channel_map.get(msg_channel_id) if channel_map else None,
+                created_at=row.created_at,
+                author_name=row.author_global_name or row.author_username,
+                author_avatar_url=row.author_avatar_url,
+                channel_id=row.channel_id,
+                channel_name=row.channel_name if channel_names else None,
             )
         )
     return attachments

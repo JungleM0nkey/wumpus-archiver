@@ -19,6 +19,7 @@ from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.user import User
 from wumpus_archiver.storage import archive_reads
 from wumpus_archiver.storage.archive_reads import (
+    AttachmentRow,
     GuildCounts,
     Has,
     MediaKind,
@@ -132,6 +133,7 @@ SEED_ATTACHMENTS: list[tuple[int, int, str | None]] = [
     (503, 7, "application/pdf"),
     (504, 32, "image/gif"),
     (505, 41, "image/png"),
+    (506, 3, "image/webp"),  # a second image on message 3: the id tie-break
 ]
 
 
@@ -241,7 +243,7 @@ class TestMessagesOrder:
         page = await archive_reads.messages(reads, IN_CHANNEL, order=OLDEST, limit=3)
         third = page.rows[2]
         assert third.author is not None and third.author.username == "alice"
-        assert [a.id for a in third.attachments] == [501]
+        assert {a.id for a in third.attachments} == {501, 506}
         assert third.reactions == []
 
 
@@ -541,3 +543,80 @@ class TestGuildReads:
     ) -> None:
         await archive_reads.guild_counts(reads, guild_ids)
         assert len(statements) == 2
+
+
+# --- attachments ---------------------------------------------------------------------------
+
+
+def _attachment_ids(page: Page[AttachmentRow]) -> list[int]:
+    return [row.attachment.id for row in page.rows]
+
+
+@in_module_loop
+class TestAttachments:
+    @pytest.mark.parametrize(
+        ("kind", "expected"),
+        [
+            (MediaKind.IMAGE, [504, 506, 501]),
+            (MediaKind.GIF, [504]),
+            (MediaKind.VIDEO, [502]),
+        ],
+    )
+    async def test_media_kind_newest_first_with_an_id_tie_break(
+        self, reads: AsyncSession, kind: MediaKind, expected: list[int]
+    ) -> None:
+        page = await archive_reads.attachments(reads, Scope(guild=GUILD), kind=kind, limit=50)
+        assert _attachment_ids(page) == expected
+        assert (page.total, page.has_more) == (len(expected), False)
+
+    async def test_offset_paging(self, reads: AsyncSession) -> None:
+        scope = Scope(guild=GUILD)
+        pages = [
+            await archive_reads.attachments(
+                reads, scope, kind=MediaKind.IMAGE, limit=2, offset=offset
+            )
+            for offset in (0, 2, 4)
+        ]
+        assert [_attachment_ids(p) for p in pages] == [[504, 506], [501], []]
+        assert [p.has_more for p in pages] == [True, False, False]
+        assert [p.total for p in pages] == [3, 3, 3]
+
+    async def test_author_filter(self, reads: AsyncSession) -> None:
+        alice = await archive_reads.attachments(
+            reads, Scope(author=ALICE), kind=MediaKind.IMAGE, limit=50
+        )
+        bob = await archive_reads.attachments(
+            reads, Scope(author=BOB), kind=MediaKind.IMAGE, limit=50
+        )
+        assert _attachment_ids(alice) == [504, 506, 501, 505]
+        assert (bob.rows, bob.total) == ([], 0)
+
+    async def test_a_channel_outside_the_guild_yields_an_empty_page(
+        self, reads: AsyncSession
+    ) -> None:
+        page = await archive_reads.attachments(
+            reads, Scope(guild=GUILD, channel=FOREIGN_CHANNEL), kind=MediaKind.IMAGE, limit=50
+        )
+        assert (page.rows, page.total, page.has_more) == ([], 0, False)
+
+    async def test_rows_carry_channel_and_author(self, reads: AsyncSession) -> None:
+        page = await archive_reads.attachments(
+            reads, Scope(channel=SIBLING_CHANNEL), kind=MediaKind.GIF, limit=50
+        )
+        (row,) = page.rows
+        assert (row.channel_id, row.channel_name, row.author_username) == (
+            SIBLING_CHANNEL,
+            "random",
+            "alice",
+        )
+        assert row.created_at == T0 + timedelta(minutes=25)
+
+    @pytest.mark.parametrize(("limit", "counts"), [(50, 0), (1, 1)])
+    async def test_one_page_is_one_statement_plus_at_most_one_count(
+        self, reads: AsyncSession, statements: list[str], limit: int, counts: int
+    ) -> None:
+        await archive_reads.attachments(
+            reads, Scope(guild=GUILD), kind=MediaKind.IMAGE, limit=limit
+        )
+        assert len(statements) == 1 + counts
+        assert _counts(statements) == counts

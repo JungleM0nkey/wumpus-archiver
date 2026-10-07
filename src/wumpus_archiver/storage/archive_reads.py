@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from enum import Enum, StrEnum
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, and_, exists, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, exists, func, join, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -19,6 +19,7 @@ from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
+from wumpus_archiver.models.user import User
 
 
 class MediaKind(Enum):
@@ -90,6 +91,19 @@ class Page[T]:
     newest_id: int | None = None
 
 
+@dataclass(frozen=True)
+class AttachmentRow:
+    """An attachment with the message context the gallery shows beside it."""
+
+    attachment: Attachment
+    created_at: datetime
+    channel_id: int
+    channel_name: str | None
+    author_username: str | None
+    author_global_name: str | None
+    author_avatar_url: str | None
+
+
 class Order(StrEnum):
     """The order messages are returned in."""
 
@@ -141,7 +155,7 @@ def _has(has: Has) -> ColumnElement[bool]:
 
 async def _page(
     session: AsyncSession,
-    rows: Select[Any],
+    rows: Select[*tuple[Any, ...]],
     where: Sequence[ColumnElement[bool]],
     count_from: Any,
     *,
@@ -309,3 +323,47 @@ async def guild_counts(session: AsyncSession, guild_ids: Sequence[int]) -> dict[
         gid: GuildCounts(channels=channels.get(gid, 0), messages=messages.get(gid, 0))
         for gid in guild_ids
     }
+
+
+async def attachments(
+    session: AsyncSession,
+    scope: Scope,
+    *,
+    kind: MediaKind,
+    limit: int,
+    offset: int = 0,
+) -> Page[AttachmentRow]:
+    """Attachments of a media kind on messages in scope, newest message first.
+
+    Ties on the message time are broken by attachment id, newest first. The channel
+    name and author come from joins.
+    """
+    where = [*_message_scope(scope), Attachment.content_type.in_(kind.content_types)]
+    rows = (
+        select(
+            Attachment,
+            Message.created_at,
+            Message.channel_id,
+            Channel.name,
+            User.username,
+            User.global_name,
+            User.avatar_url,
+        )
+        .join(Message, Attachment.message_id == Message.id)
+        .outerjoin(Channel, Message.channel_id == Channel.id)
+        .outerjoin(User, Message.author_id == User.id)
+        .order_by(Message.created_at.desc(), Attachment.id.desc())
+    )
+    fetched, total, has_more = await _page(
+        session,
+        rows,
+        where,
+        join(Attachment, Message, Attachment.message_id == Message.id),
+        limit=limit,
+        offset=offset,
+    )
+    return Page(
+        rows=[AttachmentRow(*row) for row in fetched],
+        total=total,
+        has_more=has_more,
+    )
