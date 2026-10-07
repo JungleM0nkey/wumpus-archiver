@@ -7,6 +7,7 @@ default is what ``serve`` builds without a bot token: API only, read-only scrape
 control, attachment URLs on the CDN.
 """
 
+import shutil
 from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
@@ -14,21 +15,45 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event
+from sqlalchemy import create_engine, event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from wumpus_archiver.api.app import create_app
 from wumpus_archiver.api.scrape_control import ScrapeControl
+from wumpus_archiver.models.base import Base
 from wumpus_archiver.storage.database import Database
 
 
+@pytest.fixture(scope="session")
+def empty_archive(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """An archive file holding the schema and nothing else, built once per test run."""
+    path = tmp_path_factory.mktemp("empty-archive") / "archive.db"
+    engine = create_engine(f"sqlite:///{path}")
+    Base.metadata.create_all(engine)
+    engine.dispose()
+    return path
+
+
+def _without_fsync(dbapi_connection: Any, _record: Any) -> None:
+    """Tests need no crash durability, so their SQLite connections skip the disk flushes."""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA synchronous = OFF")
+    cursor.execute("PRAGMA journal_mode = MEMORY")
+    cursor.close()
+
+
 @pytest.fixture
-async def database(tmp_path) -> AsyncGenerator[Database, None]:
-    """A connected, empty archive on a file in ``tmp_path``. This fixture owns the connection."""
+async def database(tmp_path: Path, empty_archive: Path) -> AsyncGenerator[Database, None]:
+    """A connected, empty archive on a file in ``tmp_path``. This fixture owns the connection.
+
+    The file starts as a copy of ``empty_archive`` rather than running the DDL again, and
+    its connections skip fsync. ``Database.create_tables`` keeps its own tests.
+    """
     db_path = tmp_path / "test.db"
+    shutil.copyfile(empty_archive, db_path)
     db = Database(f"sqlite+aiosqlite:///{db_path}")
     await db.connect()
-    await db.create_tables()
+    event.listen(db.engine.sync_engine, "connect", _without_fsync)
     yield db
     await db.disconnect()
 
