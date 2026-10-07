@@ -35,6 +35,7 @@ from wumpus_archiver.storage.archive_reads import (
     ReactionTotal,
     Scope,
     Summary,
+    TopChannel,
     escape_like,
 )
 from wumpus_archiver.storage.database import Database
@@ -173,10 +174,24 @@ async def archive(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Dat
         )
         session.add_all(
             [
-                Channel(id=CHANNEL, guild_id=GUILD, name="general", type=0),
-                Channel(id=SIBLING_CHANNEL, guild_id=GUILD, name="random", type=0),
-                Channel(id=FOREIGN_CHANNEL, guild_id=OTHER_GUILD, name="elsewhere", type=0),
-                Channel(id=QUIET_CHANNEL, guild_id=GUILD, name="news", type=0, position=-1),
+                # The message_count counters are the ingest's, deliberately not live counts.
+                Channel(id=CHANNEL, guild_id=GUILD, name="general", type=0, message_count=9),
+                Channel(id=SIBLING_CHANNEL, guild_id=GUILD, name="random", type=0, message_count=4),
+                Channel(
+                    id=FOREIGN_CHANNEL,
+                    guild_id=OTHER_GUILD,
+                    name="elsewhere",
+                    type=0,
+                    message_count=2,
+                ),
+                Channel(
+                    id=QUIET_CHANNEL,
+                    guild_id=GUILD,
+                    name="news",
+                    type=0,
+                    position=-1,
+                    message_count=4,
+                ),
             ]
         )
         session.add_all(
@@ -807,6 +822,32 @@ class TestActivity:
         assert by_naive == by_aware == [ActivityBucket(date(2024, 2, 1), 1)]
 
 
+@in_module_loop
+class TestTopChannels:
+    async def test_ranked_by_the_ingest_counter_with_an_id_tie_break(
+        self, reads: AsyncSession
+    ) -> None:
+        # "news" holds no messages but its counter says 4: the counter is what ranks.
+        assert await archive_reads.top_channels(reads, GUILD, limit=10) == [
+            TopChannel(CHANNEL, "general", 9),
+            TopChannel(SIBLING_CHANNEL, "random", 4),
+            TopChannel(QUIET_CHANNEL, "news", 4),
+        ]
+
+    async def test_guild_scope_and_limit(self, reads: AsyncSession) -> None:
+        assert await archive_reads.top_channels(reads, OTHER_GUILD, limit=10) == [
+            TopChannel(FOREIGN_CHANNEL, "elsewhere", 2)
+        ]
+        assert await archive_reads.top_channels(reads, GUILD, limit=1) == [
+            TopChannel(CHANNEL, "general", 9)
+        ]
+        assert await archive_reads.top_channels(reads, EMPTY_GUILD, limit=10) == []
+
+
+def test_top_channels_names_its_source_counter() -> None:
+    assert "Channel.message_count" in (archive_reads.top_channels.__doc__ or "")
+
+
 # --- dialects ------------------------------------------------------------------------------
 
 
@@ -845,6 +886,7 @@ async def test_every_read_compiles_for_sqlite_and_postgresql(reads: AsyncSession
         await archive_reads.channel_activity(reads, scope, limit=1)
         await archive_reads.reactions(reads, scope, limit=1)
         await archive_reads.activity(reads, scope, period=Period.WEEK, since=T0)
+        await archive_reads.top_channels(reads, GUILD, limit=1)
     finally:
         event.remove(reads.sync_session, "do_orm_execute", capture)
 

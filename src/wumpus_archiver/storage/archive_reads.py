@@ -147,6 +147,15 @@ class ChannelActivity:
 
 
 @dataclass(frozen=True)
+class TopChannel:
+    """A channel with the message count the ingest keeps for it."""
+
+    channel_id: int
+    name: str
+    message_count: int
+
+
+@dataclass(frozen=True)
 class ReactionTotal:
     """How often one emoji was reacted to messages in scope."""
 
@@ -576,3 +585,18 @@ async def activity(
         start = on - timedelta(days=on.weekday()) if period is Period.WEEK else on.replace(day=1)
         buckets[start] = buckets.get(start, 0) + int(count)
     return [ActivityBucket(start, buckets[start]) for start in sorted(buckets)]
+
+
+async def top_channels(session: AsyncSession, guild_id: int, *, limit: int) -> list[TopChannel]:
+    """A guild's busiest channels, ties by id.
+
+    Ranked by ``Channel.message_count``, the counter the ingest maintains, not by a
+    live count of messages: whether that counter survives is a separate decision.
+    """
+    result = await session.execute(
+        select(Channel.id, Channel.name, Channel.message_count)
+        .where(Channel.guild_id == guild_id)
+        .order_by(Channel.message_count.desc(), Channel.id.asc())
+        .limit(limit)
+    )
+    return [TopChannel(*row) for row in result.all()]
