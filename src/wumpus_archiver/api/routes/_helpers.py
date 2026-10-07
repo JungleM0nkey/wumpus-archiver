@@ -5,6 +5,15 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from wumpus_archiver.api.schemas import GalleryAttachmentSchema
+from wumpus_archiver.storage.archive_reads import escape_like
+
+__all__ = [
+    "escape_like",
+    "local_attachment_url",
+    "raise_not_found",
+    "rewrite_attachment_url",
+    "rows_to_gallery_schemas",
+]
 
 
 def rewrite_attachment_url(
@@ -52,30 +61,6 @@ def local_attachment_url(attachments_dir: Path | None, local_path: str | None) -
 def raise_not_found(detail: str) -> None:
     """Raise a 404 HTTPException."""
     raise HTTPException(status_code=404, detail=detail)
-
-
-def escape_like(value: str, escape: str = "\\") -> str:
-    """Escape SQL ``LIKE`` wildcards so user input matches literally.
-
-    The escape character is escaped first, then ``%`` and ``_``. The caller must
-    pass the same escape character to the ``LIKE`` clause (``ESCAPE '\\'`` in raw
-    SQL or ``escape="\\\\"`` in SQLAlchemy ``like``/``ilike``).
-
-    Args:
-        value: Raw user-supplied search text
-        escape: Escape character used by the ``LIKE`` clause
-
-    Returns:
-        The value with ``escape``, ``%`` and ``_`` each prefixed by ``escape``
-    """
-    return (
-        value.replace(escape, escape + escape)
-        .replace("%", escape + "%")
-        .replace("_", escape + "_")
-    )
-
-
-IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/avif")
 
 
 def rows_to_gallery_schemas(

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 
 from wumpus_archiver.api.deps import AttachmentsDir, Db
-from wumpus_archiver.api.routes._helpers import IMAGE_TYPES, rows_to_gallery_schemas
+from wumpus_archiver.api.routes._helpers import rows_to_gallery_schemas
 from wumpus_archiver.api.schemas import (
     GalleryResponse,
     TimelineGalleryGroup,
@@ -18,6 +18,7 @@ from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.user import User
+from wumpus_archiver.storage.archive_reads import MediaKind
 
 router = APIRouter()
 
@@ -31,7 +32,7 @@ async def channel_gallery(
     limit: int = Query(60, ge=1, le=200, description="Number of images to return"),
 ) -> GalleryResponse:
     """Get image attachments from a channel for gallery view."""
-    image_types = IMAGE_TYPES
+    image_types = MediaKind.IMAGE.content_types
     async with db.session() as session:
         query = (
             select(
@@ -93,11 +94,11 @@ async def guild_gallery(
     guild_channels = select(Channel.id).where(Channel.guild_id == guild_id)
 
     if content_type == "gif":
-        type_filter = ("image/gif",)
+        type_filter = MediaKind.GIF.content_types
     elif content_type == "video":
-        type_filter = ("video/mp4", "video/webm", "video/quicktime")
+        type_filter = MediaKind.VIDEO.content_types
     else:
-        type_filter = IMAGE_TYPES
+        type_filter = MediaKind.IMAGE.content_types
 
     async with db.session() as session:
         msg_filter = select(Message.id).where(Message.channel_id.in_(guild_channels))
@@ -201,7 +202,7 @@ async def guild_gallery_timeline(
             .join(Message, Attachment.message_id == Message.id)
             .outerjoin(User, Message.author_id == User.id)
             .where(Attachment.message_id.in_(msg_filter))
-            .where(Attachment.content_type.in_(IMAGE_TYPES))
+            .where(Attachment.content_type.in_(MediaKind.IMAGE.content_types))
             .order_by(Message.created_at.desc())
             .offset(offset)
             .limit(limit + 1)
@@ -217,7 +218,7 @@ async def guild_gallery_timeline(
         count_result = await session.execute(
             select(func.count(Attachment.id))
             .where(Attachment.message_id.in_(msg_filter))
-            .where(Attachment.content_type.in_(IMAGE_TYPES))
+            .where(Attachment.content_type.in_(MediaKind.IMAGE.content_types))
         )
         total = count_result.scalar() or 0
 

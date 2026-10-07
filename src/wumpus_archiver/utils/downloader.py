@@ -25,17 +25,10 @@ from sqlalchemy import select, func
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.message import Message
+from wumpus_archiver.storage.archive_reads import MediaKind
 from wumpus_archiver.storage.database import Database
 
 logger = logging.getLogger(__name__)
-
-IMAGE_CONTENT_TYPES = (
-    "image/png",
-    "image/jpeg",
-    "image/gif",
-    "image/webp",
-    "image/avif",
-)
 
 # Default concurrency and retry settings
 DEFAULT_CONCURRENCY = 5
@@ -326,7 +319,7 @@ class ImageDownloader:
                         select(Message.id).where(Message.channel_id == channel_id)
                     )
                 )
-                .where(Attachment.content_type.in_(IMAGE_CONTENT_TYPES))
+                .where(Attachment.content_type.in_(MediaKind.IMAGE.content_types))
             )
             total = count_result.scalar() or 0
 
@@ -354,7 +347,7 @@ class ImageDownloader:
                                 )
                             )
                         )
-                        .where(Attachment.content_type.in_(IMAGE_CONTENT_TYPES))
+                        .where(Attachment.content_type.in_(MediaKind.IMAGE.content_types))
                         .order_by(Attachment.id)
                         .offset(offset)
                         .limit(batch_size)
@@ -569,7 +562,7 @@ class ImageDownloader:
                 type or the body exceeds ``max_bytes``
         """
         content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-        if content_type not in IMAGE_CONTENT_TYPES:
+        if content_type not in MediaKind.IMAGE.content_types:
             raise _RejectedDownloadError(f"unexpected Content-Type {content_type[:100]!r}")
 
         try:

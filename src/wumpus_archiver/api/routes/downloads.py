@@ -5,11 +5,11 @@ from fastapi import APIRouter
 from sqlalchemy import func, select
 
 from wumpus_archiver.api.deps import AttachmentsDir, Db
-from wumpus_archiver.api.routes._helpers import IMAGE_TYPES
 from wumpus_archiver.api.schemas import DownloadChannelStats, DownloadStatsResponse
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.message import Message
+from wumpus_archiver.storage.archive_reads import MediaKind
 
 router = APIRouter()
 
@@ -20,7 +20,7 @@ async def download_stats(db: Db, attachments_dir: AttachmentsDir) -> DownloadSta
     async with db.session() as session:
         status_counts = await session.execute(
             select(Attachment.download_status, func.count(Attachment.id))
-            .where(Attachment.content_type.in_(IMAGE_TYPES))
+            .where(Attachment.content_type.in_(MediaKind.IMAGE.content_types))
             .group_by(Attachment.download_status)
         )
         counts: dict[str, int] = {}
@@ -29,7 +29,7 @@ async def download_stats(db: Db, attachments_dir: AttachmentsDir) -> DownloadSta
 
         bytes_result = await session.execute(
             select(func.coalesce(func.sum(Attachment.size), 0))
-            .where(Attachment.content_type.in_(IMAGE_TYPES))
+            .where(Attachment.content_type.in_(MediaKind.IMAGE.content_types))
             .where(Attachment.download_status == "downloaded")
         )
         downloaded_bytes = bytes_result.scalar() or 0
@@ -44,7 +44,7 @@ async def download_stats(db: Db, attachments_dir: AttachmentsDir) -> DownloadSta
             )
             .join(Message, Message.channel_id == Channel.id)
             .join(Attachment, Attachment.message_id == Message.id)
-            .where(Attachment.content_type.in_(IMAGE_TYPES))
+            .where(Attachment.content_type.in_(MediaKind.IMAGE.content_types))
             .group_by(Channel.id, Channel.name, Attachment.download_status)
             .order_by(Channel.name)
         )

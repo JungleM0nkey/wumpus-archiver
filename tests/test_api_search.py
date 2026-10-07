@@ -1,8 +1,8 @@
 """Tests for search inputs on the API: case-insensitive matching and LIKE-wildcard escaping.
 
 Covers ``/api/gifs``, ``/api/gifs/random``, ``/api/search`` and
-``/api/guilds/{guild_id}/users`` against SQLite (the default database), plus unit tests for
-:func:`wumpus_archiver.api.routes._helpers.escape_like`.
+``/api/guilds/{guild_id}/users`` against SQLite (the default database). The unit tests for
+the LIKE escaping live with archive reads in ``tests/test_archive_reads.py``.
 """
 
 from datetime import UTC, datetime
@@ -12,7 +12,6 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 
-from wumpus_archiver.api.routes._helpers import escape_like
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
@@ -144,37 +143,6 @@ def _message_ids(payload: dict[str, Any]) -> set[str]:
 
 def _user_ids(payload: dict[str, Any]) -> set[str]:
     return {user["id"] for user in payload["users"]}
-
-
-class TestEscapeLike:
-    """Unit tests for escape_like."""
-
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            ("", ""),
-            ("plain text", "plain text"),
-            ("%", "\\%"),
-            ("_", "\\_"),
-            ("\\", "\\\\"),
-            ("100%_real", "100\\%\\_real"),
-            ("%_%", "\\%\\_\\%"),
-            # The escape character must be escaped first, so it is not double-processed.
-            ("a\\%", "a\\\\\\%"),
-            ("a\\_b", "a\\\\\\_b"),
-        ],
-    )
-    def test_default_escape(self, value: str, expected: str) -> None:
-        """Test that %, _ and the backslash are each prefixed with a backslash."""
-        assert escape_like(value) == expected
-
-    def test_custom_escape_character(self) -> None:
-        """Test escaping with a non-default escape character."""
-        assert escape_like("a!b%c_d", escape="!") == "a!!b!%c!_d"
-
-    def test_backslash_is_not_special_with_custom_escape(self) -> None:
-        """Test that a backslash is left alone when another escape character is used."""
-        assert escape_like("a\\b", escape="!") == "a\\b"
 
 
 class TestGifSearch:
