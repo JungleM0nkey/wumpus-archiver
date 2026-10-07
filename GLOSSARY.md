@@ -43,6 +43,36 @@ _Avoid_: control panel, control page, scrape manager (the implementation)
 The Discord credential a scrape runs under.
 _Avoid_: discord token, token (on its own, in prose)
 
+### Reading the archive
+
+**Archive reads**:
+The named reads of the archive that the portal's routes and the downloader call, each over a scope.
+_Avoid_: queries, repositories (the write side), the read layer
+
+**Scope**:
+Which part of the archive a read covers: an optional guild, channel and author, all applied together. An empty scope is the whole archive.
+_Avoid_: filter, selection
+
+**Cursor**:
+A message id used to page through messages. "Before" means the page adjacent to it on the older side, "after" the page adjacent on the newer side.
+_Avoid_: offset (a different paging style), position
+
+**Total**:
+The exact count of everything a read matches, ignoring paging. Never the length of the returned list.
+_Avoid_: count (ambiguous), size
+
+**Activity**:
+Message counts per calendar month or week over a whole scope.
+_Avoid_: monthly_activity (a field), timeline groups (page-local)
+
+**Authors**:
+The users who have posted at least one message in a scope, with their counts.
+_Avoid_: people (the screen), members
+
+**Gallery timeline**:
+The grouped-attachments endpoint behind the Media screen.
+_Avoid_: timeline (the old chronological message page)
+
 ### The portal
 
 **Portal**:
@@ -60,3 +90,11 @@ _Avoid_: dist, portal dist, static files
 **Archive screen**:
 The portal page where people watch and operate scrape control. Named for what it manages, not for the data.
 _Avoid_: control page, scrape page
+
+**Media screen**:
+The portal page that shows attachments across a guild, fed by the gallery timeline.
+_Avoid_: gallery (the endpoint family), images page
+
+**People screen**:
+The portal page that lists authors.
+_Avoid_: users page, members page
