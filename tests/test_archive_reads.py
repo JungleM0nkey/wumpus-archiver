@@ -3,29 +3,38 @@
 import ast
 import itertools
 from collections.abc import AsyncIterator, Iterator
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import event
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
+from wumpus_archiver.models.reaction import Reaction
 from wumpus_archiver.models.user import User
 from wumpus_archiver.storage import archive_reads
 from wumpus_archiver.storage.archive_reads import (
+    ActivityBucket,
     AttachmentRow,
+    AuthorRow,
+    AuthorSort,
+    ChannelActivity,
     GuildCounts,
     Has,
     MediaKind,
     Order,
     Page,
+    Period,
+    ReactionTotal,
     Scope,
+    Summary,
     escape_like,
 )
 from wumpus_archiver.storage.database import Database
@@ -102,6 +111,7 @@ FOREIGN_CHANNEL = 20
 QUIET_CHANNEL = 12  # first by position, no messages
 ALICE = 100
 BOB = 101
+CAROL = 102  # shares Alice's username; her global name holds a LIKE wildcard
 T0 = datetime(2024, 1, 31, 22, 0, 0)
 
 # (id, channel, author, minutes after T0, content). Ids 5 and 6 share a timestamp: the tie.
@@ -122,6 +132,8 @@ SEED_MESSAGES: list[tuple[int, int, int, int, str]] = [
     (33, SIBLING_CHANNEL, BOB, 145, "back\\slash at https://x.test"),
     (40, FOREIGN_CHANNEL, BOB, 5, "foreign"),
     (41, FOREIGN_CHANNEL, ALICE, 15, "100% elsewhere"),
+    (42, FOREIGN_CHANNEL, CAROL, 15, "carol abroad"),
+    (43, SIBLING_CHANNEL, CAROL, -31 * 24 * 60, "new year's eve"),  # 2023-12-31 22:00
 ]
 # Channel 10 in time order, (created_at, id) ascending.
 CHANNEL_ORDER = [1, 2, 3, 4, 5, 6, 7, 9, 8]
@@ -134,6 +146,14 @@ SEED_ATTACHMENTS: list[tuple[int, int, str | None]] = [
     (504, 32, "image/gif"),
     (505, 41, "image/png"),
     (506, 3, "image/webp"),  # a second image on message 3: the id tie-break
+]
+
+# (message, emoji, count): Bob's messages; "party" and "thumbs" tie on 3.
+SEED_REACTIONS: list[tuple[int, str | None, int]] = [
+    (2, "thumbs", 3),
+    (2, "party", 1),
+    (4, "party", 2),
+    (4, None, 1),
 ]
 
 
@@ -159,7 +179,13 @@ async def archive(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Dat
                 Channel(id=QUIET_CHANNEL, guild_id=GUILD, name="news", type=0, position=-1),
             ]
         )
-        session.add_all([User(id=ALICE, username="alice"), User(id=BOB, username="bob")])
+        session.add_all(
+            [
+                User(id=ALICE, username="alice"),
+                User(id=BOB, username="bob"),
+                User(id=CAROL, username="alice", global_name="100% Carol"),
+            ]
+        )
         for message_id, channel_id, author_id, minutes, content in SEED_MESSAGES:
             session.add(
                 Message(
@@ -183,6 +209,8 @@ async def archive(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Dat
                     url=f"https://cdn.example.test/{attachment_id}",
                 )
             )
+        for message_id, emoji_name, count in SEED_REACTIONS:
+            session.add(Reaction(message_id=message_id, emoji_name=emoji_name, count=count))
     yield db
     await db.disconnect()
 
@@ -620,3 +648,216 @@ class TestAttachments:
         )
         assert len(statements) == 1 + counts
         assert _counts(statements) == counts
+
+
+# --- authors, profile aggregates and activity ----------------------------------------------
+
+
+def _user_ids(page: Page[AuthorRow]) -> list[int]:
+    return [row.user.id for row in page.rows]
+
+
+@in_module_loop
+class TestAuthors:
+    @pytest.mark.parametrize(
+        ("sort", "scope", "expected"),
+        [
+            (AuthorSort.MESSAGES, Scope(), [ALICE, BOB, CAROL]),
+            (AuthorSort.MESSAGES, Scope(channel=SIBLING_CHANNEL), [ALICE, BOB, CAROL]),
+            (AuthorSort.NAME, Scope(), [ALICE, CAROL, BOB]),
+            (AuthorSort.RECENT, Scope(), [BOB, ALICE, CAROL]),
+            (AuthorSort.RECENT, Scope(channel=FOREIGN_CHANNEL), [ALICE, CAROL, BOB]),
+        ],
+        ids=[
+            "messages",
+            "messages tie",
+            "name tie",
+            "recent",
+            "recent tie",
+        ],
+    )
+    async def test_sort_with_a_user_id_tie_break(
+        self, reads: AsyncSession, sort: AuthorSort, scope: Scope, expected: list[int]
+    ) -> None:
+        page = await archive_reads.authors(reads, scope, sort=sort, limit=50)
+        assert _user_ids(page) == expected
+
+    async def test_counts_and_first_and_last_seen(self, reads: AsyncSession) -> None:
+        page = await archive_reads.authors(
+            reads, Scope(guild=GUILD), sort=AuthorSort.MESSAGES, limit=50
+        )
+        alice = page.rows[0]
+        assert (alice.user.id, alice.messages) == (ALICE, 7)
+        assert (alice.first_seen, alice.last_seen) == (T0, T0 + timedelta(minutes=70))
+
+    @pytest.mark.parametrize(
+        ("scope", "expected"),
+        [
+            (Scope(guild=GUILD), {ALICE: 7, BOB: 6, CAROL: 1}),
+            (Scope(guild=OTHER_GUILD), {ALICE: 1, BOB: 1, CAROL: 1}),
+            (Scope(guild=EMPTY_GUILD), {}),
+            (Scope(guild=GUILD, author=BOB), {BOB: 6}),
+        ],
+    )
+    async def test_scope(self, reads: AsyncSession, scope: Scope, expected: dict[int, int]) -> None:
+        page = await archive_reads.authors(reads, scope, sort=AuthorSort.MESSAGES, limit=50)
+        assert {row.user.id: row.messages for row in page.rows} == expected
+        assert page.total == len(expected)
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [("ALI", {ALICE, CAROL}), ("%", {CAROL}), ("_", set()), ("100% c", {CAROL})],
+    )
+    async def test_name_search_takes_wildcards_literally(
+        self, reads: AsyncSession, name: str, expected: set[int]
+    ) -> None:
+        page = await archive_reads.authors(
+            reads, Scope(), sort=AuthorSort.NAME, limit=50, name=name
+        )
+        assert set(_user_ids(page)) == expected
+        assert page.total == len(expected)
+
+    async def test_paging(self, reads: AsyncSession) -> None:
+        first = await archive_reads.authors(reads, Scope(), sort=AuthorSort.NAME, limit=2)
+        rest = await archive_reads.authors(reads, Scope(), sort=AuthorSort.NAME, limit=2, offset=2)
+        assert (_user_ids(first), first.total, first.has_more) == ([ALICE, CAROL], 3, True)
+        assert (_user_ids(rest), rest.total, rest.has_more) == ([BOB], 3, False)
+
+    async def test_an_unknown_sort_is_refused(self, reads: AsyncSession) -> None:
+        with pytest.raises(ValueError):
+            await archive_reads.authors(reads, Scope(), sort="loudest", limit=5)  # type: ignore[arg-type]
+
+
+@in_module_loop
+class TestProfileReads:
+    async def test_summary(self, reads: AsyncSession) -> None:
+        scope = Scope(guild=GUILD, author=ALICE)
+        contents = [m[4] for m in SEED_MESSAGES if m[2] == ALICE and GUILD_OF[m[1]] == GUILD]
+        assert await archive_reads.summary(reads, scope) == Summary(
+            messages=7,
+            attachments=4,
+            reactions=0,
+            authors=1,
+            channels=2,
+            first_message_at=T0,
+            last_message_at=T0 + timedelta(minutes=70),
+            average_length=pytest.approx(sum(map(len, contents)) / len(contents)),
+        )
+
+    async def test_summary_of_an_empty_scope(self, reads: AsyncSession) -> None:
+        assert await archive_reads.summary(reads, Scope(guild=EMPTY_GUILD)) == Summary()
+
+    async def test_summary_sums_reaction_counts(self, reads: AsyncSession) -> None:
+        summary = await archive_reads.summary(reads, Scope(author=BOB))
+        assert summary.reactions == sum(count for _, _, count in SEED_REACTIONS)
+
+    async def test_reactions_ranked_with_a_name_tie_break(self, reads: AsyncSession) -> None:
+        assert await archive_reads.reactions(reads, Scope(author=BOB), limit=10) == [
+            ReactionTotal("party", 3),
+            ReactionTotal("thumbs", 3),
+            ReactionTotal(None, 1),
+        ]
+        assert await archive_reads.reactions(reads, Scope(author=ALICE), limit=10) == []
+
+    async def test_channel_activity_ranked_with_an_id_tie_break(self, reads: AsyncSession) -> None:
+        assert await archive_reads.channel_activity(reads, Scope(author=CAROL), limit=10) == [
+            ChannelActivity(SIBLING_CHANNEL, "random", 1),
+            ChannelActivity(FOREIGN_CHANNEL, "elsewhere", 1),
+        ]
+        top = await archive_reads.channel_activity(reads, Scope(guild=GUILD), limit=1)
+        assert top == [ChannelActivity(CHANNEL, "general", len(CHANNEL_ORDER))]
+
+    async def test_recent_messages_are_messages_with_the_author_in_scope(
+        self, reads: AsyncSession
+    ) -> None:
+        page = await archive_reads.messages(reads, Scope(author=CAROL), order=NEWEST, limit=5)
+        assert _ids(page) == [42, 43]
+
+
+@in_module_loop
+class TestActivity:
+    async def test_monthly_across_a_month_and_a_year_boundary(self, reads: AsyncSession) -> None:
+        buckets = await archive_reads.activity(reads, Scope(), period=Period.MONTH)
+        # Message 33 is posted at 00:25 on 1 February; message 43 on 31 December 2023.
+        assert buckets == [
+            ActivityBucket(date(2023, 12, 1), 1),
+            ActivityBucket(date(2024, 1, 1), len(SEED_MESSAGES) - 2),
+            ActivityBucket(date(2024, 2, 1), 1),
+        ]
+
+    async def test_weekly_buckets_start_on_monday(self, reads: AsyncSession) -> None:
+        buckets = await archive_reads.activity(reads, Scope(), period=Period.WEEK)
+        # 31 December 2023 is a Sunday; 31 January and 1 February 2024 share a week.
+        assert buckets == [
+            ActivityBucket(date(2023, 12, 25), 1),
+            ActivityBucket(date(2024, 1, 29), len(SEED_MESSAGES) - 1),
+        ]
+
+    async def test_scope(self, reads: AsyncSession) -> None:
+        buckets = await archive_reads.activity(reads, Scope(guild=OTHER_GUILD), period=Period.MONTH)
+        assert buckets == [ActivityBucket(date(2024, 1, 1), 3)]
+
+    async def test_an_aware_since_behaves_like_its_naive_utc_equivalent(
+        self, reads: AsyncSession
+    ) -> None:
+        naive = datetime(2024, 2, 1, 0, 0, 0)
+        aware = naive.replace(tzinfo=UTC).astimezone(timezone(timedelta(hours=9)))
+        by_naive = await archive_reads.activity(reads, Scope(), period=Period.MONTH, since=naive)
+        by_aware = await archive_reads.activity(reads, Scope(), period=Period.MONTH, since=aware)
+        assert by_naive == by_aware == [ActivityBucket(date(2024, 2, 1), 1)]
+
+
+# --- dialects ------------------------------------------------------------------------------
+
+
+@in_module_loop
+async def test_every_read_compiles_for_sqlite_and_postgresql(reads: AsyncSession) -> None:
+    """Every statement the reads emit compiles on both dialects the module targets."""
+    emitted: list[Any] = []
+
+    def capture(state: Any) -> None:
+        emitted.append(state.statement)
+
+    event.listen(reads.sync_session, "do_orm_execute", capture)
+    try:
+        scope = Scope(guild=GUILD, channel=CHANNEL, author=ALICE)
+        await archive_reads.messages(
+            reads,
+            scope,
+            order=NEWEST,
+            limit=1,
+            before=8,
+            after=1,
+            text="a",
+            has=Has.IMAGE,
+            since=T0,
+            until=T0 + timedelta(days=1),
+        )
+        await archive_reads.messages(reads, scope, order=OLDEST, limit=1, has=Has.LINK)
+        await archive_reads.attachments(reads, scope, kind=MediaKind.IMAGE, limit=1)
+        await archive_reads.authors(reads, scope, sort=AuthorSort.RECENT, limit=1, name="a")
+        await archive_reads.guilds(reads)
+        await archive_reads.guild(reads, GUILD)
+        await archive_reads.guild_channels(reads, GUILD)
+        await archive_reads.guild_counts(reads, [GUILD])
+        await archive_reads.user(reads, ALICE)
+        await archive_reads.summary(reads, scope)
+        await archive_reads.channel_activity(reads, scope, limit=1)
+        await archive_reads.reactions(reads, scope, limit=1)
+        await archive_reads.activity(reads, scope, period=Period.WEEK, since=T0)
+    finally:
+        event.remove(reads.sync_session, "do_orm_execute", capture)
+
+    assert len(emitted) > 15
+    for statement in emitted:
+        for dialect in (sqlite.dialect(), postgresql.dialect()):
+            compiled = str(statement.compile(dialect=dialect))
+            assert compiled
+        assert "strftime" not in str(statement.compile(dialect=postgresql.dialect()))
+
+
+def test_no_read_side_module_calls_strftime_in_sql() -> None:
+    from wumpus_archiver.api.routes import gallery, guilds, messages, search, stats, users
+
+    for module in (archive_reads, gallery, guilds, messages, search, stats, users):
+        assert "func.strftime" not in Path(module.__file__).read_text(), module.__name__

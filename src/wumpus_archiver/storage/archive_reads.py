@@ -7,11 +7,11 @@ models only, never FastAPI or the API schemas.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from enum import Enum, StrEnum
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, and_, exists, func, join, or_, select
+from sqlalchemy import ColumnElement, Select, and_, exists, extract, func, join, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -19,6 +19,7 @@ from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
+from wumpus_archiver.models.reaction import Reaction
 from wumpus_archiver.models.user import User
 
 
@@ -104,6 +105,70 @@ class AttachmentRow:
     author_avatar_url: str | None
 
 
+@dataclass(frozen=True)
+class AuthorRow:
+    """A user who has posted in scope, with how much and when."""
+
+    user: User
+    messages: int
+    first_seen: datetime
+    last_seen: datetime
+
+
+class AuthorSort(StrEnum):
+    """How ``authors()`` orders its rows. Ties are broken by user id."""
+
+    MESSAGES = "messages"
+    NAME = "name"
+    RECENT = "recent"
+
+
+@dataclass(frozen=True)
+class Summary:
+    """Aggregates over the messages in a scope."""
+
+    messages: int = 0
+    attachments: int = 0
+    reactions: int = 0
+    authors: int = 0
+    channels: int = 0
+    first_message_at: datetime | None = None
+    last_message_at: datetime | None = None
+    average_length: float = 0.0
+
+
+@dataclass(frozen=True)
+class ChannelActivity:
+    """How many messages in scope a channel holds, counted live."""
+
+    channel_id: int
+    channel_name: str
+    messages: int
+
+
+@dataclass(frozen=True)
+class ReactionTotal:
+    """How often one emoji was reacted to messages in scope."""
+
+    emoji_name: str | None
+    count: int
+
+
+class Period(StrEnum):
+    """The calendar bucket of an activity read."""
+
+    MONTH = "month"
+    WEEK = "week"
+
+
+@dataclass(frozen=True)
+class ActivityBucket:
+    """Messages in one calendar month or ISO week, starting on ``start``."""
+
+    start: date
+    messages: int
+
+
 class Order(StrEnum):
     """The order messages are returned in."""
 
@@ -157,7 +222,7 @@ async def _page(
     session: AsyncSession,
     rows: Select[*tuple[Any, ...]],
     where: Sequence[ColumnElement[bool]],
-    count_from: Any,
+    count_from: Any | None,
     *,
     limit: int,
     offset: int = 0,
@@ -167,7 +232,8 @@ async def _page(
 
     Over-fetches one row past ``limit`` for ``has_more``. The ``count(*)`` over
     ``count_from`` uses the same ``where`` as the rows (``paging`` narrows the rows
-    only) and is skipped when the first page is already the whole result.
+    only) and is skipped when the first page is already the whole result. A
+    ``count_from`` of ``None`` counts the rows statement itself, for grouped reads.
 
     Returns:
         The rows of the page, the total and whether more rows follow
@@ -178,7 +244,11 @@ async def _page(
     fetched = fetched[:limit]
     if offset == 0 and not paging and not has_more:
         return fetched, len(fetched), False
-    counted = await session.execute(select(func.count()).select_from(count_from).where(*where))
+    if count_from is None:
+        counting = select(func.count()).select_from(rows.where(*where).order_by(None).subquery())
+    else:
+        counting = select(func.count()).select_from(count_from).where(*where)
+    counted = await session.execute(counting)
     return fetched, int(counted.scalar_one()), has_more
 
 
@@ -367,3 +437,142 @@ async def attachments(
         total=total,
         has_more=has_more,
     )
+
+
+async def user(session: AsyncSession, user_id: int) -> User | None:
+    """One user, or ``None`` if the archive does not hold them."""
+    result = await session.execute(select(User).where(User.id == user_id))
+    return result.scalar_one_or_none()
+
+
+async def authors(
+    session: AsyncSession,
+    scope: Scope,
+    *,
+    sort: AuthorSort,
+    limit: int,
+    offset: int = 0,
+    name: str | None = None,
+) -> Page[AuthorRow]:
+    """The users with at least one message in scope, with counts and first and last seen.
+
+    ``name`` matches the username or global name case-insensitively, with LIKE
+    wildcards taken literally.
+    """
+    where = _message_scope(scope)
+    if name is not None:
+        pattern = f"%{escape_like(name)}%"
+        where.append(
+            or_(
+                User.username.ilike(pattern, escape="\\"),
+                User.global_name.ilike(pattern, escape="\\"),
+            )
+        )
+    messages = func.count()
+    last_seen = func.max(Message.created_at)
+    ordering: dict[AuthorSort, ColumnElement[Any]] = {
+        AuthorSort.MESSAGES: messages.desc(),
+        AuthorSort.NAME: User.username.asc(),
+        AuthorSort.RECENT: last_seen.desc(),
+    }
+    rows = (
+        select(User, messages, func.min(Message.created_at), last_seen)
+        .join(Message, Message.author_id == User.id)
+        .group_by(User.id)
+        .order_by(ordering[AuthorSort(sort)], User.id.asc())
+    )
+    fetched, total, has_more = await _page(session, rows, where, None, limit=limit, offset=offset)
+    return Page(rows=[AuthorRow(*row) for row in fetched], total=total, has_more=has_more)
+
+
+async def summary(session: AsyncSession, scope: Scope) -> Summary:
+    """Message, attachment, reaction, author and channel totals over a scope."""
+    where = _message_scope(scope)
+    in_scope = select(Message.id).where(*where)
+    messages = await session.execute(
+        select(
+            func.count(),
+            func.count(func.distinct(Message.author_id)),
+            func.count(func.distinct(Message.channel_id)),
+            func.min(Message.created_at),
+            func.max(Message.created_at),
+            func.avg(func.length(Message.content)),
+        ).where(*where)
+    )
+    total, authors_, channels, first, last, average = messages.one()
+    attachments = await session.execute(
+        select(func.count()).select_from(Attachment).where(Attachment.message_id.in_(in_scope))
+    )
+    reactions_ = await session.execute(
+        select(func.coalesce(func.sum(Reaction.count), 0)).where(Reaction.message_id.in_(in_scope))
+    )
+    return Summary(
+        messages=int(total),
+        attachments=int(attachments.scalar_one()),
+        reactions=int(reactions_.scalar_one()),
+        authors=int(authors_),
+        channels=int(channels),
+        first_message_at=first,
+        last_message_at=last,
+        average_length=float(average or 0),
+    )
+
+
+async def channel_activity(
+    session: AsyncSession, scope: Scope, *, limit: int
+) -> list[ChannelActivity]:
+    """The channels holding the most messages in scope, counted live, ties by id."""
+    messages = func.count()
+    result = await session.execute(
+        select(Channel.id, Channel.name, messages)
+        .join(Message, Message.channel_id == Channel.id)
+        .where(*_message_scope(scope))
+        .group_by(Channel.id, Channel.name)
+        .order_by(messages.desc(), Channel.id.asc())
+        .limit(limit)
+    )
+    return [ChannelActivity(*row) for row in result.all()]
+
+
+async def reactions(session: AsyncSession, scope: Scope, *, limit: int) -> list[ReactionTotal]:
+    """The emoji most reacted to messages in scope, ties by emoji name."""
+    total = func.sum(Reaction.count)
+    result = await session.execute(
+        select(Reaction.emoji_name, total)
+        .join(Message, Reaction.message_id == Message.id)
+        .where(*_message_scope(scope))
+        .group_by(Reaction.emoji_name)
+        .order_by(total.desc(), Reaction.emoji_name.asc())
+        .limit(limit)
+    )
+    return [ReactionTotal(name, int(count)) for name, count in result.all()]
+
+
+async def activity(
+    session: AsyncSession,
+    scope: Scope,
+    *,
+    period: Period,
+    since: datetime | None = None,
+) -> list[ActivityBucket]:
+    """Messages per calendar month or ISO week over a scope, oldest first.
+
+    Only buckets holding messages are returned. SQL groups by day with ``extract``
+    and the days are folded into periods here, so no dialect-bound date function
+    is emitted. ``since`` is inclusive; an aware datetime is converted to naive UTC.
+    """
+    where = _message_scope(scope)
+    if since is not None:
+        where.append(Message.created_at >= _naive_utc(since))
+    year = extract("year", Message.created_at)
+    month = extract("month", Message.created_at)
+    day = extract("day", Message.created_at)
+    result = await session.execute(
+        select(year, month, day, func.count()).where(*where).group_by(year, month, day)
+    )
+    buckets: dict[date, int] = {}
+    for y, m, d, count in result.all():
+        on = date(int(y), int(m), int(d))
+        start = on - timedelta(days=on.weekday()) if period is Period.WEEK else on.replace(day=1)
+        buckets[start] = buckets.get(start, 0) + int(count)
+    return [ActivityBucket(start, buckets[start]) for start in sorted(buckets)]
