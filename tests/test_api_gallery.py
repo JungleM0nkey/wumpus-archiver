@@ -99,6 +99,15 @@ async def test_guild_gallery_with_a_channel_of_another_guild_is_empty(
     assert response.json() == {"attachments": [], "total": 0, "has_more": False, "offset": 0}
 
 
+@pytest.mark.parametrize("path", ["/api/guilds/1/gallery", "/api/guilds/1/gallery/timeline"])
+async def test_a_zero_channel_id_is_no_filter(client: AsyncClient, path: str) -> None:
+    unfiltered = await client.get(path)
+    response = await client.get(path, params={"channel_id": 0})
+    assert response.status_code == 200
+    assert response.json() == unfiltered.json()
+    assert response.json()["total"] == 3
+
+
 async def test_channel_gallery_leaves_channel_names_out(client: AsyncClient) -> None:
     response = await client.get("/api/channels/10/gallery")
     payload = response.json()

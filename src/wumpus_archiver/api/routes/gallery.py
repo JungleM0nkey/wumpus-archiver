@@ -58,7 +58,7 @@ async def guild_gallery(
     async with db.session() as session:
         page = await archive_reads.attachments(
             session,
-            Scope(guild=guild_id, channel=channel_id),
+            Scope(guild=guild_id, channel=channel_id or None),
             kind=kind,
             limit=limit,
             offset=offset,
@@ -105,7 +105,7 @@ async def guild_gallery_timeline(
     async with db.session() as session:
         page = await archive_reads.attachments(
             session,
-            Scope(guild=guild_id, channel=channel_id),
+            Scope(guild=guild_id, channel=channel_id or None),
             kind=MediaKind.IMAGE,
             limit=limit,
             offset=offset,
