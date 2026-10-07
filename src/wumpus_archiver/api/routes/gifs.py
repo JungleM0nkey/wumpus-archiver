@@ -6,8 +6,9 @@ from fastapi import APIRouter, Query
 from sqlalchemy import text
 
 from wumpus_archiver.api.deps import AttachmentsDir, Db
-from wumpus_archiver.api.routes._helpers import escape_like, local_attachment_url, raise_not_found
+from wumpus_archiver.api.routes._helpers import local_attachment_url, raise_not_found
 from wumpus_archiver.api.schemas import GifListResponse, GifSchema
+from wumpus_archiver.storage.archive_reads import escape_like
 
 router = APIRouter()
 

@@ -8,6 +8,7 @@
 | 2. Storage & API | ✅ Complete | FastAPI app, 17 REST endpoints, schemas |
 | 3. Portal Foundation | ✅ Complete | SvelteKit SPA, 10 pages, 7 components |
 | 3.5. DevOps & Tooling | ✅ Complete | Unified dev/serve commands, Makefile |
+| 3.6. Archive reads | ✅ Complete | One read side for the archive (epic #30, ADR 0002, ADR 0003) |
 | 4. Advanced Features | 🟡 Partial | Search working (SQL LIKE), gallery, downloads done; FTS5, exports, charts remaining |
 
 ---
@@ -49,13 +50,28 @@
 - Makefile with targets: install, dev, serve, build, lint, format, test, clean
 - Auto-generated `_dev_app.py` for uvicorn `--reload` support
 
+## Phase 3.6: Archive reads ✅
+
+- `storage/archive_reads.py`: named reads over a `Scope(guild, channel, author)` that take the
+  route's session and return their own totals (`Page`), replacing SQL composed in each route
+- Anchored message cursors as a `(created_at, id)` keyset; the newest-first flip waits for the
+  portal (`DEFAULT_ORDER` in `api/routes/messages.py`)
+- Search totals now agree with their rows (the author filter narrows the count too); guild and
+  channel apply together everywhere
+- Guild list in three statements (no per-guild COUNTs); gallery and search channel names from joins
+- Activity bucketed with `extract` and folded in Python (no `strftime`); every statement compiles
+  for sqlite and postgresql
+- `has`, `since` and `until` exist in `messages()` and media kind and author in `attachments()`;
+  routes expose them in the portal rework
+- Repositories are the write side only
+
 ---
 
 ## Phase 4: Advanced Features (Remaining Work)
 
 ### Search Enhancement
 - [ ] Implement SQLite FTS5 virtual table for proper full-text search
-- [ ] Add search filters (date range, user, channel)
+- [ ] Expose search filters over HTTP (`has`, `since`/`until` exist in `messages()`; user and channel are exposed)
 - [ ] Search result highlighting
 - [ ] Search suggestions / autocomplete
 
@@ -90,10 +106,11 @@
 ### Unit Tests (partially implemented)
 - [x] Model creation and relationships
 - [x] Repository operations (CRUD, upsert)
+- [x] Archive reads over one seeded archive (order, cursors, totals, scope, filters, dialects)
 - [x] Database connection lifecycle
 - [x] Configuration loading and validation
 - [x] CLI command registration
-- [ ] API endpoint response shapes
+- [x] API endpoint response shapes (smoke tests over an empty archive; read routes over seeded ones)
 - [ ] Scrape manager state machine
 
 ### Integration Tests (TODO)

@@ -124,23 +124,6 @@ class TestChannelRepository:
         assert result.name == "new-name"
         assert result.position == 5
 
-    async def test_get_by_guild(self, session: AsyncSession) -> None:
-        """Test fetching all channels for a guild."""
-        guild = Guild(id=2200, name="Multi Channel")
-        session.add(guild)
-        await session.flush()
-
-        repo = ChannelRepository(session)
-        for i, name in enumerate(["general", "random", "dev"]):
-            channel = Channel(id=2200 + i + 1, guild_id=2200, name=name, type=0)
-            await repo.upsert(channel)
-        await session.flush()
-
-        channels = await repo.get_by_guild(2200)
-        assert len(channels) == 3
-        names = {c.name for c in channels}
-        assert names == {"general", "random", "dev"}
-
     async def test_update_message_metadata(self, session: AsyncSession) -> None:
         """Test updating channel message metadata."""
         guild = Guild(id=2300, name="Meta Test")
@@ -247,50 +230,6 @@ class TestMessageRepository:
         result = await repo.upsert(edited)
         assert result.content == "Edited"
         assert result.edited_at is not None
-
-    async def test_get_by_channel(self, session: AsyncSession) -> None:
-        """Test fetching messages by channel with limit."""
-        channel_id = await self._setup_channel(session)
-        repo = MessageRepository(session)
-
-        now = datetime.now(UTC)
-        for i in range(5):
-            msg = Message(
-                id=5100 + i,
-                channel_id=channel_id,
-                content=f"Message {i}",
-                clean_content=f"Message {i}",
-                created_at=now,
-                scraped_at=now,
-            )
-            await repo.upsert(msg)
-        await session.flush()
-
-        messages = await repo.get_by_channel(channel_id, limit=3)
-        assert len(messages) == 3
-
-    async def test_get_by_channel_pagination(self, session: AsyncSession) -> None:
-        """Test message pagination with before_id."""
-        channel_id = await self._setup_channel(session)
-        repo = MessageRepository(session)
-
-        now = datetime.now(UTC)
-        for i in range(5):
-            msg = Message(
-                id=5200 + i,
-                channel_id=channel_id,
-                content=f"Paginated {i}",
-                clean_content=f"Paginated {i}",
-                created_at=now,
-                scraped_at=now,
-            )
-            await repo.upsert(msg)
-        await session.flush()
-
-        messages = await repo.get_by_channel(channel_id, before_id=5203)
-        ids = {m.id for m in messages}
-        assert 5203 not in ids
-        assert 5204 not in ids
 
     async def test_bulk_upsert(self, session: AsyncSession) -> None:
         """Test bulk upsert of messages."""

@@ -64,10 +64,21 @@ class TestMediaKind:
         assert set(MediaKind.GIF.content_types) < set(MediaKind.IMAGE.content_types)
 
 
-def test_escape_like_is_still_importable_from_the_route_helpers() -> None:
-    from wumpus_archiver.api.routes._helpers import escape_like as reexported
-
-    assert reexported is escape_like
+def test_escape_like_is_importable_only_from_archive_reads() -> None:
+    """One definition, and every caller imports it from archive reads."""
+    package = Path(archive_reads.__file__).parents[1]
+    definitions, importers = [], []
+    for module in package.rglob("*.py"):
+        if module.name == "_dev_app.py":
+            continue
+        source = module.read_text()
+        if "def escape_like(" in source:
+            definitions.append(module.name)
+        for line in source.splitlines():
+            if line.startswith("from ") and "escape_like" in line:
+                importers.append(line.split()[1])
+    assert definitions == ["archive_reads.py"]
+    assert set(importers) == {"wumpus_archiver.storage.archive_reads"}
 
 
 class TestEscapeLike:
@@ -903,3 +914,19 @@ def test_no_read_side_module_calls_strftime_in_sql() -> None:
 
     for module in (archive_reads, gallery, guilds, messages, search, stats, users):
         assert "func.strftime" not in Path(module.__file__).read_text(), module.__name__
+
+
+# --- the routes keep none of the old forms -------------------------------------------------
+
+ROUTES = Path(archive_reads.__file__).parents[1] / "api" / "routes"
+# The GIF routes' raw SQL over gif_index stays out of scope until the GIF index has an owner.
+GIF_ROUTES = "gifs.py"
+
+
+@pytest.mark.parametrize("module", sorted(p.name for p in ROUTES.glob("*.py")), ids=str)
+def test_no_route_module_composes_what_archive_reads_own(module: str) -> None:
+    source = (ROUTES / module).read_text()
+    assert "Channel.guild_id" not in source, "guild-scope subquery"
+    assert "ilike(" not in source and "escape=" not in source, "hand-paired LIKE escape"
+    if module != GIF_ROUTES:
+        assert "limit + 1" not in source and "limit+1" not in source, "limit-plus-one page"

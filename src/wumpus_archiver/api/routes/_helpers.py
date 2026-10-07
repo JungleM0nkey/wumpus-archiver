@@ -5,15 +5,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from wumpus_archiver.api.schemas import GalleryAttachmentSchema
-from wumpus_archiver.storage.archive_reads import AttachmentRow, escape_like
-
-__all__ = [
-    "escape_like",
-    "local_attachment_url",
-    "raise_not_found",
-    "rewrite_attachment_url",
-    "rows_to_gallery_schemas",
-]
+from wumpus_archiver.storage.archive_reads import AttachmentRow
 
 
 def rewrite_attachment_url(
