@@ -290,6 +290,15 @@ class TestMessageSearch:
         assert _message_ids(payload) == {"900"}
         assert payload["total"] == 1
 
+    @pytest.mark.parametrize("param", ["guild_id", "channel_id", "author_id"])
+    async def test_a_zero_id_is_no_filter(self, client: AsyncClient, param: str) -> None:
+        """Test that an id of 0 means the filter is absent, as it always has."""
+        unfiltered = await client.get("/api/search", params={"q": "%"})
+        response = await client.get("/api/search", params={"q": "%", param: 0})
+        assert response.status_code == 200
+        assert response.json() == unfiltered.json()
+        assert response.json()["total"] == 1
+
     async def test_a_channel_outside_the_guild_matches_nothing(self, client: AsyncClient) -> None:
         """Test that guild and channel apply together rather than the channel winning."""
         response = await client.get(

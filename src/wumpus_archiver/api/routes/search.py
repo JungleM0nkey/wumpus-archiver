@@ -30,7 +30,7 @@ async def search_messages(
     async with db.session() as session:
         page = await archive_reads.messages(
             session,
-            Scope(guild=guild_id, channel=channel_id, author=author_id),
+            Scope(guild=guild_id or None, channel=channel_id or None, author=author_id or None),
             order=Order.NEWEST_FIRST,
             limit=limit,
             text=q,
