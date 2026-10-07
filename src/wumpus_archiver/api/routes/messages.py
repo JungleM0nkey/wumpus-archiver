@@ -2,9 +2,6 @@
 
 from fastapi import APIRouter, Query
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import selectinload
-
 from wumpus_archiver.api.deps import AttachmentsDir, Db
 from wumpus_archiver.api.routes._helpers import rewrite_attachment_url
 from wumpus_archiver.api.schemas import (
@@ -12,9 +9,14 @@ from wumpus_archiver.api.schemas import (
     MessageSchema,
     UserSchema,
 )
-from wumpus_archiver.models.message import Message
+from wumpus_archiver.storage import archive_reads
+from wumpus_archiver.storage.archive_reads import Order, Scope
 
 router = APIRouter()
+
+# The channel reader opens at the oldest messages until the portal's reader is changed
+# to open at the newest; the default flips here (ADR 0003).
+DEFAULT_ORDER = Order.OLDEST_FIRST
 
 
 @router.get("/channels/{channel_id}/messages", response_model=MessageListResponse)
@@ -28,37 +30,17 @@ async def list_messages(
 ) -> MessageListResponse:
     """Get messages from a channel with pagination."""
     async with db.session() as session:
-        query = (
-            select(Message)
-            .where(Message.channel_id == channel_id)
-            .options(
-                selectinload(Message.author),
-                selectinload(Message.attachments),
-                selectinload(Message.reactions),
-            )
-            .order_by(Message.created_at.asc())
-            .limit(limit + 1)
+        page = await archive_reads.messages(
+            session,
+            Scope(channel=channel_id),
+            order=DEFAULT_ORDER,
+            limit=limit,
+            before=before,
+            after=after,
         )
-
-        if before:
-            query = query.where(Message.id < before)
-        if after:
-            query = query.where(Message.id > after)
-
-        result = await session.execute(query)
-        messages = list(result.scalars().all())
-
-        has_more = len(messages) > limit
-        if has_more:
-            messages = messages[:limit]
-
-        total_result = await session.execute(
-            select(func.count(Message.id)).where(Message.channel_id == channel_id)
-        )
-        total = total_result.scalar() or 0
 
         schemas = []
-        for msg in messages:
+        for msg in page.rows:
             schema = MessageSchema.model_validate(msg)
             if msg.author:
                 author_schema = UserSchema.model_validate(msg.author)
@@ -78,8 +60,8 @@ async def list_messages(
 
         return MessageListResponse(
             messages=schemas,
-            total=total,
-            has_more=has_more,
-            before_id=messages[0].id if messages else None,
-            after_id=messages[-1].id if messages else None,
+            total=page.total,
+            has_more=page.has_more,
+            before_id=page.oldest_id,
+            after_id=page.newest_id,
         )
