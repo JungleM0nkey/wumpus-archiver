@@ -98,6 +98,8 @@ async def get_user_profile(
 
         scope = Scope(guild=guild_id or None, author=user_id)
         summary = await archive_reads.summary(session, scope)
+        attachments = await archive_reads.attachment_total(session, scope)
+        reactions = await archive_reads.reaction_total(session, scope)
         top_channels = await archive_reads.channel_activity(session, scope, limit=10)
         monthly = await archive_reads.activity(
             session,
@@ -116,8 +118,8 @@ async def get_user_profile(
         bot=user.bot,
         display_name=user.global_name or user.username,
         total_messages=summary.messages,
-        total_attachments=summary.attachments,
-        total_reactions_received=summary.reactions,
+        total_attachments=attachments,
+        total_reactions_received=reactions,
         first_message_at=summary.first_message_at,
         last_message_at=summary.last_message_at,
         active_channels=summary.channels,

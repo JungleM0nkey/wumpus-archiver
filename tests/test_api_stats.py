@@ -80,3 +80,39 @@ async def test_guild_stats(client: AsyncClient) -> None:
             },
         ],
     }
+
+
+def _counts_messages(statement: str) -> bool:
+    """Whether a statement counts rows of ``messages``: ``count(*)`` over it as the outer FROM."""
+    select_list, _, rest = statement.partition("FROM ")
+    return "count(*)" in select_list and rest.startswith("messages")
+
+
+async def test_guild_stats_reads_each_total_once(
+    client: AsyncClient, statements: list[str]
+) -> None:
+    """Guild, channels, summary, attachments, top channels and top users: nothing thrown away."""
+    response = await client.get("/api/guilds/1/stats")
+    assert response.status_code == 200
+    assert len(statements) == 6
+    assert sum(map(_counts_messages, statements)) == 1
+    assert not any("reactions" in statement for statement in statements)
+
+
+async def test_more_than_ten_authors_add_the_top_users_count(
+    client: AsyncClient, database: Database, statements: list[str]
+) -> None:
+    """The top users page then pays the one COUNT that ADR 0002 accepts."""
+    async with database.session() as session:
+        for n in range(10):
+            session.add(User(id=200 + n, username=f"user{n}"))
+            session.add(
+                Message(
+                    id=100 + n, channel_id=11, author_id=200 + n, created_at=WHEN, scraped_at=WHEN
+                )
+            )
+    statements.clear()
+    response = await client.get("/api/guilds/1/stats")
+    payload = response.json()
+    assert (payload["total_users"], len(payload["top_users"])) == (12, 10)
+    assert len(statements) == 7

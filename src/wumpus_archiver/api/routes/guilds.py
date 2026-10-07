@@ -10,6 +10,7 @@ from wumpus_archiver.api.schemas import (
     GuildSchema,
 )
 from wumpus_archiver.storage import archive_reads
+from wumpus_archiver.storage.archive_reads import Scope
 
 router = APIRouter()
 
@@ -40,13 +41,13 @@ async def get_guild(db: Db, guild_id: int) -> GuildDetailSchema:
             raise_not_found("Guild not found")
 
         channels = await archive_reads.guild_channels(session, guild_id)
-        counts = await archive_reads.guild_counts(session, [guild_id])
+        messages = await archive_reads.message_total(session, Scope(guild=guild_id))
 
         schema = GuildDetailSchema(
             **{k: v for k, v in guild.__dict__.items() if not k.startswith("_")}
         )
         schema.channels = [ChannelSchema.model_validate(ch) for ch in channels]
         schema.channel_count = len(channels)
-        schema.message_count = counts[guild_id].messages
+        schema.message_count = messages
 
         return schema

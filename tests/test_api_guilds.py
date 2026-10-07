@@ -1,12 +1,10 @@
 """The guild list, guild detail and channel list routes over a seeded archive."""
 
-from collections.abc import Iterator
 from datetime import datetime
-from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import event, func, select
+from sqlalchemy import func, select
 
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.guild import Guild
@@ -47,19 +45,6 @@ async def seeded(database: Database) -> None:
                     )
 
 
-@pytest.fixture
-def statements(database: Database) -> Iterator[list[str]]:
-    seen: list[str] = []
-
-    def record(_conn: Any, _cursor: Any, statement: str, *_args: Any) -> None:
-        seen.append(statement)
-
-    engine = database.engine.sync_engine
-    event.listen(engine, "before_cursor_execute", record)
-    yield seen
-    event.remove(engine, "before_cursor_execute", record)
-
-
 async def _live_counts(database: Database, guild_id: int) -> tuple[int, int]:
     async with database.session() as session:
         channels = await session.scalar(
@@ -98,6 +83,24 @@ async def test_guild_detail(client: AsyncClient, database: Database) -> None:
     payload = response.json()
     assert [c["id"] for c in payload["channels"]] == ["12", "11", "13"]
     assert (payload["channel_count"], payload["message_count"]) == await _live_counts(database, 1)
+
+
+@pytest.mark.parametrize("guild_id", [3, 4])
+async def test_guild_detail_counts_equal_live_counts(
+    client: AsyncClient, database: Database, guild_id: int
+) -> None:
+    payload = (await client.get(f"/api/guilds/{guild_id}")).json()
+    live = await _live_counts(database, guild_id)
+    assert (payload["channel_count"], payload["message_count"]) == live
+
+
+async def test_guild_detail_issues_three_statements(
+    client: AsyncClient, statements: list[str]
+) -> None:
+    """The guild, its channels and its message count: no count whose result is unused."""
+    response = await client.get("/api/guilds/1")
+    assert response.status_code == 200
+    assert len(statements) == 3
 
 
 @pytest.mark.parametrize(

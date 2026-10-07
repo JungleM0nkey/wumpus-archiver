@@ -7,12 +7,14 @@ default is what ``serve`` builds without a bot token: API only, read-only scrape
 control, attachment URLs on the CDN.
 """
 
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from wumpus_archiver.api.app import create_app
@@ -29,6 +31,20 @@ async def database(tmp_path) -> AsyncGenerator[Database, None]:
     await db.create_tables()
     yield db
     await db.disconnect()
+
+
+@pytest.fixture
+def statements(database: Database) -> Iterator[list[str]]:
+    """The SQL statements executed on ``database`` while the test runs."""
+    seen: list[str] = []
+
+    def record(_conn: Any, _cursor: Any, statement: str, *_args: Any) -> None:
+        seen.append(statement)
+
+    engine = database.engine.sync_engine
+    event.listen(engine, "before_cursor_execute", record)
+    yield seen
+    event.remove(engine, "before_cursor_execute", record)
 
 
 @pytest.fixture

@@ -770,21 +770,42 @@ class TestProfileReads:
         contents = [m[4] for m in SEED_MESSAGES if m[2] == ALICE and GUILD_OF[m[1]] == GUILD]
         assert await archive_reads.summary(reads, scope) == Summary(
             messages=7,
-            attachments=4,
-            reactions=0,
             authors=1,
             channels=2,
             first_message_at=T0,
             last_message_at=T0 + timedelta(minutes=70),
             average_length=pytest.approx(sum(map(len, contents)) / len(contents)),
         )
+        assert await archive_reads.attachment_total(reads, scope) == 4
+        assert await archive_reads.reaction_total(reads, scope) == 0
 
-    async def test_summary_of_an_empty_scope(self, reads: AsyncSession) -> None:
-        assert await archive_reads.summary(reads, Scope(guild=EMPTY_GUILD)) == Summary()
+    async def test_summary_is_one_statement(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        await archive_reads.summary(reads, Scope(guild=GUILD))
+        assert len(statements) == 1
 
-    async def test_summary_sums_reaction_counts(self, reads: AsyncSession) -> None:
-        summary = await archive_reads.summary(reads, Scope(author=BOB))
-        assert summary.reactions == sum(count for _, _, count in SEED_REACTIONS)
+    async def test_an_empty_scope_sums_to_nothing(self, reads: AsyncSession) -> None:
+        empty = Scope(guild=EMPTY_GUILD)
+        assert await archive_reads.summary(reads, empty) == Summary()
+        assert await archive_reads.message_total(reads, empty) == 0
+        assert await archive_reads.attachment_total(reads, empty) == 0
+        assert await archive_reads.reaction_total(reads, empty) == 0
+
+    async def test_reaction_total_sums_every_emoji_count(self, reads: AsyncSession) -> None:
+        total = await archive_reads.reaction_total(reads, Scope(author=BOB))
+        assert total == sum(count for _, _, count in SEED_REACTIONS)
+
+    @pytest.mark.parametrize("scope", list(SCOPES))
+    async def test_message_total_agrees_with_the_messages_read(
+        self, reads: AsyncSession, scope: str
+    ) -> None:
+        page = await archive_reads.messages(reads, SCOPES[scope], order=OLDEST, limit=100)
+        assert await archive_reads.message_total(reads, SCOPES[scope]) == len(page.rows)
+
+    async def test_attachment_total_counts_every_kind(self, reads: AsyncSession) -> None:
+        assert await archive_reads.attachment_total(reads, Scope()) == len(SEED_ATTACHMENTS)
+        assert await archive_reads.attachment_total(reads, Scope(channel=CHANNEL)) == 4
 
     async def test_reactions_ranked_with_a_name_tie_break(self, reads: AsyncSession) -> None:
         assert await archive_reads.reactions(reads, Scope(author=BOB), limit=10) == [
@@ -903,6 +924,9 @@ async def test_every_read_compiles_for_sqlite_and_postgresql(reads: AsyncSession
         await archive_reads.guild_counts(reads, [GUILD])
         await archive_reads.user(reads, ALICE)
         await archive_reads.summary(reads, scope)
+        await archive_reads.message_total(reads, scope)
+        await archive_reads.attachment_total(reads, scope)
+        await archive_reads.reaction_total(reads, scope)
         await archive_reads.channel_activity(reads, scope, limit=1)
         await archive_reads.reactions(reads, scope, limit=1)
         await archive_reads.activity(reads, scope, period=Period.WEEK, since=T0)

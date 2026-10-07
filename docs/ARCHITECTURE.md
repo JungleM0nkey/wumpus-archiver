@@ -77,7 +77,7 @@ class MessageRepository:
 | `messages(scope, order, limit, before, after, text, has, since, until)` | Channel messages, search, a profile's recent messages |
 | `attachments(scope, kind, limit, offset)` | Channel gallery, guild gallery, gallery timeline |
 | `authors(scope, sort, limit, offset, name)` | People screen, top users |
-| `summary(scope)` | Profile and guild totals |
+| `summary(scope)`, `message_total(scope)`, `attachment_total(scope)`, `reaction_total(scope)` | Profile and guild totals, one statement each |
 | `activity(scope, period, since)` | Monthly (or weekly) activity |
 | `reactions(scope, limit)`, `channel_activity(scope, limit)` | Profile top reactions and channels |
 | `guilds()`, `guild(id)`, `guild_channels(id)`, `guild_counts(ids)` | Guild list, detail and channels (two COUNTs for any number of guilds) |

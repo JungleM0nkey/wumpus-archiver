@@ -125,11 +125,9 @@ class AuthorSort(StrEnum):
 
 @dataclass(frozen=True)
 class Summary:
-    """Aggregates over the messages in a scope."""
+    """Aggregates over the messages in a scope, all from one statement."""
 
     messages: int = 0
-    attachments: int = 0
-    reactions: int = 0
     authors: int = 0
     channels: int = 0
     first_message_at: datetime | None = None
@@ -495,10 +493,8 @@ async def authors(
 
 
 async def summary(session: AsyncSession, scope: Scope) -> Summary:
-    """Message, attachment, reaction, author and channel totals over a scope."""
-    where = _message_scope(scope)
-    in_scope = select(Message.id).where(*where)
-    messages = await session.execute(
+    """Message, author and channel totals over a scope, with its time span and mean length."""
+    result = await session.execute(
         select(
             func.count(),
             func.count(func.distinct(Message.author_id)),
@@ -506,25 +502,43 @@ async def summary(session: AsyncSession, scope: Scope) -> Summary:
             func.min(Message.created_at),
             func.max(Message.created_at),
             func.avg(func.length(Message.content)),
-        ).where(*where)
+        ).where(*_message_scope(scope))
     )
-    total, authors_, channels, first, last, average = messages.one()
-    attachments = await session.execute(
-        select(func.count()).select_from(Attachment).where(Attachment.message_id.in_(in_scope))
-    )
-    reactions_ = await session.execute(
-        select(func.coalesce(func.sum(Reaction.count), 0)).where(Reaction.message_id.in_(in_scope))
-    )
+    total, authors_, channels, first, last, average = result.one()
     return Summary(
         messages=int(total),
-        attachments=int(attachments.scalar_one()),
-        reactions=int(reactions_.scalar_one()),
         authors=int(authors_),
         channels=int(channels),
         first_message_at=first,
         last_message_at=last,
         average_length=float(average or 0),
     )
+
+
+async def message_total(session: AsyncSession, scope: Scope) -> int:
+    """How many messages are in scope."""
+    result = await session.execute(
+        select(func.count()).select_from(Message).where(*_message_scope(scope))
+    )
+    return int(result.scalar_one())
+
+
+async def attachment_total(session: AsyncSession, scope: Scope) -> int:
+    """How many attachments the messages in scope carry, of any kind."""
+    in_scope = select(Message.id).where(*_message_scope(scope))
+    result = await session.execute(
+        select(func.count()).select_from(Attachment).where(Attachment.message_id.in_(in_scope))
+    )
+    return int(result.scalar_one())
+
+
+async def reaction_total(session: AsyncSession, scope: Scope) -> int:
+    """How many reactions the messages in scope received, summing every emoji's count."""
+    in_scope = select(Message.id).where(*_message_scope(scope))
+    result = await session.execute(
+        select(func.coalesce(func.sum(Reaction.count), 0)).where(Reaction.message_id.in_(in_scope))
+    )
+    return int(result.scalar_one())
 
 
 async def channel_activity(

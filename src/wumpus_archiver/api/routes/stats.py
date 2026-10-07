@@ -20,24 +20,25 @@ async def get_guild_stats(db: Db, guild_id: int) -> StatsSchema:
             raise_not_found("Guild not found")
 
         scope = Scope(guild=guild_id)
-        counts = await archive_reads.guild_counts(session, [guild_id])
+        channels = await archive_reads.guild_channels(session, guild_id)
         summary = await archive_reads.summary(session, scope)
-        channels = await archive_reads.top_channels(session, guild_id, limit=10)
+        attachments = await archive_reads.attachment_total(session, scope)
+        top_channels = await archive_reads.top_channels(session, guild_id, limit=10)
         authors = await archive_reads.authors(session, scope, sort=AuthorSort.MESSAGES, limit=10)
 
     return StatsSchema(
         guild_name=guild.name,
-        total_channels=counts[guild_id].channels,
+        total_channels=len(channels),
         total_messages=summary.messages,
         total_users=summary.authors,
-        total_attachments=summary.attachments,
+        total_attachments=attachments,
         top_channels=[
             {
                 "id": str(channel.channel_id),
                 "name": channel.name,
                 "message_count": channel.message_count,
             }
-            for channel in channels
+            for channel in top_channels
         ],
         top_users=[
             {
