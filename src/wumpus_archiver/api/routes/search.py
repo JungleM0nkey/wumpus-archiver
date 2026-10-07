@@ -34,6 +34,7 @@ async def search_messages(
             order=Order.NEWEST_FIRST,
             limit=limit,
             text=q,
+            with_channel=True,
         )
 
         results = []

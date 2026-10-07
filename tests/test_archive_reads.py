@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import event
+from sqlalchemy import event, inspect
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -299,6 +299,25 @@ class TestMessagesOrder:
         assert third.author is not None and third.author.username == "alice"
         assert {a.id for a in third.attachments} == {501, 506}
         assert third.reactions == []
+
+    async def test_the_channel_is_left_unloaded_unless_asked_for(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        page = await archive_reads.messages(reads, Scope(guild=GUILD), order=OLDEST, limit=3)
+        assert all("channel" in inspect(message).unloaded for message in page.rows)
+        assert not any("JOIN channels" in statement for statement in statements)
+
+    async def test_with_channel_joins_it_into_the_page(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        page = await archive_reads.messages(
+            reads, Scope(guild=GUILD), order=OLDEST, limit=50, with_channel=True
+        )
+        names = {message.id: message.channel.name for message in page.rows}
+        assert names[1] == "general" and names[30] == "random"
+        page_statement, *loads = statements
+        assert "JOIN channels" in page_statement
+        assert not any("channels" in load for load in loads)
 
 
 @in_module_loop

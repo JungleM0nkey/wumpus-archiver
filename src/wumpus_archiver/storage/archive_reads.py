@@ -271,10 +271,12 @@ async def messages(
     has: Has | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
+    with_channel: bool = False,
 ) -> Page[Message]:
-    """Messages in scope, with their channel, author, attachments and reactions loaded.
+    """Messages in scope, with their author, attachments and reactions loaded.
 
-    A cursor is a message id. ``before`` returns the page adjacent to it on the older
+    ``with_channel`` also loads each message's channel, joined into the page statement;
+    otherwise ``Message.channel`` is left unloaded. A cursor is a message id. ``before`` returns the page adjacent to it on the older
     side and ``after`` the page adjacent on the newer side, in ``order`` either way;
     with both, the page is the one next to ``before`` that is still newer than
     ``after``. An unknown cursor is ignored. ``text`` matches the content
@@ -321,13 +323,14 @@ async def messages(
     rows = (
         select(Message)
         .options(
-            joinedload(Message.channel),
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.reactions),
         )
         .order_by(*ordering)
     )
+    if with_channel:
+        rows = rows.options(joinedload(Message.channel))
     fetched, total, has_more = await _page(
         session, rows, where, Message, limit=limit, paging=paging
     )

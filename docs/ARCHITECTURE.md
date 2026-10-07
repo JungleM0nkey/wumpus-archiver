@@ -74,7 +74,7 @@ class MessageRepository:
 
 | Read | Serves |
 |---|---|
-| `messages(scope, order, limit, before, after, text, has, since, until)` | Channel messages, search, a profile's recent messages |
+| `messages(scope, order, limit, before, after, text, has, since, until, with_channel)` | Channel messages, search, a profile's recent messages |
 | `attachments(scope, kind, limit, offset)` | Channel gallery, guild gallery, gallery timeline |
 | `authors(scope, sort, limit, offset, name)` | People screen, top users |
 | `summary(scope)`, `message_total(scope)`, `attachment_total(scope)`, `reaction_total(scope)` | Profile and guild totals, one statement each |

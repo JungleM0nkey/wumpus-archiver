@@ -282,6 +282,15 @@ class TestMessageSearch:
         assert response.status_code == 200
         assert response.json()["total"] == 0
 
+    async def test_results_carry_their_channel_name(
+        self, client: AsyncClient, statements: list[str]
+    ) -> None:
+        """Test that each result names its channel, joined into the search page."""
+        response = await client.get("/api/search", params={"q": "HELLO"})
+        assert response.status_code == 200
+        assert [r["channel_name"] for r in response.json()["results"]] == ["general"]
+        assert sum("JOIN channels" in statement for statement in statements) == 1
+
     async def test_author_filter_narrows_the_total_too(self, client: AsyncClient) -> None:
         """Test that the total counts only the author's matches, like the results."""
         response = await client.get("/api/search", params={"q": "hi", "author_id": 201})
