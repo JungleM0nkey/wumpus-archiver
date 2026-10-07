@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlalchemy import ColumnElement, Select, and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
@@ -167,19 +167,23 @@ async def messages(
     limit: int,
     before: int | None = None,
     after: int | None = None,
+    text: str | None = None,
     has: Has | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
 ) -> Page[Message]:
-    """Messages in scope, with their author, attachments and reactions loaded.
+    """Messages in scope, with their channel, author, attachments and reactions loaded.
 
     A cursor is a message id. ``before`` returns the page adjacent to it on the older
     side and ``after`` the page adjacent on the newer side, in ``order`` either way;
     with both, the page is the one next to ``before`` that is still newer than
-    ``after``. An unknown cursor is ignored. ``since`` is inclusive and ``until``
-    exclusive; aware datetimes are converted to naive UTC.
+    ``after``. An unknown cursor is ignored. ``text`` matches the content
+    case-insensitively with LIKE wildcards taken literally. ``since`` is inclusive and
+    ``until`` exclusive; aware datetimes are converted to naive UTC.
     """
     where = _message_scope(scope)
+    if text is not None:
+        where.append(Message.content.ilike(f"%{escape_like(text)}%", escape="\\"))
     if has is not None:
         where.append(_has(has))
     if since is not None:
@@ -217,6 +221,7 @@ async def messages(
     rows = (
         select(Message)
         .options(
+            joinedload(Message.channel),
             selectinload(Message.author),
             selectinload(Message.attachments),
             selectinload(Message.reactions),

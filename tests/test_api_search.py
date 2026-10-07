@@ -282,6 +282,22 @@ class TestMessageSearch:
         assert response.status_code == 200
         assert response.json()["total"] == 0
 
+    async def test_author_filter_narrows_the_total_too(self, client: AsyncClient) -> None:
+        """Test that the total counts only the author's matches, like the results."""
+        response = await client.get("/api/search", params={"q": "hi", "author_id": 201})
+        assert response.status_code == 200
+        payload = response.json()
+        assert _message_ids(payload) == {"900"}
+        assert payload["total"] == 1
+
+    async def test_a_channel_outside_the_guild_matches_nothing(self, client: AsyncClient) -> None:
+        """Test that guild and channel apply together rather than the channel winning."""
+        response = await client.get(
+            "/api/search", params={"q": "%", "guild_id": GUILD_ID + 1, "channel_id": CHANNEL_ID}
+        )
+        assert response.status_code == 200
+        assert response.json() == {"results": [], "total": 0, "query": "%"}
+
 
 class TestUserSearch:
     """Tests for GET /api/guilds/{guild_id}/users?q=."""

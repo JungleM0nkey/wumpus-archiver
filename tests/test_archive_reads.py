@@ -1,6 +1,7 @@
 """Direct tests for archive reads (``wumpus_archiver.storage.archive_reads``)."""
 
 import ast
+import itertools
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -112,7 +113,11 @@ SEED_MESSAGES: list[tuple[int, int, int, int, str]] = [
     (9, CHANNEL, BOB, 60, "older than eight"),
     (8, CHANNEL, ALICE, 70, "last"),
     (30, SIBLING_CHANNEL, ALICE, 5, "sibling"),
+    (31, SIBLING_CHANNEL, BOB, 15, "100% Sure"),
+    (32, SIBLING_CHANNEL, ALICE, 25, "snake_case TIE"),
+    (33, SIBLING_CHANNEL, BOB, 145, "back\\slash at https://x.test"),
     (40, FOREIGN_CHANNEL, BOB, 5, "foreign"),
+    (41, FOREIGN_CHANNEL, ALICE, 15, "100% elsewhere"),
 ]
 # Channel 10 in time order, (created_at, id) ascending.
 CHANNEL_ORDER = [1, 2, 3, 4, 5, 6, 7, 9, 8]
@@ -122,6 +127,8 @@ SEED_ATTACHMENTS: list[tuple[int, int, str | None]] = [
     (501, 3, "image/png"),
     (502, 4, "video/mp4"),
     (503, 7, "application/pdf"),
+    (504, 32, "image/gif"),
+    (505, 41, "image/png"),
 ]
 
 
@@ -323,7 +330,7 @@ class TestMessagesTotals:
 class TestMessagesScopeAndFilters:
     async def test_guild_scope_covers_its_channels_only(self, reads: AsyncSession) -> None:
         page = await archive_reads.messages(reads, Scope(guild=GUILD), order=OLDEST, limit=50)
-        assert set(_ids(page)) == set(CHANNEL_ORDER) | {30}
+        assert set(_ids(page)) == {m[0] for m in SEED_MESSAGES if m[1] != FOREIGN_CHANNEL}
 
     async def test_a_channel_outside_the_guild_yields_an_empty_page(
         self, reads: AsyncSession
@@ -398,3 +405,81 @@ def test_the_module_only_reads_and_imports_models_only() -> None:
     assert all(name.startswith("wumpus_archiver.models.") for name in internal), internal
     for call in ("commit", "flush", "close", "add", "delete", "merge", "rollback"):
         assert f"session.{call}(" not in source
+
+
+# --- search: total agrees with the rows for every filter combination ---------------------
+
+GUILD_OF = {CHANNEL: GUILD, SIBLING_CHANNEL: GUILD, FOREIGN_CHANNEL: OTHER_GUILD}
+SINCE = T0 + timedelta(minutes=15)
+UNTIL = T0 + timedelta(minutes=60)
+WINDOWS: dict[str, tuple[datetime | None, datetime | None]] = {
+    "any time": (None, None),
+    "naive window": (SINCE, UNTIL),
+    "aware window": (
+        SINCE.replace(tzinfo=UTC).astimezone(timezone(timedelta(hours=-5))),
+        UNTIL.replace(tzinfo=UTC).astimezone(timezone(timedelta(hours=3))),
+    ),
+}
+SCOPES: dict[str, Scope] = {
+    "archive": Scope(),
+    "guild": Scope(guild=GUILD),
+    "channel in guild": Scope(guild=GUILD, channel=SIBLING_CHANNEL),
+    "channel outside guild": Scope(guild=GUILD, channel=FOREIGN_CHANNEL),
+    "author": Scope(author=BOB),
+    "guild and author": Scope(guild=GUILD, author=ALICE),
+}
+# Backslash and longer patterns are covered over HTTP in test_api_search.py.
+TEXTS = [None, "%", "_", "TIE"]
+
+
+def _carries(message_id: int, content: str, has: Has) -> bool:
+    if has is Has.LINK:
+        return "http://" in content or "https://" in content
+    types = [ct for _, carrier, ct in SEED_ATTACHMENTS if carrier == message_id]
+    if has is Has.IMAGE:
+        return any(ct in MediaKind.IMAGE.content_types for ct in types)
+    if has is Has.VIDEO:
+        return any(ct in MediaKind.VIDEO.content_types for ct in types)
+    return bool(types)
+
+
+def _expected(
+    scope: Scope, text: str | None, has: Has | None, window: tuple[datetime | None, datetime | None]
+) -> set[int]:
+    since, until = (
+        None if bound is None else bound.astimezone(UTC).replace(tzinfo=None) for bound in window
+    )
+    return {
+        message_id
+        for message_id, channel_id, author_id, minutes, content in SEED_MESSAGES
+        if (scope.guild is None or GUILD_OF[channel_id] == scope.guild)
+        and (scope.channel is None or channel_id == scope.channel)
+        and (scope.author is None or author_id == scope.author)
+        and (text is None or text.lower() in content.lower())
+        and (has is None or _carries(message_id, content, has))
+        and (since is None or T0 + timedelta(minutes=minutes) >= since)
+        and (until is None or T0 + timedelta(minutes=minutes) < until)
+    }
+
+
+@in_module_loop
+@pytest.mark.parametrize("window", list(WINDOWS))
+@pytest.mark.parametrize("scope", list(SCOPES))
+async def test_total_agrees_with_the_rows(reads: AsyncSession, scope: str, window: str) -> None:
+    """Every text and ``has`` under this scope and window; the case names the failing pair."""
+    since, until = WINDOWS[window]
+    for text, has in itertools.product(TEXTS, [None, *Has]):
+        case = f"text={text!r} has={has}"
+        kwargs: dict[str, Any] = {"text": text, "has": has, "since": since, "until": until}
+        page = await archive_reads.messages(reads, SCOPES[scope], order=NEWEST, limit=100, **kwargs)
+        expected = _expected(SCOPES[scope], text, has, WINDOWS[window])
+        assert page.total == len(page.rows), case
+        assert set(_ids(page)) == expected, case
+
+
+def test_no_route_looks_up_channel_names_for_search_results() -> None:
+    from wumpus_archiver.api.routes import search
+
+    source = Path(search.__file__).read_text()
+    assert "Channel" not in source
+    assert "select(" not in source
