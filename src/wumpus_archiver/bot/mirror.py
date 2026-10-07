@@ -17,6 +17,8 @@ from typing import Any
 import aiohttp
 import discord
 
+from wumpus_archiver.config import validate_bridge_url
+
 logger = logging.getLogger(__name__)
 
 BRIDGE_SENDER_PREFIX = "discord-"
@@ -87,7 +89,8 @@ class BridgeClient:
         cf_access_client_id: str = "",
         cf_access_client_secret: str = "",
     ) -> None:
-        self.bridge_url = bridge_url.rstrip("/")
+        # Fail closed for every caller: validate before any credential is stored or sent.
+        self.bridge_url = validate_bridge_url(bridge_url).rstrip("/")
         self.bridge_token = bridge_token
         self.cf_access_client_id = cf_access_client_id
         self.cf_access_client_secret = cf_access_client_secret
@@ -114,7 +117,16 @@ class BridgeClient:
     async def post(self, path: str, body: dict[str, Any]) -> dict[str, Any] | None:
         assert self._session is not None
         try:
-            async with self._session.post(f"{self.bridge_url}/{path}", json=body) as resp:
+            # Never follow redirects: aiohttp would forward the CF-Access-* headers to another
+            # origin. Log only the path and status, never the Location or any header.
+            async with self._session.post(
+                f"{self.bridge_url}/{path}", json=body, allow_redirects=False
+            ) as resp:
+                if 300 <= resp.status < 400:
+                    logger.warning(
+                        "bridge %s answered %s (redirect, not followed)", path, resp.status
+                    )
+                    return None
                 if resp.status >= 400:
                     text = (await resp.text())[:200]
                     logger.warning("bridge %s failed: %s %s", path, resp.status, text)
@@ -131,7 +143,14 @@ class BridgeClient:
             return cached
         assert self._session is not None
         try:
-            async with self._session.get(f"{self.bridge_url}/channels") as resp:
+            async with self._session.get(
+                f"{self.bridge_url}/channels", allow_redirects=False
+            ) as resp:
+                if 300 <= resp.status < 400:
+                    logger.warning(
+                        "bridge channel list answered %s (redirect, not followed)", resp.status
+                    )
+                    return None
                 if resp.status != 200:
                     logger.warning("bridge channel list failed: %s", resp.status)
                     return None
@@ -225,7 +244,10 @@ class MirrorBot:
             self._user_cache[discord_id] = sig
 
     async def run(self) -> None:
-        await self.client.start(self.token)
+        # The bridge session must exist for as long as Discord is connected (on_message posts
+        # through it) and is released on every exit path, including a failed login.
+        async with self.bridge:
+            await self.client.start(self.token)
 
     def run_sync(self) -> None:
         try:

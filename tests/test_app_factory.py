@@ -44,10 +44,13 @@ class TestReadsNothingFromTheEnvironment:
     async def test_planted_token_sources_are_ignored(
         self, database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A .env in the working directory, an env var, and Settings itself are all unused."""
+        """A .env in the working directory, env vars, and Settings itself are all unused."""
         monkeypatch.chdir(tmp_path)
-        (tmp_path / ".env").write_text("DISCORD_BOT_TOKEN=leaked-from-dotenv\n")
+        (tmp_path / ".env").write_text(
+            "DISCORD_BOT_TOKEN=leaked-from-dotenv\nAPI_AUTH_TOKEN=leaked-from-dotenv\n"
+        )
         monkeypatch.setenv("DISCORD_BOT_TOKEN", "leaked-from-env")
+        monkeypatch.setenv("API_AUTH_TOKEN", "leaked-from-env")
 
         def settings_must_not_be_instantiated(*args: object, **kwargs: object) -> None:
             raise AssertionError("create_app instantiated Settings")
@@ -57,10 +60,17 @@ class TestReadsNothingFromTheEnvironment:
         app = create_app(database)
 
         assert isinstance(wiring_of(app).scrape, ReadOnlyScrape)
+        assert wiring_of(app).api_auth_token is None
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as http:
-            status = await http.get("/api/scrape/status")
-            assert status.json()["has_token"] is False
-            assert (await http.post("/api/scrape/start", json={"guild_id": 1})).status_code == 400
+            status = (await http.get("/api/scrape/status")).json()
+            assert (status["has_token"], status["control_enabled"]) == (False, False)
+            for token in ("leaked-from-dotenv", "leaked-from-env"):
+                start = await http.post(
+                    "/api/scrape/start",
+                    json={"guild_id": 1},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                assert start.status_code == 403
 
     async def test_a_discoverable_portal_build_is_not_picked_up(
         self, database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -111,19 +121,32 @@ class TestReadsNothingFromTheEnvironment:
         assert result.returncode == 0, result.stdout + result.stderr
 
 
+API_TOKEN = "test-api-token-not-a-real-secret"
+AUTH = {"Authorization": f"Bearer {API_TOKEN}"}
+
+
 class TestReadOnlyScrapeControl:
-    """The default client is what serve builds without a token."""
+    """What serve builds with an API token but without a bot token."""
+
+    @pytest.fixture
+    def api_auth_token(self) -> str:
+        return API_TOKEN
 
     async def test_status_start_cancel_history(self, client: AsyncClient) -> None:
         status = await client.get("/api/scrape/status")
         assert status.status_code == 200
-        assert status.json() == {"busy": False, "current_job": None, "has_token": False}
+        assert status.json() == {
+            "busy": False,
+            "current_job": None,
+            "has_token": False,
+            "control_enabled": True,
+        }
 
-        start = await client.post("/api/scrape/start", json={"guild_id": 1})
+        start = await client.post("/api/scrape/start", json={"guild_id": 1}, headers=AUTH)
         assert start.status_code == 400
         assert "read-only" in start.json()["error"]
 
-        assert (await client.post("/api/scrape/cancel")).status_code == 404
+        assert (await client.post("/api/scrape/cancel", headers=AUTH)).status_code == 404
         assert (await client.get("/api/scrape/history")).json() == {"jobs": []}
 
 
@@ -138,15 +161,20 @@ class TestConfiguredScrapeControl:
     def scrape(self, fake: FakeScrapeControl) -> ScrapeControl:
         return fake
 
+    @pytest.fixture
+    def api_auth_token(self) -> str:
+        return API_TOKEN
+
     async def test_full_job_round_trip(self, client: AsyncClient, fake: FakeScrapeControl) -> None:
         assert (await client.get("/api/scrape/status")).json()["has_token"] is True
 
-        start = await client.post("/api/scrape/start", json={"guild_id": 7})
+        start = await client.post("/api/scrape/start", json={"guild_id": 7}, headers=AUTH)
         assert start.status_code == 202
         assert start.json()["job"]["guild_id"] == 7
         assert fake.started == [7]
 
-        assert (await client.post("/api/scrape/start", json={"guild_id": 8})).status_code == 409
+        again = await client.post("/api/scrape/start", json={"guild_id": 8}, headers=AUTH)
+        assert again.status_code == 409
 
         status = (await client.get("/api/scrape/status")).json()
         assert status["busy"] is True
@@ -158,8 +186,8 @@ class TestConfiguredScrapeControl:
         assert history[0]["result"] == {"messages_scraped": 12}
 
     async def test_cancel_marks_the_job_cancelled(self, client: AsyncClient) -> None:
-        await client.post("/api/scrape/start", json={"guild_id": 7})
-        assert (await client.post("/api/scrape/cancel")).status_code == 200
+        await client.post("/api/scrape/start", json={"guild_id": 7}, headers=AUTH)
+        assert (await client.post("/api/scrape/cancel", headers=AUTH)).status_code == 200
         status = (await client.get("/api/scrape/status")).json()
         assert status["busy"] is False
         assert status["current_job"]["status"] == JobStatus.CANCELLED.value

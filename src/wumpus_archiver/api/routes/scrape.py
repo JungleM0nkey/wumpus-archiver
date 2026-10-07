@@ -2,10 +2,11 @@
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from wumpus_archiver.api.deps import Scrape
+from wumpus_archiver.api.auth import require_api_token
+from wumpus_archiver.api.deps import ApiAuthToken, Scrape
 from wumpus_archiver.api.schemas import (
     ScrapeHistoryResponse,
     ScrapeJobSchema,
@@ -50,21 +51,25 @@ def _job_to_schema(job: ScrapeJob) -> ScrapeJobSchema:
 
 
 @router.get("/scrape/status", response_model=ScrapeStatusResponse)
-async def scrape_status(scrape: Scrape) -> ScrapeStatusResponse:
+async def scrape_status(scrape: Scrape, api_auth_token: ApiAuthToken) -> ScrapeStatusResponse:
     """Get current scrape job status."""
+    control_enabled = api_auth_token is not None
     if scrape.current_job is not None:
         return ScrapeStatusResponse(
             busy=scrape.is_busy,
             current_job=_job_to_schema(scrape.current_job),
             has_token=scrape.configured,
+            control_enabled=control_enabled,
         )
 
-    return ScrapeStatusResponse(busy=False, has_token=scrape.configured)
+    return ScrapeStatusResponse(
+        busy=False, has_token=scrape.configured, control_enabled=control_enabled
+    )
 
 
-@router.post("/scrape/start")
+@router.post("/scrape/start", dependencies=[Depends(require_api_token)])
 async def scrape_start(scrape: Scrape, body: ScrapeStartRequest) -> JSONResponse:
-    """Start a new scrape job."""
+    """Start a new scrape job (requires the API bearer token)."""
     if not scrape.configured:
         return JSONResponse(status_code=400, content={"error": READ_ONLY_ERROR})
 
@@ -81,9 +86,9 @@ async def scrape_start(scrape: Scrape, body: ScrapeStartRequest) -> JSONResponse
     )
 
 
-@router.post("/scrape/cancel")
+@router.post("/scrape/cancel", dependencies=[Depends(require_api_token)])
 async def scrape_cancel(scrape: Scrape) -> JSONResponse:
-    """Cancel the current scrape job."""
+    """Cancel the current scrape job (requires the API bearer token)."""
     if scrape.cancel():
         return JSONResponse(content={"message": "Cancellation requested"})
 

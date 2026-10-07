@@ -62,12 +62,12 @@ def dev_module_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def captured(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Replace ``create_app`` so importing the generated module records its arguments.
 
-    ``scrape_from_settings`` is replaced too, so the generated module never reads the
-    developer's environment here.
+    ``scrape_from_settings`` and ``api_security_from_settings`` are replaced too, so the
+    generated module never reads the developer's environment here.
 
     Returns:
-        Dict filled with ``database``, ``attachments_dir`` and ``scrape`` once the module
-        is imported.
+        Dict filled with ``database``, ``attachments_dir``, ``scrape``, ``api_auth_token``
+        and ``cors_origins`` once the module is imported.
     """
     calls: dict[str, Any] = {}
 
@@ -77,18 +77,28 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         attachments_dir: Path | None = None,
         portal_build: Path | None = None,
         scrape: Any = None,
+        api_auth_token: Any = None,
+        cors_origins: Any = (),
     ) -> object:
         calls["database"] = database
         calls["attachments_dir"] = attachments_dir
         calls["portal_build"] = portal_build
         calls["scrape"] = scrape
+        calls["api_auth_token"] = api_auth_token
+        calls["cors_origins"] = cors_origins
         return object()
 
     def fake_scrape_from_settings(database: Any) -> str:
         return f"scrape-for:{database.database_url}"
 
+    def fake_api_security_from_settings() -> tuple[str, list[str]]:
+        return "api-token-from-settings", ["https://origin-from-settings.example"]
+
     monkeypatch.setattr("wumpus_archiver.api.app.create_app", fake_create_app)
     monkeypatch.setattr("wumpus_archiver.compose.scrape_from_settings", fake_scrape_from_settings)
+    monkeypatch.setattr(
+        "wumpus_archiver.compose.api_security_from_settings", fake_api_security_from_settings
+    )
     return calls
 
 
@@ -134,7 +144,13 @@ class TestNormalPaths:
         constants = _string_constants(tree)
         assert f"sqlite+aiosqlite:///{NORMAL_DB}" in constants
         assert NORMAL_ATT in constants
-        assert _called_names(tree) == {"Database", "Path", "create_app", "scrape_from_settings"}
+        assert _called_names(tree) == {
+            "Database",
+            "Path",
+            "api_security_from_settings",
+            "create_app",
+            "scrape_from_settings",
+        }
 
     def test_import_yields_configured_app(
         self, dev_module_path: Path, captured: dict[str, Any]
@@ -149,6 +165,8 @@ class TestNormalPaths:
         assert captured["attachments_dir"] == Path(NORMAL_ATT)
         assert captured["portal_build"] is None
         assert captured["scrape"] == f"scrape-for:sqlite+aiosqlite:///{NORMAL_DB}"
+        assert captured["api_auth_token"] == "api-token-from-settings"
+        assert captured["cors_origins"] == ["https://origin-from-settings.example"]
 
     def test_no_attachments_dir(self, dev_module_path: Path, captured: dict[str, Any]) -> None:
         """Without an attachments directory no attachments_dir argument is generated."""
@@ -157,7 +175,12 @@ class TestNormalPaths:
         source = dev_module_path.read_text(encoding="utf-8")
         compile(source, str(dev_module_path), "exec")
         assert "attachments_dir" not in source
-        assert _called_names(ast.parse(source)) == {"Database", "create_app", "scrape_from_settings"}
+        assert _called_names(ast.parse(source)) == {
+            "Database",
+            "api_security_from_settings",
+            "create_app",
+            "scrape_from_settings",
+        }
 
         _import_generated(dev_module_path)
         assert captured["database"].database_url == f"sqlite+aiosqlite:///{NORMAL_DB}"
@@ -217,6 +240,7 @@ class TestHostilePaths:
         assert _called_names(ast.parse(source)) == {
             "Database",
             "Path",
+            "api_security_from_settings",
             "create_app",
             "scrape_from_settings",
         }
@@ -245,6 +269,7 @@ class TestHostilePaths:
         assert _called_names(ast.parse(source)) == {
             "Database",
             "Path",
+            "api_security_from_settings",
             "create_app",
             "scrape_from_settings",
         }

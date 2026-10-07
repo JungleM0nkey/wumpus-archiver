@@ -1,0 +1,102 @@
+name: Security
+
+# Dependency auditing and secret scanning. Kept separate from the build/test
+# workflow so that it can run on a schedule and be tuned independently.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly (Monday 05:17 UTC): picks up newly published advisories even when
+    # the repository is otherwise quiet.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pip-audit:
+    name: Python dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install project and pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" pip-audit
+
+      # The project itself is not published on PyPI, so skip the editable
+      # install of wumpus-archiver and audit only its third-party dependencies.
+      - name: Audit installed packages
+        run: pip-audit --skip-editable
+
+  npm-audit:
+    name: Portal dependency audit (npm audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: portal
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: portal/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out repository (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Scan the whole history, not just the tip commit.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PR comments need a write token, which fork PRs never get. Findings
+          # still fail the job and appear in the job log and SARIF artifact.
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          # A license is only required for repositories owned by an
+          # organization. If this repository moves to one, add a
+          # GITLEAKS_LICENSE secret and uncomment the next line.
+          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}

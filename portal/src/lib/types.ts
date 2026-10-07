@@ -199,6 +199,7 @@ export interface ScrapeStatusResponse {
 	busy: boolean;
 	current_job: ScrapeJob | null;
 	has_token: boolean;
+	control_enabled: boolean;
 }
 
 export interface ScrapeHistoryResponse {

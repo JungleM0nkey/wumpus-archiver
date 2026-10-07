@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Request
+from pydantic import SecretStr
 
 from wumpus_archiver.api.scrape_control import ScrapeControl
 from wumpus_archiver.storage.database import Database
@@ -37,12 +38,15 @@ class Wiring:
             the app is API-only. No handler reads this; it is kept so
             ``wiring_of`` can answer what the app was built with.
         scrape: Scrape control; ``ReadOnlyScrape`` when no adapter was given.
+        api_auth_token: Bearer token guarding scrape start and cancel; ``None``
+            (never blank) disables both. A ``SecretStr``, so a repr never shows it.
     """
 
     database: Database
     attachments_dir: Path | None
     portal_build: Path | None
     scrape: ScrapeControl
+    api_auth_token: SecretStr | None = None
 
 
 class NotWiredError(RuntimeError):
@@ -93,17 +97,25 @@ def get_scrape(request: Request) -> ScrapeControl:
     return wiring_of(request.app).scrape
 
 
+def get_api_auth_token(request: Request) -> SecretStr | None:
+    """Dependency: the bearer token guarding scrape control, or ``None`` if disabled."""
+    return wiring_of(request.app).api_auth_token
+
+
 Db = Annotated[Database, Depends(get_db)]
 AttachmentsDir = Annotated[Path | None, Depends(get_attachments_dir)]
 Scrape = Annotated[ScrapeControl, Depends(get_scrape)]
+ApiAuthToken = Annotated[SecretStr | None, Depends(get_api_auth_token)]
 
 
 __all__ = [
+    "ApiAuthToken",
     "AttachmentsDir",
     "Db",
     "NotWiredError",
     "Scrape",
     "Wiring",
+    "get_api_auth_token",
     "get_attachments_dir",
     "get_db",
     "get_scrape",

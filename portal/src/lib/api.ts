@@ -18,11 +18,24 @@ import type {
 
 const API_BASE = '/api';
 
+/** Error thrown for non-2xx API responses; `status` is the HTTP status code. */
+export class ApiError extends Error {
+	status: number;
+
+	constructor(status: number, message: string) {
+		super(message);
+		this.name = 'ApiError';
+		this.status = status;
+	}
+}
+
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
 	const res = await fetch(`${API_BASE}${path}`, init);
 	if (!res.ok) {
 		const body = await res.json().catch(() => ({ error: res.statusText }));
-		throw new Error(body.error || `API error: ${res.status} ${res.statusText}`);
+		// Our handlers return {error}; FastAPI's own errors (401/403) return {detail}
+		const message = body.error || (typeof body.detail === 'string' ? body.detail : '');
+		throw new ApiError(res.status, message || `API error: ${res.status} ${res.statusText}`);
 	}
 	return res.json();
 }
@@ -101,6 +114,35 @@ export async function getGuildGalleryTimeline(
 
 // --- Scrape control panel ---
 
+// The API token (the server's API_AUTH_TOKEN) is kept in sessionStorage so it lasts for this
+// browser tab only and is never persisted to disk.
+const API_TOKEN_KEY = 'wumpus_api_token';
+
+export function getApiToken(): string {
+	try {
+		return sessionStorage.getItem(API_TOKEN_KEY) ?? '';
+	} catch {
+		return '';
+	}
+}
+
+export function setApiToken(token: string): void {
+	try {
+		if (token) {
+			sessionStorage.setItem(API_TOKEN_KEY, token);
+		} else {
+			sessionStorage.removeItem(API_TOKEN_KEY);
+		}
+	} catch {
+		// Storage unavailable (private mode, blocked): the token just won't be remembered
+	}
+}
+
+function authHeaders(): Record<string, string> {
+	const token = getApiToken();
+	return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function getScrapeStatus(): Promise<ScrapeStatusResponse> {
 	return fetchJSON<ScrapeStatusResponse>('/scrape/status');
 }
@@ -108,14 +150,15 @@ export async function getScrapeStatus(): Promise<ScrapeStatusResponse> {
 export async function startScrape(guildId: number): Promise<{ job: ScrapeJob }> {
 	return fetchJSON<{ job: ScrapeJob }>('/scrape/start', {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
+		headers: { 'Content-Type': 'application/json', ...authHeaders() },
 		body: JSON.stringify({ guild_id: guildId })
 	});
 }
 
 export async function cancelScrape(): Promise<{ message: string }> {
 	return fetchJSON<{ message: string }>('/scrape/cancel', {
-		method: 'POST'
+		method: 'POST',
+		headers: authHeaders()
 	});
 }
 

@@ -2,9 +2,10 @@
 
 The HTTP fixtures build the app through the real factory. A test module changes
 one collaborator by shadowing the matching value fixture (``attachments_dir``,
-``portal_build`` or ``scrape``); the shared ``client`` is never overridden. The
-default is what ``serve`` builds without a bot token: API only, read-only scrape
-control, attachment URLs on the CDN.
+``portal_build``, ``scrape`` or ``api_auth_token``); the shared ``client`` is never
+overridden. The default is what ``serve`` builds without a bot token or an API token:
+API only, read-only scrape control with start and cancel disabled, attachment URLs on
+the CDN.
 """
 
 import shutil
@@ -98,11 +99,18 @@ def scrape() -> ScrapeControl | None:
 
 
 @pytest.fixture
+def api_auth_token() -> str | None:
+    """API token handed to the factory; ``None`` disables scrape start and cancel (403)."""
+    return None
+
+
+@pytest.fixture
 def app(
     database: Database,
     attachments_dir: Path | None,
     portal_build: Path | None,
     scrape: ScrapeControl | None,
+    api_auth_token: str | None,
 ) -> FastAPI:
     """The app under test, built by the real factory over the connected test database."""
     return create_app(
@@ -110,6 +118,7 @@ def app(
         attachments_dir=attachments_dir,
         portal_build=portal_build,
         scrape=scrape,
+        api_auth_token=api_auth_token,
     )
 
 

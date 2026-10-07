@@ -1,6 +1,7 @@
 """Command-line interface for wumpus-archiver."""
 
 import asyncio
+import ipaddress
 import sys
 from datetime import UTC, datetime
 from importlib.metadata import version as pkg_version
@@ -67,7 +68,7 @@ def scrape(
         )
         sys.exit(1)
 
-    token = settings.discord_bot_token
+    token = settings.discord_bot_token.get_secret_value()
 
     # Validate output path — resolve and ensure parent exists, reject traversal
     output = output.resolve()
@@ -173,13 +174,18 @@ def serve(
     import uvicorn
 
     from wumpus_archiver.api.app import create_app
-    from wumpus_archiver.compose import portal_build_dir, scrape_from_settings
+    from wumpus_archiver.compose import (
+        api_security_from_settings,
+        portal_build_dir,
+        scrape_from_settings,
+    )
 
     if build_portal:
         _build_portal_static()
 
-    # serve is the composition root: it resolves every path and the bot token once,
-    # and hands the factory values it never has to look for itself.
+    # serve is the composition root: it resolves every path, the bot token, the API
+    # token and the CORS origins once, and hands the factory values it never has to
+    # look for itself.
     db_path = database.resolve()
     db = Database(f"sqlite+aiosqlite:///{db_path}")  # unconnected: the app's lifespan owns it
     att_path = attachments_dir.resolve() if attachments_dir.is_dir() else None
@@ -189,9 +195,18 @@ def serve(
     except ValidationError as e:
         click.echo(f"Error: Failed to load settings: {e}", err=True)
         sys.exit(1)
-    app = create_app(db, attachments_dir=att_path, portal_build=portal, scrape=scrape)
+    api_auth_token, cors_origins = api_security_from_settings()
+    app = create_app(
+        db,
+        attachments_dir=att_path,
+        portal_build=portal,
+        scrape=scrape,
+        api_auth_token=api_auth_token,
+        cors_origins=cors_origins,
+    )
 
     click.echo(f"Starting portal at http://{host}:{port}")
+    _warn_if_not_loopback(host)
     click.echo(f"Database: {db_path}")
     if att_path:
         click.echo(f"Attachments: {att_path}")
@@ -206,6 +221,31 @@ def serve(
     else:
         click.echo("Scrape control: read-only (no DISCORD_BOT_TOKEN)")
     uvicorn.run(app, host=host, port=port)
+
+
+def _warn_if_not_loopback(host: str) -> None:
+    """Print a loud warning to stderr when the server binds to a non-loopback address.
+
+    Args:
+        host: Host/interface the server will bind to.
+    """
+    name = host.strip().strip("[]").lower()
+    try:
+        is_loopback = ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        is_loopback = name == "localhost"
+    if is_loopback:
+        return
+    click.echo(
+        click.style(
+            f"WARNING: binding to {host} exposes the API and all archived data to your "
+            "network. Scrape start/cancel are disabled unless API_AUTH_TOKEN is set; "
+            "clients must then send it as 'Authorization: Bearer <token>'.",
+            fg="red",
+            bold=True,
+        ),
+        err=True,
+    )
 
 
 def _build_portal_static() -> None:
@@ -497,6 +537,7 @@ def dev(
     ]
 
     click.echo("Starting development environment...")
+    _warn_if_not_loopback(host)
     click.echo(f"  Backend:  http://{host}:{port} (API + uvicorn reload)")
     click.echo(f"  Frontend: http://localhost:{frontend_port} (Vite HMR)")
     click.echo(f"  Database: {db_path}")
@@ -529,22 +570,25 @@ def _write_dev_app_module(db_path: Path, attachments_path: Path | None) -> None:
     dev_module = Path(__file__).parent / "api" / "_dev_app.py"
     db_url = f"sqlite+aiosqlite:///{db_path}"
     att_line = f"    attachments_dir=Path({str(attachments_path)!r})," if attachments_path else ""
-    # The generated module is dev's composition root: it reads the bot token from the
-    # environment the uvicorn subprocess inherits, explicitly, and passes no portal build
-    # because Vite serves the UI in dev.
+    # The generated module is dev's composition root: it reads the bot token, the API
+    # token and the CORS origins from the environment the uvicorn subprocess inherits,
+    # explicitly, and passes no portal build because Vite serves the UI in dev.
     content = f'''"""Auto-generated dev app instance for uvicorn --reload. DO NOT EDIT."""
 
 from pathlib import Path
 
 from wumpus_archiver.api.app import create_app
-from wumpus_archiver.compose import scrape_from_settings
+from wumpus_archiver.compose import api_security_from_settings, scrape_from_settings
 from wumpus_archiver.storage.database import Database
 
 _db = Database({db_url!r})
+_api_auth_token, _cors_origins = api_security_from_settings()
 app = create_app(
     _db,
 {att_line}
     scrape=scrape_from_settings(_db),
+    api_auth_token=_api_auth_token,
+    cors_origins=_cors_origins,
 )
 '''
     # Python source is UTF-8 by default; don't depend on the locale encoding for non-ASCII paths.
@@ -561,6 +605,7 @@ app = create_app(
 def mirror(guild_id: int | None) -> None:
     """Live-mirror Discord guild messages into apehost chat (runs until stopped)."""
     from wumpus_archiver.bot.mirror import BridgeClient, MirrorBot
+    from wumpus_archiver.config import validate_bridge_url
 
     try:
         settings = Settings()  # type: ignore[call-arg]
@@ -573,21 +618,26 @@ def mirror(guild_id: int | None) -> None:
     if guild_id is None:
         click.echo("Error: --guild-id is required (or set GUILD_ID in .env).", err=True)
         sys.exit(1)
-    if not settings.chat_bridge_token:
+    if not settings.chat_bridge_token.get_secret_value():
         click.echo("Error: CHAT_BRIDGE_TOKEN is required (set it in .env).", err=True)
+        sys.exit(1)
+    try:
+        bridge_url = validate_bridge_url(settings.chat_bridge_url)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
     bot = MirrorBot(
-        settings.discord_bot_token,
+        settings.discord_bot_token.get_secret_value(),
         guild_id,
         BridgeClient(
-            settings.chat_bridge_url,
-            settings.chat_bridge_token,
+            bridge_url,
+            settings.chat_bridge_token.get_secret_value(),
             settings.cf_access_client_id,
-            settings.cf_access_client_secret,
+            settings.cf_access_client_secret.get_secret_value(),
         ),
     )
-    click.echo(f"Mirroring guild {guild_id} -> {settings.chat_bridge_url}")
+    click.echo(f"Mirroring guild {guild_id} -> {bridge_url}")
     bot.run_sync()
 
 
@@ -625,6 +675,7 @@ def backfill(database: Path, guild_id: int | None, cutoff_iso: str | None, concu
     """Replay an archived Discord guild into apehost chat (one-shot)."""
     from wumpus_archiver.bot.backfill import run_backfill
     from wumpus_archiver.bot.mirror import BridgeClient
+    from wumpus_archiver.config import validate_bridge_url
 
     try:
         settings = Settings()  # type: ignore[call-arg]
@@ -637,8 +688,13 @@ def backfill(database: Path, guild_id: int | None, cutoff_iso: str | None, concu
     if guild_id is None:
         click.echo("Error: --guild-id is required (or set GUILD_ID in .env).", err=True)
         sys.exit(1)
-    if not settings.chat_bridge_token:
+    if not settings.chat_bridge_token.get_secret_value():
         click.echo("Error: CHAT_BRIDGE_TOKEN is required (set it in .env).", err=True)
+        sys.exit(1)
+    try:
+        bridge_url = validate_bridge_url(settings.chat_bridge_url)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
     cutoff: datetime
@@ -653,10 +709,10 @@ def backfill(database: Path, guild_id: int | None, cutoff_iso: str | None, concu
 
     async def run() -> int:
         async with BridgeClient(
-            settings.chat_bridge_url,
-            settings.chat_bridge_token,
+            bridge_url,
+            settings.chat_bridge_token.get_secret_value(),
             settings.cf_access_client_id,
-            settings.cf_access_client_secret,
+            settings.cf_access_client_secret.get_secret_value(),
         ) as bridge:
             return await run_backfill(database.resolve(), guild_id, bridge, cutoff, concurrency, skip_messages)
 
@@ -689,6 +745,8 @@ DATABASE_URL=sqlite+aiosqlite:///./wumpus_archive.db
 API_HOST=127.0.0.1
 API_PORT=8000
 API_DEBUG=false
+# Bearer token required to start/cancel scrapes from the portal/API (empty = disabled)
+API_AUTH_TOKEN=
 
 # Scraper Configuration
 BATCH_SIZE=1000

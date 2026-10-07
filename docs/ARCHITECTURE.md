@@ -99,18 +99,25 @@ the GIF index has an owner) and the download stats' own grouped query.
 ### 4. API Layer (`src/wumpus_archiver/api/`)
 
 **App factory** (`app.py`):
-- `create_app(database, *, attachments_dir=None, portal_build=None, scrape=None)` → `FastAPI`
+- `create_app(database, *, attachments_dir=None, portal_build=None, scrape=None,
+  api_auth_token=None, cors_origins=())` → `FastAPI`
 - A pure function of its arguments: reads nothing from the environment, `.env`, the
   working directory or the package location. `serve` and the generated dev module resolve
-  those through `wumpus_archiver/compose.py` (`scrape_from_settings`, `portal_build_dir`)
+  those through `wumpus_archiver/compose.py` (`scrape_from_settings`,
+  `api_security_from_settings`, `portal_build_dir`)
 - Lifespan: connects the database only if it is not already connected and disconnects only
   what it connected (ADR 0001), so one factory call serves uvicorn and the test fixtures
-- CORS for dev (localhost:5173, :3000, :8000)
+- CORS allows only the `cors_origins` handed in (none by default; `serve` passes
+  `CORS_ORIGINS` or its defaults), with no credentials, `GET`/`POST`/`OPTIONS` and the
+  `Authorization` and `Content-Type` headers
+- `POST /api/scrape/start` and `/api/scrape/cancel` require `Authorization: Bearer
+  <api_auth_token>` (`auth.py`); with no token handed in they return 403, failing closed
 - Mounts the attachments dir at `/attachments` when given; a missing directory raises
 - Serves the portal build as an SPA when given (`index.html` fallback); `None` means API only
 
 **Dependencies** (`deps.py`):
-- Handlers declare `Db`, `AttachmentsDir` or `Scrape` instead of reading `request.app.state`
+- Handlers declare `Db`, `AttachmentsDir`, `Scrape` or `ApiAuthToken` instead of reading
+  `request.app.state`; the API token is held as a `SecretStr`, so no repr shows it
 - `Wiring` is bound once by `create_app` and read back with `wiring_of(app)`;
   an app not built by the factory fails with `NotWiredError`
 

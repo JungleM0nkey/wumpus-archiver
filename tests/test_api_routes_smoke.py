@@ -35,7 +35,11 @@ from httpx import AsyncClient
             200,
             {"attachments": [], "total": 0, "has_more": False, "offset": 0},
         ),
-        ("/api/scrape/status", 200, {"busy": False, "current_job": None, "has_token": False}),
+        (
+            "/api/scrape/status",
+            200,
+            {"busy": False, "current_job": None, "has_token": False, "control_enabled": False},
+        ),
         ("/api/scrape/history", 200, {"jobs": []}),
     ],
 )

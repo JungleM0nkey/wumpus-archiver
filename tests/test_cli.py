@@ -27,12 +27,22 @@ class TestCLI:
         assert result.exit_code == 0
         assert "Wumpus Archiver" in result.output
 
-    def test_scrape_missing_token(self) -> None:
-        """Test scrape command fails without token."""
+    def test_scrape_missing_token(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test scrape command fails without token.
+
+        A blank token fails ``Settings`` validation, so ``scrape`` stops before it
+        builds a bot; a bot that is built anyway fails the test rather than reaching
+        the network.
+        """
+
+        def no_bot(*args: object, **kwargs: object) -> None:
+            pytest.fail("scrape built a bot despite a blank token")
+
+        monkeypatch.setattr("wumpus_archiver.cli.ArchiverBot", no_bot)
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            ["scrape", "--guild-id", "12345"],
+            ["scrape", "--guild-id", "12345", "--output", str(tmp_path / "archive.db")],
             env={"DISCORD_BOT_TOKEN": ""},
         )
         assert result.exit_code != 0
@@ -153,6 +163,27 @@ class TestCLI:
         assert result.exit_code == 1
         assert "Failed to load settings" in result.output
         assert "Port must be between" in result.output
+
+    def test_serve_starts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test serve command starts the portal."""
+        db_file = tmp_path / "test.db"
+        db_file.touch()
+        calls: list[tuple[object, str, int]] = []
+
+        def fake_run(app: object, host: str, port: int, **kwargs: object) -> None:
+            calls.append((app, host, port))
+
+        # `serve` does `import uvicorn` at call time, so patching the module attribute
+        # keeps the test from binding a real port and blocking forever.
+        monkeypatch.setattr("uvicorn.run", fake_run)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["serve", str(db_file)])
+        assert result.exit_code == 0
+        assert len(calls) == 1
+        _, host, port = calls[0]
+        assert (host, port) == ("127.0.0.1", 8000)
+        # Should not report 'not yet implemented'
+        assert "not yet implemented" not in (result.output or "")
 
     def test_update_not_implemented(self, tmp_path) -> None:
         """Test update command returns error (not implemented)."""

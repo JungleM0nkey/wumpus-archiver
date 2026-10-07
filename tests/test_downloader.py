@@ -4,9 +4,16 @@ No test touches the network: HTTP is replaced by a fake session whose ``get()``
 returns an async context manager yielding a fake response.
 """
 
+import asyncio
+import contextlib
 import hashlib
 import logging
-from collections.abc import AsyncIterator
+import os
+import re
+import stat
+import threading
+from collections.abc import AsyncIterator, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -143,6 +150,26 @@ async def run_download(
 def written_files(root: Path) -> list[Path]:
     """List every regular file below ``root``, including temp files."""
     return [p for p in root.rglob("*") if p.is_file()] if root.exists() else []
+
+
+def temp_files(root: Path) -> list[Path]:
+    """List leftover ``.download-*.tmp`` files below ``root``."""
+    return list(root.rglob(".download-*.tmp")) if root.exists() else []
+
+
+def file_mode(path: Path) -> int:
+    """Return the permission bits of ``path`` (e.g. ``0o644``)."""
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+@contextlib.contextmanager
+def process_umask(mask: int) -> Iterator[None]:
+    """Set the process umask for a block and always restore the previous one."""
+    previous = os.umask(mask)
+    try:
+        yield
+    finally:
+        os.umask(previous)
 
 
 class TestIsAllowedUrl:
@@ -401,6 +428,112 @@ class TestRedirects:
         assert len(session.calls) == MAX_REDIRECTS + 1
         assert downloader.stats.failed == 1
         assert "redirects" in downloader.stats.errors[0]
+
+
+PROXY_URL = "https://media.discordapp.net/attachments/1/2/cat.png"
+
+# Locations that make ``urllib.parse.urljoin`` raise ValueError
+MALFORMED_LOCATIONS = [
+    "http://[::1/png",
+    "https://[cdn.discordapp.com/x?hm=SECRETTOKEN",
+    "http://::1]/png",
+    "//[::1/png",
+    "http://＃@example.com/x",  # netloc invalid under NFKC normalization
+]
+
+
+class TestMalformedRedirect:
+    """A malformed redirect Location is a refusal, never an escaping exception."""
+
+    @pytest.mark.parametrize("location", MALFORMED_LOCATIONS)
+    async def test_fetch_converts_value_error_to_rejection(
+        self, tmp_path: Path, location: str
+    ) -> None:
+        downloader = make_downloader(tmp_path)
+        session = FakeSession({GOOD_URL: FakeResponse(302, {"Location": location})})
+
+        with pytest.raises(
+            downloader_module._RejectedDownloadError, match="malformed redirect Location"
+        ) as excinfo:
+            await downloader._fetch(cast(aiohttp.ClientSession, session), GOOD_URL)
+
+        assert location not in str(excinfo.value)  # signed URLs must not leak into messages
+        assert session.urls == [GOOD_URL]
+
+    @pytest.mark.parametrize("location", MALFORMED_LOCATIONS)
+    async def test_malformed_location_falls_back_to_proxy_url(
+        self, tmp_path: Path, location: str
+    ) -> None:
+        downloader = make_downloader(tmp_path)
+        session = FakeSession(
+            {
+                GOOD_URL: FakeResponse(302, {"Location": location}),
+                PROXY_URL: png_response(),
+            }
+        )
+
+        result = await run_download(downloader, session, make_attachment(proxy_url=PROXY_URL))
+
+        assert result is not None
+        assert session.urls == [GOOD_URL, PROXY_URL]
+        assert (downloader.output_dir / result[0]).read_bytes() == PNG_BYTES
+        assert downloader.stats.failed == 0
+        assert temp_files(downloader.output_dir) == []
+
+    @pytest.mark.parametrize("location", MALFORMED_LOCATIONS)
+    async def test_malformed_location_on_both_urls_is_refused(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, location: str
+    ) -> None:
+        downloader = make_downloader(tmp_path)
+        downloader.max_retries = 3
+        session = FakeSession(
+            {
+                GOOD_URL: FakeResponse(302, {"Location": location}),
+                PROXY_URL: FakeResponse(301, {"Location": location}),
+            }
+        )
+
+        with caplog.at_level(logging.DEBUG, logger=downloader_module.__name__):
+            # No exception may escape: the caller would record it as an unexpected error
+            result = await run_download(downloader, session, make_attachment(proxy_url=PROXY_URL))
+
+        assert result is None
+        assert session.urls == [GOOD_URL, PROXY_URL]  # refusals are never retried
+        assert downloader.stats.failed == 1
+        assert downloader.stats.skipped == 0
+        assert "Download refused" in downloader.stats.errors[0]
+        assert "malformed redirect Location" in downloader.stats.errors[0]
+        logged = caplog.text + " ".join(downloader.stats.errors)
+        assert location not in logged
+        assert "SECRETTOKEN" not in logged
+        assert written_files(downloader.output_dir) == []
+
+    async def test_malformed_location_without_proxy_url_is_refused(self, tmp_path: Path) -> None:
+        downloader = make_downloader(tmp_path)
+        session = FakeSession({GOOD_URL: FakeResponse(302, {"Location": "http://[::1/png"})})
+
+        result = await run_download(downloader, session, make_attachment())
+
+        assert result is None
+        assert downloader.stats.failed == 1
+        assert "malformed redirect Location" in downloader.stats.errors[0]
+
+    async def test_malformed_location_on_later_hop_is_refused(self, tmp_path: Path) -> None:
+        downloader = make_downloader(tmp_path)
+        hop = "https://media.discordapp.net/attachments/1/2/cat.png?ex=1"
+        session = FakeSession(
+            {
+                GOOD_URL: FakeResponse(302, {"Location": hop}),
+                hop: FakeResponse(302, {"Location": "http://[::1/png"}),
+            }
+        )
+
+        result = await run_download(downloader, session, make_attachment())
+
+        assert result is None
+        assert session.urls == [GOOD_URL, hop]
+        assert downloader.stats.failed == 1
+        assert "malformed redirect Location" in downloader.stats.errors[0]
 
 
 class TestSizeCap:
@@ -682,6 +815,227 @@ class TestPathContainment:
             await run_download(downloader, session, make_attachment())
 
         assert written_files(downloader.output_dir) == []
+
+
+class TestFileMode:
+    """Saved files get the process-umask mode, not the 0600 of a mkstemp temp file."""
+
+    @pytest.mark.parametrize(
+        ("umask", "expected_mode"),
+        [
+            pytest.param(0o022, 0o644, id="umask022-mode644"),
+            pytest.param(0o002, 0o664, id="umask002-mode664"),
+            pytest.param(0o077, 0o600, id="umask077-mode600"),
+            pytest.param(0o000, 0o666, id="umask000-mode666"),
+        ],
+    )
+    async def test_saved_file_mode_follows_umask(
+        self, tmp_path: Path, umask: int, expected_mode: int
+    ) -> None:
+        downloader = make_downloader(tmp_path)
+        session = FakeSession({GOOD_URL: png_response()})
+
+        with process_umask(umask):
+            result = await run_download(downloader, session, make_attachment())
+
+        assert result is not None
+        assert file_mode(downloader.output_dir / result[0]) == expected_mode
+
+    @pytest.mark.parametrize(
+        ("existing_mode", "umask", "expected_mode"),
+        [
+            pytest.param(0o664, 0o022, 0o644, id="was664-umask022-mode644"),
+            pytest.param(0o600, 0o022, 0o644, id="was600-umask022-mode644"),
+            pytest.param(0o777, 0o022, 0o644, id="was777-umask022-mode644"),
+            pytest.param(0o640, 0o002, 0o664, id="was640-umask002-mode664"),
+            pytest.param(0o644, 0o077, 0o600, id="was644-umask077-mode600"),
+        ],
+    )
+    async def test_redownload_over_existing_file_uses_umask_mode(
+        self, tmp_path: Path, existing_mode: int, umask: int, expected_mode: int
+    ) -> None:
+        downloader = make_downloader(tmp_path)
+        channel_dir = downloader.output_dir / "100"
+        channel_dir.mkdir(parents=True)
+        target = channel_dir / "42_cat.png"
+        target.write_bytes(b"old content")
+        target.chmod(existing_mode)
+        assert file_mode(target) == existing_mode
+        session = FakeSession({GOOD_URL: png_response()})
+
+        with process_umask(umask):
+            result = await run_download(downloader, session, make_attachment())
+
+        assert result is not None
+        assert target.read_bytes() == PNG_BYTES
+        assert file_mode(target) == expected_mode
+
+    def test_umask_is_not_modified_by_writes(self, tmp_path: Path) -> None:
+        # The umask is process-wide and racy with threads: writing must never touch it
+        with process_umask(0o027):
+            downloader_module._write_atomic(tmp_path / "a.png", PNG_BYTES)
+            current = os.umask(0o027)
+
+        assert current == 0o027
+
+
+class TestTempFiles:
+    """Temp files are unique per write and never left behind."""
+
+    async def test_no_temp_file_after_success(self, tmp_path: Path) -> None:
+        downloader = make_downloader(tmp_path)
+        session = FakeSession({GOOD_URL: png_response()})
+
+        result = await run_download(downloader, session, make_attachment())
+
+        assert result is not None
+        assert temp_files(downloader.output_dir) == []
+        assert [p.name for p in written_files(downloader.output_dir)] == ["42_cat.png"]
+
+    async def test_no_temp_file_after_refusal(self, tmp_path: Path) -> None:
+        downloader = make_downloader(tmp_path)
+        session = FakeSession(
+            {
+                GOOD_URL: FakeResponse(302, {"Location": "http://[::1/png"}),
+                PROXY_URL: FakeResponse(headers={"Content-Type": "text/html"}),
+            }
+        )
+
+        result = await run_download(downloader, session, make_attachment(proxy_url=PROXY_URL))
+
+        assert result is None
+        assert downloader.stats.failed == 1
+        assert temp_files(downloader.output_dir) == []
+        assert written_files(downloader.output_dir) == []
+
+    @pytest.mark.parametrize(
+        "failure",
+        [OSError("disk full"), KeyboardInterrupt()],
+        ids=["oserror", "keyboardinterrupt"],
+    )
+    def test_no_temp_file_after_replace_failure_and_destination_untouched(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: BaseException
+    ) -> None:
+        target = tmp_path / "42_cat.png"
+        target.write_bytes(b"old content")
+
+        def failing_replace(src: object, dst: object) -> None:
+            raise failure
+
+        monkeypatch.setattr(downloader_module.os, "replace", failing_replace)
+
+        with pytest.raises(type(failure)):
+            downloader_module._write_atomic(target, PNG_BYTES)
+
+        assert target.read_bytes() == b"old content"
+        assert list(tmp_path.iterdir()) == [target]
+
+    def test_no_temp_file_after_fdopen_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def failing_fdopen(fd: int, *args: object, **kwargs: object) -> object:
+            os.close(fd)
+            raise OSError("fdopen failed")
+
+        monkeypatch.setattr(downloader_module.os, "fdopen", failing_fdopen)
+
+        with pytest.raises(OSError, match="fdopen failed"):
+            downloader_module._write_atomic(tmp_path / "42_cat.png", PNG_BYTES)
+
+        assert list(tmp_path.iterdir()) == []
+
+    def test_no_temp_file_after_write_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class ExplodingFile:
+            def __init__(self, fd: int) -> None:
+                self._fd = fd
+
+            def __enter__(self) -> "ExplodingFile":
+                return self
+
+            def __exit__(self, *exc_info: object) -> None:
+                os.close(self._fd)
+
+            def write(self, data: bytes) -> int:
+                raise OSError("write failed")
+
+        monkeypatch.setattr(
+            downloader_module.os, "fdopen", lambda fd, *args, **kwargs: ExplodingFile(fd)
+        )
+
+        with pytest.raises(OSError, match="write failed"):
+            downloader_module._write_atomic(tmp_path / "42_cat.png", PNG_BYTES)
+
+        assert list(tmp_path.iterdir()) == []
+
+    def test_concurrent_writes_to_one_directory_do_not_collide(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        workers = 16
+        opened: list[Path] = []
+        lock = threading.Lock()
+        real_open = os.open
+
+        def recording_open(path: Any, flags: int, mode: int = 0o777, **kwargs: Any) -> int:
+            if Path(path).name.startswith(".download-"):
+                with lock:
+                    opened.append(Path(path))
+            return real_open(path, flags, mode, **kwargs)
+
+        monkeypatch.setattr(downloader_module.os, "open", recording_open)
+        barrier = threading.Barrier(workers)
+
+        def write(index: int) -> None:
+            barrier.wait(timeout=10)  # start every write at the same moment
+            downloader_module._write_atomic(
+                tmp_path / f"{index}_cat.png", PNG_BYTES + str(index).encode()
+            )
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for future in [pool.submit(write, index) for index in range(workers)]:
+                future.result(timeout=30)
+
+        for index in range(workers):
+            assert (tmp_path / f"{index}_cat.png").read_bytes() == PNG_BYTES + str(index).encode()
+        assert sorted(p.name for p in tmp_path.iterdir()) == sorted(
+            f"{index}_cat.png" for index in range(workers)
+        )
+        # One temp file per write, each unique, unpredictable and beside its destination
+        assert len(opened) == workers
+        assert len({p.name for p in opened}) == workers
+        assert all(p.parent == tmp_path for p in opened)
+        assert all(re.fullmatch(r"\.download-[0-9A-Za-z]{16,}\.tmp", p.name) for p in opened)
+
+    async def test_concurrent_downloads_into_one_channel_dir(self, tmp_path: Path) -> None:
+        downloader = make_downloader(tmp_path)
+        count = 12
+        routes: dict[str, FakeResponse | Exception] = {}
+        attachments = []
+        for index in range(1, count + 1):
+            url = f"https://cdn.discordapp.com/attachments/1/{index}/cat.png"
+            routes[url] = png_response(chunks=[PNG_BYTES + str(index).encode()])
+            attachments.append(make_attachment(url=url, attachment_id=index))
+        session = FakeSession(routes)
+        channel_dir = downloader.output_dir / "100"
+        channel_dir.mkdir(parents=True)
+
+        results = await asyncio.gather(
+            *(
+                downloader._download_attachment(
+                    cast(aiohttp.ClientSession, session), attachment, channel_dir
+                )
+                for attachment in attachments
+            )
+        )
+
+        assert all(result is not None for result in results)
+        assert downloader.stats.failed == 0
+        for index in range(1, count + 1):
+            saved = channel_dir / f"{index}_cat.png"
+            assert saved.read_bytes() == PNG_BYTES + str(index).encode()
+        assert temp_files(downloader.output_dir) == []
+        assert len(written_files(downloader.output_dir)) == count
 
 
 class TestDownloadAllImages:
