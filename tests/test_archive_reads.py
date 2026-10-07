@@ -537,7 +537,11 @@ def _expected(
 @pytest.mark.parametrize("window", list(WINDOWS))
 @pytest.mark.parametrize("scope", list(SCOPES))
 async def test_total_agrees_with_the_rows(reads: AsyncSession, scope: str, window: str) -> None:
-    """Every text and ``has`` under this scope and window; the case names the failing pair."""
+    """Every text and ``has`` under this scope and window; the case names the failing pair.
+
+    The whole result fits one page, which skips the COUNT, so where more than one message
+    matches a one-row page is read too: its total comes from the COUNT.
+    """
     since, until = WINDOWS[window]
     for text, has in itertools.product(TEXTS, [None, *Has]):
         case = f"text={text!r} has={has}"
@@ -546,6 +550,11 @@ async def test_total_agrees_with_the_rows(reads: AsyncSession, scope: str, windo
         expected = _expected(SCOPES[scope], text, has, WINDOWS[window])
         assert page.total == len(page.rows), case
         assert set(_ids(page)) == expected, case
+        if len(expected) > 1:
+            counted = await archive_reads.messages(
+                reads, SCOPES[scope], order=NEWEST, limit=1, **kwargs
+            )
+            assert counted.total == len(expected), case
 
 
 def test_no_route_looks_up_channel_names_for_search_results() -> None:
