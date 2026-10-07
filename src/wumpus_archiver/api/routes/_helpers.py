@@ -58,15 +58,12 @@ def raise_not_found(detail: str) -> None:
 def rows_to_gallery_schemas(
     attachments_dir: Path | None,
     rows: list[AttachmentRow],
-    *,
-    channel_names: bool = True,
 ) -> list[GalleryAttachmentSchema]:
     """Convert attachment rows from archive reads to gallery schemas.
 
     Args:
         attachments_dir: The configured attachments directory, or None
         rows: Attachments with their message context
-        channel_names: Whether to fill in each attachment's channel name
 
     Returns:
         List of GalleryAttachmentSchema
@@ -93,7 +90,7 @@ def rows_to_gallery_schemas(
                 author_name=row.author_global_name or row.author_username,
                 author_avatar_url=row.author_avatar_url,
                 channel_id=row.channel_id,
-                channel_name=row.channel_name if channel_names else None,
+                channel_name=row.channel_name,
             )
         )
     return attachments

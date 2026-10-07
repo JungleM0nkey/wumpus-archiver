@@ -36,7 +36,7 @@ async def channel_gallery(
         )
 
     return GalleryResponse(
-        attachments=rows_to_gallery_schemas(attachments_dir, page.rows, channel_names=False),
+        attachments=rows_to_gallery_schemas(attachments_dir, page.rows),
         total=page.total,
         has_more=page.has_more,
         offset=offset,

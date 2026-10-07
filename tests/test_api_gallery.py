@@ -108,11 +108,11 @@ async def test_a_zero_channel_id_is_no_filter(client: AsyncClient, path: str) ->
     assert response.json()["total"] == 3
 
 
-async def test_channel_gallery_leaves_channel_names_out(client: AsyncClient) -> None:
+async def test_channel_gallery_names_the_channel(client: AsyncClient) -> None:
     response = await client.get("/api/channels/10/gallery")
     payload = response.json()
     assert _ids(payload) == ["504", "502", "501"]
-    assert {a["channel_name"] for a in payload["attachments"]} == {None}
+    assert {a["channel_name"] for a in payload["attachments"]} == {"general"}
 
 
 async def test_timeline_groups_the_page(client: AsyncClient) -> None:
