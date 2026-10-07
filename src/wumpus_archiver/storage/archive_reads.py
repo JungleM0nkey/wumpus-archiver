@@ -276,12 +276,18 @@ async def messages(
     """Messages in scope, with their author, attachments and reactions loaded.
 
     ``with_channel`` also loads each message's channel, joined into the page statement;
-    otherwise ``Message.channel`` is left unloaded. A cursor is a message id. ``before`` returns the page adjacent to it on the older
+    otherwise ``Message.channel`` is left unloaded.
+
+    A cursor is a message id. ``before`` returns the page adjacent to it on the older
     side and ``after`` the page adjacent on the newer side, in ``order`` either way;
     with both, the page is the one next to ``before`` that is still newer than
-    ``after``. An unknown cursor is ignored. ``text`` matches the content
-    case-insensitively with LIKE wildcards taken literally. ``since`` is inclusive and
-    ``until`` exclusive; aware datetimes are converted to naive UTC.
+    ``after``. An unknown cursor is ignored. ``has_more`` points away from the cursor:
+    older messages remain after ``before``, newer ones after ``after``, and on a first
+    page more follow in ``order``.
+
+    ``text`` matches the content case-insensitively with LIKE wildcards taken
+    literally. ``since`` is inclusive and ``until`` exclusive; aware datetimes are
+    converted to naive UTC.
     """
     where = _message_scope(scope)
     if text is not None:
