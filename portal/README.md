@@ -43,4 +43,4 @@ You can preview the production build with `npm run preview`.
 
 ## Smoke suite
 
-`npm run smoke` builds the portal, seeds a small test archive (`../tests/smoke_archive.py`), serves it with `wumpus-archiver serve` and opens every route in Chromium. A route fails on a page error, a console error or a 4xx/5xx response. It runs the archiver from `../.venv` unless `SMOKE_PYTHON` names another Python; on a new machine, install the browser once with `npx playwright install chromium`. Known failures, each with the ticket that removes it, are in `smoke/known-failures.ts`.
+`npm run smoke` builds the portal, seeds a small test archive (`../tests/smoke_archive.py`), serves it with `wumpus-archiver serve` and opens every route in Chromium. A route fails on a page error, a console error, a 4xx/5xx response or an API call it makes twice; scenarios for particular screens sit beside `smoke/routes.spec.ts`. It runs the archiver from `../.venv` unless `SMOKE_PYTHON` names another Python; on a new machine, install the browser once with `npx playwright install chromium`. Known failures, each with the ticket that removes it, are in `smoke/known-failures.ts`.
