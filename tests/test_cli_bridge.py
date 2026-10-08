@@ -14,7 +14,7 @@ from wumpus_archiver.api.scrape_manager import ScrapeJobManager
 from wumpus_archiver.bot import backfill as backfill_module
 from wumpus_archiver.bot import mirror as mirror_module
 from wumpus_archiver.cli import cli
-from wumpus_archiver.compose import api_security_from_settings, scrape_from_settings
+from wumpus_archiver.compose import scrape_control, serve_config
 from wumpus_archiver.config import DEFAULT_CHAT_BRIDGE_URL
 from wumpus_archiver.storage.database import Database
 
@@ -442,17 +442,19 @@ class TestBridgeUrlDoesNotAffectOtherCommands:
         )
 
         with caplog.at_level("INFO"):
-            scrape = scrape_from_settings(database)
-            api_auth_token, cors_origins = api_security_from_settings()
+            config = serve_config()
+            scrape = scrape_control(database, config.bot_token)
             app = create_app(
-                database, scrape=scrape, api_auth_token=api_auth_token, cors_origins=cors_origins
+                database,
+                scrape=scrape,
+                api_auth_token=config.api_auth_token,
+                cors_origins=config.cors_origins,
             )
 
         assert isinstance(scrape, ScrapeJobManager)
         assert scrape._token == FAKE_DISCORD_TOKEN
         wired_token = wiring_of(app).api_auth_token
         assert wired_token is not None and wired_token.get_secret_value() == FAKE_API_TOKEN
-        assert "Could not load settings" not in caplog.text
         assert "read-only" not in caplog.text
         assert FAKE_URL_PASSWORD not in caplog.text
 

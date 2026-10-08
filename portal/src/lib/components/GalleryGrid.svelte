@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { GalleryAttachment } from '$lib/types';
+	import type { GalleryAttachment } from '#lib/types.ts';
 	import Lightbox from './Lightbox.svelte';
 
 	let {

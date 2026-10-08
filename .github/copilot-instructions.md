@@ -20,7 +20,7 @@ Three-layer async system: **Discord Bot** (scraper) → **Storage** (SQLAlchemy 
 - **Database** (`src/wumpus_archiver/storage/database.py`): `connect()`/`disconnect()`/`create_tables()` lifecycle. `session()` is `@asynccontextmanager` with auto-commit/rollback.
 - **Bot** (`src/wumpus_archiver/bot/scraper.py`): `ArchiverBot` wraps `commands.Bot` (composition, not inheritance). `scrape_guild()` is the main entry point.
 - **API** (`src/wumpus_archiver/api/`): FastAPI app factory in `app.py`. 17 endpoints across 9 domain-split route modules in `routes/`. Pydantic response schemas in `schemas.py`. Background scrape manager in `scrape_manager.py`.
-- **Portal** (`portal/`): SvelteKit 2 with adapter-static. Typed API client in `lib/api.ts`. 10 pages, 7 reusable components. Vite dev server proxies `/api` to FastAPI in development.
+- **Portal** (`portal/`): SvelteKit 3 with adapter-static (configured in `vite.config.ts`; there is no `svelte.config.js`). Typed API client in `lib/api.ts`. 10 pages, 7 reusable components. Vite dev server proxies `/api` to FastAPI in development.
 - **Config** (`src/wumpus_archiver/config.py`): pydantic-settings `BaseSettings` with `.env` support, `@lru_cache` singleton via `get_settings()`. `GUILD_ID` defaults target server for CLI commands.
 - **CLI** (`src/wumpus_archiver/cli.py`): click-based, 6 subcommands: `scrape`, `serve`, `dev`, `download`, `init`, `update`.
 

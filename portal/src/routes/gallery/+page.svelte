@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getGuilds, getGuild, getGuildGallery, getGuildGalleryTimeline } from '$lib/api';
-	import type { GalleryAttachment, Channel, GuildDetail, TimelineGalleryGroup } from '$lib/types';
-	import { ChannelType } from '$lib/types';
-	import GalleryGrid from '$lib/components/GalleryGrid.svelte';
-	import Lightbox from '$lib/components/Lightbox.svelte';
+	import { getGuilds, getGuild, getGuildGallery, getGuildGalleryTimeline } from '#lib/api.ts';
+	import type { GalleryAttachment, Channel, GuildDetail, TimelineGalleryGroup } from '#lib/types.ts';
+	import { ChannelType } from '#lib/types.ts';
+	import GalleryGrid from '#lib/components/GalleryGrid.svelte';
+	import Lightbox from '#lib/components/Lightbox.svelte';
 
 	type ViewMode = 'grid' | 'timeline';
 	type GroupBy = 'week' | 'month' | 'year';

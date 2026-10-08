@@ -12,7 +12,7 @@ from wumpus_archiver.api.app import create_app
 from wumpus_archiver.api.deps import wiring_of
 from wumpus_archiver.api.scrape_manager import JobStatus, ScrapeJob, ScrapeJobManager
 from wumpus_archiver.cli import _warn_if_not_loopback
-from wumpus_archiver.compose import api_security_from_settings
+from wumpus_archiver.compose import serve_config
 from wumpus_archiver.config import DEFAULT_CORS_ORIGINS, Settings
 from wumpus_archiver.storage.database import Database
 
@@ -67,12 +67,12 @@ def make_app(database: Database, *, api_auth_token: str | None = None) -> FastAP
 
 def app_as_serve_builds_it(database: Database) -> FastAPI:
     """The app composed the way ``serve`` composes it: the API token and origins from settings."""
-    api_auth_token, cors_origins = api_security_from_settings()
+    config = serve_config()
     return create_app(
         database,
         scrape=ScrapeJobManager(database, DISCORD_TOKEN),
-        api_auth_token=api_auth_token,
-        cors_origins=cors_origins,
+        api_auth_token=config.api_auth_token,
+        cors_origins=config.cors_origins,
     )
 
 
@@ -301,17 +301,14 @@ class TestScrapeControlEnabled:
         assert wired_token(make_app(database, api_auth_token=API_TOKEN)) == API_TOKEN
         assert wired_token(make_app(database)) is None
 
-    async def test_env_fallback_when_settings_are_invalid(
-        self,
-        database: Database,
-        monkeypatch: pytest.MonkeyPatch,
-        start_calls: list[tuple[int, str]],
+    async def test_unrelated_invalid_settings_stop_startup(
+        self, database: Database, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Unrelated invalid settings must not silently drop the configured token."""
+        """An unrelated invalid setting is an error, never a guess at the configured token."""
         monkeypatch.setenv("LOG_LEVEL", "bogus")
         monkeypatch.setenv("API_AUTH_TOKEN", API_TOKEN)
-        app = app_as_serve_builds_it(database)
-        assert wired_token(app) == API_TOKEN
+        with pytest.raises(ValidationError, match="Log level"):
+            app_as_serve_builds_it(database)
 
     async def test_the_token_never_shows_in_a_repr(self, database: Database) -> None:
         app = make_app(database, api_auth_token=API_TOKEN)
@@ -404,14 +401,14 @@ class TestCors:
         # Defaults are replaced, not extended
         assert (await self._preflight(app, ALLOWED_ORIGIN)).status_code == 400
 
-    async def test_origins_env_fallback_when_settings_are_invalid(
+    async def test_unrelated_invalid_settings_stop_startup(
         self, database: Database, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """An unrelated invalid setting is an error, never a guess at the configured origins."""
         monkeypatch.setenv("LOG_LEVEL", "bogus")
         monkeypatch.setenv("CORS_ORIGINS", "https://a.example")
-        app = app_as_serve_builds_it(database)
-        assert (await self._preflight(app, "https://a.example")).status_code == 200
-        assert (await self._preflight(app, ALLOWED_ORIGIN)).status_code == 400
+        with pytest.raises(ValidationError, match="Log level"):
+            app_as_serve_builds_it(database)
 
     async def test_no_origins_handed_in_allows_none(self, database: Database) -> None:
         """The factory's own default is closed; serve hands it the configured list."""
@@ -419,13 +416,13 @@ class TestCors:
         for origin in DEFAULT_CORS_ORIGINS:
             assert (await self._preflight(app, origin)).status_code == 400
 
-    async def test_invalid_origins_fail_closed(
+    async def test_invalid_origins_stop_startup(
         self, database: Database, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """An unparseable allow-list is an error, so it can never widen cross-origin access."""
         monkeypatch.setenv("CORS_ORIGINS", '["https://a.example"')  # truncated JSON
-        app = app_as_serve_builds_it(database)
-        assert (await self._preflight(app, ALLOWED_ORIGIN)).status_code == 400
-        assert (await self._preflight(app, "https://a.example")).status_code == 400
+        with pytest.raises(ValidationError, match="CORS_ORIGINS"):
+            app_as_serve_builds_it(database)
 
 
 class TestSettingsFields:

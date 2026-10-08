@@ -77,7 +77,7 @@ class MessageRepository:
 | `messages(scope, order, limit, before, after, text, has, since, until, with_channel)` | Channel messages, search, a profile's recent messages |
 | `attachments(scope, kind, limit, offset)` | Channel gallery, guild gallery, gallery timeline |
 | `authors(scope, sort, limit, offset, name)` | People screen, top users |
-| `summary(scope)`, `message_total(scope)`, `attachment_total(scope)`, `reaction_total(scope)` | Profile and guild totals, one statement each |
+| `summary(scope)`, `message_total(scope)`, `message_and_author_totals(scope)`, `attachment_total(scope)`, `reaction_total(scope)` | Profile and guild totals, one statement each; guild stats takes `message_and_author_totals`, which reads no content or timestamps |
 | `activity(scope, period, since)` | Monthly (or weekly) activity |
 | `reactions(scope, limit)`, `channel_activity(scope, limit)` | Profile top reactions and channels |
 | `guilds()`, `guild(id)`, `guild_channels(id)`, `guild_counts(ids)` | Guild list, detail and channels (two COUNTs for any number of guilds) |
@@ -103,8 +103,10 @@ the GIF index has an owner) and the download stats' own grouped query.
   api_auth_token=None, cors_origins=())` → `FastAPI`
 - A pure function of its arguments: reads nothing from the environment, `.env`, the
   working directory or the package location. `serve` and the generated dev module resolve
-  those through `wumpus_archiver/compose.py` (`scrape_from_settings`,
-  `api_security_from_settings`, `portal_build_dir`)
+  those through `wumpus_archiver/compose.py`: `serve_config` loads the bot token, API token
+  and CORS origins in one `ServeSettings` load and raises on any invalid setting (startup
+  fails closed), `scrape_control` turns the bot token into scrape control, and
+  `portal_build_dir` finds the build
 - Lifespan: connects the database only if it is not already connected and disconnects only
   what it connected (ADR 0001), so one factory call serves uvicorn and the test fixtures
 - CORS allows only the `cors_origins` handed in (none by default; `serve` passes
@@ -113,7 +115,10 @@ the GIF index has an owner) and the download stats' own grouped query.
 - `POST /api/scrape/start` and `/api/scrape/cancel` require `Authorization: Bearer
   <api_auth_token>` (`auth.py`); with no token handed in they return 403, failing closed
 - Mounts the attachments dir at `/attachments` when given; a missing directory raises
-- Serves the portal build as an SPA when given (`index.html` fallback); `None` means API only
+- Serves the portal build as an SPA when given; `None` means API only. A request gets the
+  matching build file if there is one, a 404 for an unknown `/api` path or if its last
+  segment has a file extension (`/favicon.ico`, `/robots.txt`), and `index.html` otherwise
+  (the portal's own routes)
 
 **Dependencies** (`deps.py`):
 - Handlers declare `Db`, `AttachmentsDir`, `Scrape` or `ApiAuthToken` instead of reading
@@ -157,9 +162,9 @@ schemas (attachment URL rewriting, display names, page-local timeline grouping).
 
 ### 5. Web Portal (`portal/`)
 
-SvelteKit 2 with adapter-static — builds to `portal/build/` as a pure SPA.
+SvelteKit 3 with adapter-static — builds to `portal/build/` as a pure SPA. The kit options live in `vite.config.ts`, and `#lib/*` is a `package.json` subpath import.
 
-**Key libraries**: Svelte 5, TypeScript, Vite 7
+**Key libraries**: Svelte 5, TypeScript 6, Vite 8 (Node.js 22.17+)
 
 **Architecture**:
 - `lib/api.ts` — typed fetch wrapper with all API functions

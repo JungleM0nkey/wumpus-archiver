@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { GalleryAttachment } from '$lib/types';
+	import type { GalleryAttachment } from '#lib/types.ts';
 
 	let {
 		attachment,

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getGuilds, getGuild, getStats } from '$lib/api';
-	import type { Guild, Channel, Stats } from '$lib/types';
+	import { getGuilds, getGuild, getStats } from '#lib/api.ts';
+	import type { Guild, Channel, Stats } from '#lib/types.ts';
 
 	let guild: Guild | null = $state(null);
 	let channels: Channel[] = $state([]);

@@ -29,6 +29,7 @@ from wumpus_archiver.storage.archive_reads import (
     GuildCounts,
     Has,
     MediaKind,
+    MessageAndAuthorTotals,
     Order,
     Page,
     Period,
@@ -804,10 +805,31 @@ class TestProfileReads:
         await archive_reads.summary(reads, Scope(guild=GUILD))
         assert len(statements) == 1
 
+    @pytest.mark.parametrize("scope", list(SCOPES))
+    async def test_message_and_author_totals_agree_with_summary(
+        self, reads: AsyncSession, scope: str
+    ) -> None:
+        summary = await archive_reads.summary(reads, SCOPES[scope])
+        assert await archive_reads.message_and_author_totals(
+            reads, SCOPES[scope]
+        ) == MessageAndAuthorTotals(messages=summary.messages, authors=summary.authors)
+
+    async def test_message_and_author_totals_is_one_statement_reading_no_content(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        await archive_reads.message_and_author_totals(reads, Scope(guild=GUILD))
+        assert len(statements) == 1
+        assert statements[0].count("count(*)") == 2
+        assert "content" not in statements[0]
+        assert "created_at" not in statements[0]
+
     async def test_an_empty_scope_sums_to_nothing(self, reads: AsyncSession) -> None:
         empty = Scope(guild=EMPTY_GUILD)
         assert await archive_reads.summary(reads, empty) == Summary()
         assert await archive_reads.message_total(reads, empty) == 0
+        assert await archive_reads.message_and_author_totals(reads, empty) == (
+            MessageAndAuthorTotals()
+        )
         assert await archive_reads.attachment_total(reads, empty) == 0
         assert await archive_reads.reaction_total(reads, empty) == 0
 
@@ -944,6 +966,7 @@ async def test_every_read_compiles_for_sqlite_and_postgresql(reads: AsyncSession
         await archive_reads.user(reads, ALICE)
         await archive_reads.summary(reads, scope)
         await archive_reads.message_total(reads, scope)
+        await archive_reads.message_and_author_totals(reads, scope)
         await archive_reads.attachment_total(reads, scope)
         await archive_reads.reaction_total(reads, scope)
         await archive_reads.channel_activity(reads, scope, limit=1)

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Message } from '$lib/types';
+	import type { Message } from '#lib/types.ts';
 	import MessageCard from './MessageCard.svelte';
 
 	let {
