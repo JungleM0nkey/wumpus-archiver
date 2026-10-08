@@ -16,9 +16,11 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+from pydantic import SecretStr
 
 from wumpus_archiver.api.deps import wiring_of
 from wumpus_archiver.cli import _write_dev_app_module
+from wumpus_archiver.compose import ServeConfig
 
 # Placeholder swapped for a real marker path inside each hostile payload.
 MARKER = "MARKER_PATH"
@@ -62,8 +64,8 @@ def dev_module_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def captured(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Replace ``create_app`` so importing the generated module records its arguments.
 
-    ``scrape_from_settings`` and ``api_security_from_settings`` are replaced too, so the
-    generated module never reads the developer's environment here.
+    ``serve_config`` and ``scrape_control`` are replaced too, so the generated module
+    never reads the developer's environment here.
 
     Returns:
         Dict filled with ``database``, ``attachments_dir``, ``scrape``, ``api_auth_token``
@@ -88,17 +90,20 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         calls["cors_origins"] = cors_origins
         return object()
 
-    def fake_scrape_from_settings(database: Any) -> str:
-        return f"scrape-for:{database.database_url}"
+    def fake_serve_config() -> ServeConfig:
+        return ServeConfig(
+            bot_token=SecretStr("bot-token-from-settings"),
+            api_auth_token=SecretStr("api-token-from-settings"),
+            cors_origins=["https://origin-from-settings.example"],
+        )
 
-    def fake_api_security_from_settings() -> tuple[str, list[str]]:
-        return "api-token-from-settings", ["https://origin-from-settings.example"]
+    def fake_scrape_control(database: Any, bot_token: SecretStr | None) -> str:
+        assert bot_token is not None
+        return f"scrape-for:{database.database_url}:{bot_token.get_secret_value()}"
 
     monkeypatch.setattr("wumpus_archiver.api.app.create_app", fake_create_app)
-    monkeypatch.setattr("wumpus_archiver.compose.scrape_from_settings", fake_scrape_from_settings)
-    monkeypatch.setattr(
-        "wumpus_archiver.compose.api_security_from_settings", fake_api_security_from_settings
-    )
+    monkeypatch.setattr("wumpus_archiver.compose.serve_config", fake_serve_config)
+    monkeypatch.setattr("wumpus_archiver.compose.scrape_control", fake_scrape_control)
     return calls
 
 
@@ -147,9 +152,9 @@ class TestNormalPaths:
         assert _called_names(tree) == {
             "Database",
             "Path",
-            "api_security_from_settings",
             "create_app",
-            "scrape_from_settings",
+            "scrape_control",
+            "serve_config",
         }
 
     def test_import_yields_configured_app(
@@ -164,8 +169,10 @@ class TestNormalPaths:
         assert captured["database"].database_url == f"sqlite+aiosqlite:///{NORMAL_DB}"
         assert captured["attachments_dir"] == Path(NORMAL_ATT)
         assert captured["portal_build"] is None
-        assert captured["scrape"] == f"scrape-for:sqlite+aiosqlite:///{NORMAL_DB}"
-        assert captured["api_auth_token"] == "api-token-from-settings"
+        assert captured["scrape"] == (
+            f"scrape-for:sqlite+aiosqlite:///{NORMAL_DB}:bot-token-from-settings"
+        )
+        assert captured["api_auth_token"].get_secret_value() == "api-token-from-settings"
         assert captured["cors_origins"] == ["https://origin-from-settings.example"]
 
     def test_no_attachments_dir(self, dev_module_path: Path, captured: dict[str, Any]) -> None:
@@ -177,9 +184,9 @@ class TestNormalPaths:
         assert "attachments_dir" not in source
         assert _called_names(ast.parse(source)) == {
             "Database",
-            "api_security_from_settings",
             "create_app",
-            "scrape_from_settings",
+            "scrape_control",
+            "serve_config",
         }
 
         _import_generated(dev_module_path)
@@ -240,9 +247,9 @@ class TestHostilePaths:
         assert _called_names(ast.parse(source)) == {
             "Database",
             "Path",
-            "api_security_from_settings",
             "create_app",
-            "scrape_from_settings",
+            "scrape_control",
+            "serve_config",
         }
 
         _import_generated(dev_module_path)
@@ -269,9 +276,9 @@ class TestHostilePaths:
         assert _called_names(ast.parse(source)) == {
             "Database",
             "Path",
-            "api_security_from_settings",
             "create_app",
-            "scrape_from_settings",
+            "scrape_control",
+            "serve_config",
         }
 
         _import_generated(dev_module_path)

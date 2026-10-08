@@ -103,8 +103,10 @@ the GIF index has an owner) and the download stats' own grouped query.
   api_auth_token=None, cors_origins=())` → `FastAPI`
 - A pure function of its arguments: reads nothing from the environment, `.env`, the
   working directory or the package location. `serve` and the generated dev module resolve
-  those through `wumpus_archiver/compose.py` (`scrape_from_settings`,
-  `api_security_from_settings`, `portal_build_dir`)
+  those through `wumpus_archiver/compose.py`: `serve_config` loads the bot token, API token
+  and CORS origins in one `ServeSettings` load and raises on any invalid setting (startup
+  fails closed), `scrape_control` turns the bot token into scrape control, and
+  `portal_build_dir` finds the build
 - Lifespan: connects the database only if it is not already connected and disconnects only
   what it connected (ADR 0001), so one factory call serves uvicorn and the test fixtures
 - CORS allows only the `cors_origins` handed in (none by default; `serve` passes
