@@ -246,6 +246,14 @@ class ScrapeStartRequest(BaseModel):
     guild_id: int
 
 
+class ScrapeChannelProgressSchema(BaseModel):
+    """One channel of a scrape job: its name, the messages written so far, and whether it is done."""
+
+    name: str
+    messages: int = 0
+    done: bool = False
+
+
 class ScrapeProgressSchema(BaseModel):
     """Progress data for a running scrape job."""
 
@@ -254,6 +262,8 @@ class ScrapeProgressSchema(BaseModel):
     messages_scraped: int = 0
     attachments_found: int = 0
     errors: list[str] = []
+    # The channels the job has reached, in order; the last one not done is the current one
+    channels: list[ScrapeChannelProgressSchema] = []
 
 
 class ScrapeJobSchema(BaseModel):

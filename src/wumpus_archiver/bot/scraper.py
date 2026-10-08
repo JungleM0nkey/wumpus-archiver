@@ -251,6 +251,11 @@ class ArchiverBot:
         # Final commit for remaining messages
         await session.commit()
 
+        # Report every channel once it is written, with its final count, however few
+        # messages it has: progress shows each channel the scrape got through.
+        if progress_callback:
+            progress_callback(channel.name, stats["messages"])
+
         # Update channel metadata using tracked IDs (avoids redundant API calls)
         if stats["messages"] > 0:
             if first_message_id is not None:
