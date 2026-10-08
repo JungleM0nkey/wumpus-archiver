@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getGuilds, getGuildUsers } from '$lib/api';
-	import type { Guild, UserListItem } from '$lib/types';
-	import SearchBar from '$lib/components/SearchBar.svelte';
+	import { getGuilds, getGuildUsers } from '#lib/api.ts';
+	import type { Guild, UserListItem } from '#lib/types.ts';
+	import SearchBar from '#lib/components/SearchBar.svelte';
 
 	let guild: Guild | null = $state(null);
 	let users: UserListItem[] = $state([]);

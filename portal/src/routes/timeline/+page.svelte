@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { getGuilds, getMessages } from '$lib/api';
-	import type { Guild, GuildDetail, Channel, Message } from '$lib/types';
-	import { getGuild } from '$lib/api';
-	import MessageCard from '$lib/components/MessageCard.svelte';
-	import TimelineFeed from '$lib/components/TimelineFeed.svelte';
-	import { ChannelType } from '$lib/types';
+	import { getGuilds, getMessages } from '#lib/api.ts';
+	import type { Guild, GuildDetail, Channel, Message } from '#lib/types.ts';
+	import { getGuild } from '#lib/api.ts';
+	import MessageCard from '#lib/components/MessageCard.svelte';
+	import TimelineFeed from '#lib/components/TimelineFeed.svelte';
+	import { ChannelType } from '#lib/types.ts';
 
 	let guild: GuildDetail | null = $state(null);
 	let channels: Channel[] = $state([]);

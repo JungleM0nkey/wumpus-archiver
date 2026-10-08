@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { getGuilds, getUserProfile, searchMessages } from '$lib/api';
-	import type { Guild, UserProfile, Message } from '$lib/types';
-	import StatCard from '$lib/components/StatCard.svelte';
-	import MessageCard from '$lib/components/MessageCard.svelte';
+	import { getGuilds, getUserProfile, searchMessages } from '#lib/api.ts';
+	import type { Guild, UserProfile, Message } from '#lib/types.ts';
+	import StatCard from '#lib/components/StatCard.svelte';
+	import MessageCard from '#lib/components/MessageCard.svelte';
 
 	let guild: Guild | null = $state(null);
 	let profile: UserProfile | null = $state(null);

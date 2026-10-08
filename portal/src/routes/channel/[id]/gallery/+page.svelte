@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { getGallery, getGuilds, getGuild } from '$lib/api';
-	import type { GalleryAttachment, Channel } from '$lib/types';
-	import GalleryGrid from '$lib/components/GalleryGrid.svelte';
+	import { getGallery, getGuilds, getGuild } from '#lib/api.ts';
+	import type { GalleryAttachment, Channel } from '#lib/types.ts';
+	import GalleryGrid from '#lib/components/GalleryGrid.svelte';
 
 	const channelId = $derived(page.params.id);
 

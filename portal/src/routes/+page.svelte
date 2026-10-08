@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { getGuilds, getStats } from '$lib/api';
-	import type { Guild, Stats } from '$lib/types';
-	import StatCard from '$lib/components/StatCard.svelte';
-	import SearchBar from '$lib/components/SearchBar.svelte';
+	import { getGuilds, getStats } from '#lib/api.ts';
+	import type { Guild, Stats } from '#lib/types.ts';
+	import StatCard from '#lib/components/StatCard.svelte';
+	import SearchBar from '#lib/components/SearchBar.svelte';
 
 	let guilds: Guild[] = $state([]);
 	let stats: Stats | null = $state(null);
