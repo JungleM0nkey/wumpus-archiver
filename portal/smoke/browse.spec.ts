@@ -199,7 +199,7 @@ test('a link to a message the channel does not hold opens at the newest', { anno
 
 test('a search result opens its message in Browse', { annotation: { type: ROUTE_ANNOTATION, description: '/search' } }, async ({ page }) => {
 	await page.goto('/search?q=hello', { waitUntil: 'networkidle' });
-	await page.locator('main').getByRole('link', { name: 'general' }).click();
+	await page.locator('main').getByRole('link', { name: 'Open in context' }).click();
 	await expect(page).toHaveURL(`/browse/${GENERAL_ID}?message=${HELLO_ID}`);
 	await expect(card(page, HELLO_ID)).toHaveAttribute('aria-current', 'true');
 	await expect(card(page, HELLO_ID)).toBeInViewport();

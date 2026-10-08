@@ -9,7 +9,8 @@ one-message authors ("lurkers", all in #lobby) that the People screen fills thre
 pages, and two more in #lobby whose order by name is not their order by messages
 (#65). The second, "Night Owls", is smaller and shares nothing with the first: its own
 category, two channels, two authors, five messages and one local image, so the suite
-can tell which guild a screen shows. Ids are Discord-sized snowflakes, past
+can tell which guild a screen shows. Three #lobby messages carry links and markup for
+Search (#64). Ids are Discord-sized snowflakes, past
 JavaScript's safe integer range, so the portal is exercised with ids it must keep as
 strings.
 
@@ -342,8 +343,8 @@ async def seed_smoke_archive(database: Database) -> None:
                     id=_FIRST_LURKER_MESSAGE_ID + n,
                     channel_id=LOBBY_ID,
                     author_id=_FIRST_LURKER_ID + n,
-                    content=f"{name} says hi.",
-                    clean_content=f"{name} says hi.",
+                    content=_searched(_FIRST_LURKER_MESSAGE_ID + n, f"{name} says hi."),
+                    clean_content=_searched(_FIRST_LURKER_MESSAGE_ID + n, f"{name} says hi."),
                     created_at=START + timedelta(minutes=_LURKERS_FROM + n),
                     scraped_at=last,
                 )
@@ -380,7 +381,7 @@ def _add_sorted_apart(session: AsyncSession, *, scraped_at: datetime) -> None:
     for user_id, username, global_name, messages in SORTED_APART:
         session.add(User(id=user_id, username=username, global_name=global_name))
         for n in range(messages):
-            content = f"{global_name} checks in, {n + 1} of {messages}."
+            content = _searched(message_id, f"{global_name} checks in, {n + 1} of {messages}.")
             session.add(
                 Message(
                     id=message_id,
@@ -483,6 +484,26 @@ def _add_night_scrape(session: AsyncSession) -> None:
             attachments_at_start=0,
         )
     )
+
+
+# ── #64 Search ──────────────────────────────────────────────────────────────
+# Three #lobby messages say more than their seed text, with no row, id or count changed:
+# Zara's second check-in and Lurker 101's greeting carry links, so `has:link` finds two
+# messages and `from:zara has:link` one; Lurker 102 repeats "echo" around markup, so a
+# highlight marks every occurrence and shows the markup as text.
+ZARA_LINK_ID = _FIRST_SORTED_APART_MESSAGE_ID + 1
+LURKER_LINK_ID = _FIRST_LURKER_MESSAGE_ID + 100
+ECHO_ID = _FIRST_LURKER_MESSAGE_ID + 101
+_SEARCH_CONTENT = {
+    ZARA_LINK_ID: "Zara checks in, 2 of 3: https://example.com/zara",
+    LURKER_LINK_ID: "Lurker 101 says hi, notes at https://example.com/lurk",
+    ECHO_ID: "Lurker 102 shouts echo <b>echo</b> & echo!",
+}
+
+
+def _searched(message_id: int, content: str) -> str:
+    """A message's content: its seed text, or what #64's search tests need it to say."""
+    return _SEARCH_CONTENT.get(message_id, content)
 
 
 def write_attachments(attachments_dir: Path) -> None:

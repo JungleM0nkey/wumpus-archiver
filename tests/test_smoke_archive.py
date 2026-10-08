@@ -5,6 +5,7 @@ itself through the API, so a change to it fails here first and says why.
 """
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from httpx import AsyncClient
@@ -187,3 +188,22 @@ async def test_the_media_screen_has_a_gif_a_video_and_images_of_several_shapes(
         url = str(found["url"])
         assert url.startswith("/attachments/")
         assert (await client.get(url)).content.startswith(magic[content_type])
+
+
+async def test_search_finds_the_links_and_the_markup(client: AsyncClient) -> None:
+    """#64's smoke tests filter by has:link and from:zara, and highlight escaped markup."""
+
+    async def search(**params: object) -> Any:
+        response = await client.get("/api/search", params={"guild_id": GUILD_ID, **params})
+        return response.json()
+
+    zara = SORTED_APART[0][0]
+    assert (await search(has="link"))["total"] == 2
+    assert (await search(has="link", author_id=zara))["total"] == 1
+    assert (await search(author_id=zara))["total"] == 3
+    assert (await search(has="image"))["total"] == 5
+    echo = await search(q="echo")
+    assert echo["results"][0]["highlight"] == (
+        "Lurker 102 shouts <mark>echo</mark> &lt;b&gt;<mark>echo</mark>&lt;/b&gt; &amp; "
+        "<mark>echo</mark>!"
+    )
