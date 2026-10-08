@@ -12,8 +12,10 @@ from httpx import AsyncClient
 from tests.smoke_archive import (
     ALICE_ID,
     ART_ID,
+    CAROL_ID,
     GUILD_ID,
     LURKERS,
+    NIGHT_GUILD_ID,
     seed_smoke_archive,
     write_attachments,
     write_smoke_archive,
@@ -39,6 +41,37 @@ async def test_one_guild_with_categories_two_authors_and_the_lurkers(client: Asy
     stats = (await client.get(f"/api/guilds/{GUILD_ID}/stats")).json()
     totals = (stats["total_messages"], stats["total_users"], stats["total_attachments"])
     assert totals == (12 + LURKERS, 2 + LURKERS, 4)
+
+
+async def test_a_second_guild_shares_nothing_with_the_first(client: AsyncClient) -> None:
+    """The shell's guild switcher smoke tests tell the guilds apart by these totals and names."""
+    guilds = (await client.get("/api/guilds")).json()
+    assert [(g["id"], g["name"]) for g in guilds] == [
+        (str(GUILD_ID), "Smoke Test Guild"),
+        (str(NIGHT_GUILD_ID), "Night Owls"),
+    ]
+    stats = (await client.get(f"/api/guilds/{NIGHT_GUILD_ID}/stats")).json()
+    totals = (
+        stats["total_channels"],
+        stats["total_messages"],
+        stats["total_users"],
+        stats["total_attachments"],
+    )
+    assert totals == (3, 5, 2, 1)
+    users = (await client.get(f"/api/guilds/{NIGHT_GUILD_ID}/users")).json()["users"]
+    assert [u["display_name"] for u in users] == ["Carol", "Dave"]
+    assert users[0]["id"] == str(CAROL_ID)
+
+
+async def test_a_search_scoped_to_a_guild_finds_only_its_messages(client: AsyncClient) -> None:
+    async def found(**params: object) -> list[str]:
+        search = (await client.get("/api/search", params={"q": "game", **params})).json()
+        return sorted(r["message"]["content"] for r in search["results"])
+
+    first, night = ["Anyone up for a game tonight?"], ["Game night is on Friday."]
+    assert await found() == sorted(first + night)
+    assert await found(guild_id=GUILD_ID) == first
+    assert await found(guild_id=NIGHT_GUILD_ID) == night
 
 
 async def test_the_people_screen_has_a_third_page(client: AsyncClient) -> None:
@@ -72,4 +105,4 @@ async def test_written_archive_holds_the_seed_and_its_files(tmp_path: Path) -> N
     (directory / "stale").mkdir(parents=True)
     await write_smoke_archive(directory)
     assert sorted(p.name for p in directory.iterdir()) == ["archive.db", "attachments"]
-    assert len(list((directory / "attachments").rglob("*.*"))) == 4
+    assert len(list((directory / "attachments").rglob("*.*"))) == 5

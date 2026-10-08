@@ -1,10 +1,14 @@
 """The small archive the portal smoke suite browses, and the command that writes it.
 
-One guild with two categories, four text channels, two regular authors and a dozen
-messages spread over two months, including a reply, reactions and local attachments
-(two images and a text file). Beside them, enough one-message authors ("lurkers", all
-in #lobby) that the People screen fills three pages. Ids are Discord-sized snowflakes, past JavaScript's safe
-integer range, so the portal is exercised with ids it must keep as strings.
+Two guilds. The first, "Smoke Test Guild", has two categories, four text channels, two
+regular authors and a dozen messages spread over two months, including a reply,
+reactions and local attachments (two images and a text file). Beside them, enough
+one-message authors ("lurkers", all in #lobby) that the People screen fills three
+pages. The second, "Night Owls", is smaller and shares nothing with the first: its own
+category, two channels, two authors, five messages and one local image, so the suite
+can tell which guild a screen shows. Ids are Discord-sized snowflakes, past
+JavaScript's safe integer range, so the portal is exercised with ids it must keep as
+strings.
 
 ``python -m tests.smoke_archive <dir>`` writes ``<dir>/archive.db`` and the local
 attachments under ``<dir>/attachments``, replacing whatever was there. The smoke
@@ -20,6 +24,8 @@ import zlib
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
@@ -38,6 +44,13 @@ ART_ID = 900000000000000022
 LOBBY_ID = 900000000000000023
 ALICE_ID = 900000000000000100
 BOB_ID = 900000000000000101
+
+NIGHT_GUILD_ID = 900000000000000002
+NIGHT_CATEGORY_ID = 900000000000000030
+LOUNGE_ID = 900000000000000031
+PHOTOS_ID = 900000000000000032
+CAROL_ID = 900000000000000110
+DAVE_ID = 900000000000000111
 
 GUILD_TEXT = 0
 GUILD_CATEGORY = 4
@@ -72,8 +85,10 @@ _REACTIONS: dict[int, list[tuple[str, int]]] = {
 }
 """Message index -> (emoji, count) reactions."""
 
-# (message index, filename, content type, width, height or None for a non-image).
-_ATTACHMENTS: list[tuple[int, str, str, int | None, int | None]] = [
+_AttachmentRow = tuple[int, str, str, int | None, int | None]
+"""(message index, filename, content type, width, height or None for a non-image)."""
+
+_ATTACHMENTS: list[_AttachmentRow] = [
     (6, "sketch.png", "image/png", 4, 3),
     (7, "drawing.png", "image/png", 4, 3),
     (7, "notes.txt", "text/plain", None, None),
@@ -87,6 +102,27 @@ _FIRST_LURKER_ID = 900000000000000200
 _FIRST_LURKER_MESSAGE_ID = 900000000000003000
 _LURKERS_FROM = 21 * 24 * 60
 """Minutes after START of the first lurker's message, between the regular messages."""
+
+
+NIGHT_START = datetime(2024, 7, 1, 21, 0)
+"""The second guild's first message's time."""
+
+# The second guild's messages, as _MESSAGES. "game" is also in the first guild's
+# general, so a search for it tells the guilds apart.
+_NIGHT_MESSAGES: list[tuple[int, int, int, str]] = [
+    (LOUNGE_ID, CAROL_ID, 0, "Game night is on Friday."),
+    (LOUNGE_ID, DAVE_ID, 4, "I will bring the snacks."),
+    (PHOTOS_ID, CAROL_ID, 3 * 24 * 60, "Moonrise over the harbour"),
+    (LOUNGE_ID, CAROL_ID, 5 * 24 * 60, "Night owls unite."),
+    (PHOTOS_ID, DAVE_ID, 9 * 24 * 60, "Long exposure attempt"),
+]
+_FIRST_NIGHT_MESSAGE_ID = 900000000000004000
+
+# As _ATTACHMENTS, indexing _NIGHT_MESSAGES.
+_NIGHT_ATTACHMENTS: list[_AttachmentRow] = [
+    (2, "moonrise.png", "image/png", 4, 3),
+]
+_FIRST_NIGHT_ATTACHMENT_ID = 900000000000002100
 
 
 def _png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
@@ -105,11 +141,28 @@ def _png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
     )
 
 
+def _attachment_rows() -> list[tuple[int, int, int, _AttachmentRow]]:
+    """Every attachment as (attachment id, message id, channel id, its row)."""
+    return [
+        (first_attachment + offset, first_message + row[0], messages[row[0]][0], row)
+        for first_attachment, first_message, messages, rows in (
+            (_FIRST_ATTACHMENT_ID, _FIRST_MESSAGE_ID, _MESSAGES, _ATTACHMENTS),
+            (
+                _FIRST_NIGHT_ATTACHMENT_ID,
+                _FIRST_NIGHT_MESSAGE_ID,
+                _NIGHT_MESSAGES,
+                _NIGHT_ATTACHMENTS,
+            ),
+        )
+        for offset, row in enumerate(rows)
+    ]
+
+
 def attachment_files() -> dict[str, bytes]:
     """The local attachments' contents by path relative to the attachments dir."""
     files: dict[str, bytes] = {}
-    for offset, (_, filename, content_type, width, height) in enumerate(_ATTACHMENTS):
-        attachment_id = _FIRST_ATTACHMENT_ID + offset
+    for offset, (attachment_id, _, _, row) in enumerate(_attachment_rows()):
+        _, filename, content_type, width, height = row
         if width is not None and height is not None:
             content = _png(width, height, (88, 101, 242 - 40 * offset))
         else:
@@ -212,6 +265,7 @@ async def seed_smoke_archive(database: Database) -> None:
                     scraped_at=last,
                 )
             )
+        _add_night_guild(session)
         for n in range(LURKERS):
             name = f"Lurker {n + 1:03d}"
             session.add(
@@ -234,23 +288,86 @@ async def seed_smoke_archive(database: Database) -> None:
                     Reaction(message_id=_FIRST_MESSAGE_ID + index, emoji_name=emoji, count=count)
                 )
         files = attachment_files()
-        for offset, (index, filename, content_type, width, height) in enumerate(_ATTACHMENTS):
-            attachment_id = _FIRST_ATTACHMENT_ID + offset
+        for attachment_id, message_id, channel_id, row in _attachment_rows():
+            _, filename, content_type, width, height = row
             local_path = f"{attachment_id}/{filename}"
             session.add(
                 Attachment(
                     id=attachment_id,
-                    message_id=_FIRST_MESSAGE_ID + index,
+                    message_id=message_id,
                     filename=filename,
                     content_type=content_type,
                     size=len(files[local_path]),
-                    url=f"https://cdn.discordapp.com/attachments/{ART_ID}/{attachment_id}/{filename}",
+                    url=f"https://cdn.discordapp.com/attachments/{channel_id}/{attachment_id}/{filename}",
                     width=width,
                     height=height,
                     local_path=local_path,
                     download_status="downloaded",
                 )
             )
+
+
+def _add_night_guild(session: AsyncSession) -> None:
+    """Add the second guild, its channels, authors and messages (not its attachment)."""
+    last = NIGHT_START + timedelta(minutes=_NIGHT_MESSAGES[-1][2])
+    counts = Counter(channel_id for channel_id, *_ in _NIGHT_MESSAGES)
+    session.add(
+        Guild(
+            id=NIGHT_GUILD_ID,
+            name="Night Owls",
+            member_count=2,
+            first_scraped_at=last,
+            last_scraped_at=last,
+            scrape_count=1,
+        )
+    )
+    session.add_all(
+        [
+            Channel(
+                id=NIGHT_CATEGORY_ID,
+                guild_id=NIGHT_GUILD_ID,
+                name="After Hours",
+                type=GUILD_CATEGORY,
+                position=0,
+            ),
+            Channel(
+                id=LOUNGE_ID,
+                guild_id=NIGHT_GUILD_ID,
+                name="lounge",
+                type=GUILD_TEXT,
+                topic="Late conversations",
+                position=0,
+                parent_id=NIGHT_CATEGORY_ID,
+                message_count=counts[LOUNGE_ID],
+                last_scraped_at=last,
+            ),
+            Channel(
+                id=PHOTOS_ID,
+                guild_id=NIGHT_GUILD_ID,
+                name="photos",
+                type=GUILD_TEXT,
+                topic="Night shots",
+                position=1,
+                parent_id=NIGHT_CATEGORY_ID,
+                message_count=counts[PHOTOS_ID],
+                last_scraped_at=last,
+            ),
+            User(id=CAROL_ID, username="carol", global_name="Carol"),
+            User(id=DAVE_ID, username="dave", global_name="Dave"),
+        ]
+    )
+    for index, (channel_id, author_id, minutes, content) in enumerate(_NIGHT_MESSAGES):
+        session.add(
+            Message(
+                id=_FIRST_NIGHT_MESSAGE_ID + index,
+                channel_id=channel_id,
+                author_id=author_id,
+                content=content,
+                clean_content=content,
+                created_at=NIGHT_START + timedelta(minutes=minutes),
+                scraped_at=last,
+            )
+        )
 
 
 def write_attachments(attachments_dir: Path) -> None:
