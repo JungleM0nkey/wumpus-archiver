@@ -1,6 +1,6 @@
 """Pydantic schemas for API responses."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, PlainSerializer
@@ -328,6 +328,13 @@ class UserMonthlyActivity(BaseModel):
     count: int
 
 
+class UserWeeklyActivity(BaseModel):
+    """Messages in one ISO week, which starts on Monday ``week``."""
+
+    week: date
+    count: int
+
+
 class UserProfileSchema(BaseModel):
     """Full user profile with statistics."""
 
@@ -349,6 +356,9 @@ class UserProfileSchema(BaseModel):
     avg_message_length: float = 0.0
     top_channels: list[UserChannelActivity] = []
     monthly_activity: list[UserMonthlyActivity] = []
+    # The 52 weeks ending with the week of the last message in scope, oldest first,
+    # empty weeks included.
+    weekly_activity: list[UserWeeklyActivity] = []
     top_reactions_received: list[dict[str, object]] = []
     top_words: list[dict[str, object]] = []
 

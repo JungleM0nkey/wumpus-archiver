@@ -1,6 +1,8 @@
 """The user, guild users and profile routes over a seeded archive."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from itertools import pairwise
+from typing import Any
 
 import pytest
 from httpx import AsyncClient
@@ -151,3 +153,74 @@ async def test_guild_users_sort_by_the_shown_name_ignoring_case(
             )
     payload = (await client.get("/api/guilds/2/users", params={"sort": "name"})).json()
     assert [u["display_name"] for u in payload["users"]] == ["Alice", "ann", "BEN"]
+
+
+def _monday(days_ago: int) -> date:
+    on = (NOW - timedelta(days=days_ago)).date()
+    return on - timedelta(days=on.weekday())
+
+
+def _weeks(payload: dict[str, Any]) -> dict[date, int]:
+    """The profile's weekly activity, checked to be 52 consecutive weeks from a Monday."""
+    weeks = {date.fromisoformat(w["week"]): w["count"] for w in payload["weekly_activity"]}
+    starts = list(weeks)
+    assert len(starts) == 52
+    assert starts[0].weekday() == 0
+    assert all(b - a == timedelta(weeks=1) for a, b in pairwise(starts))
+    return weeks
+
+
+@pytest.mark.parametrize(
+    ("params", "last_message_days_ago", "in_window"),
+    [
+        # Messages 40, 39, 5 and 4 days ago; the one 800 days ago is outside the window.
+        ({}, 4, 4),
+        # The guild holds the ones 40, 39 and 5 days ago.
+        ({"guild_id": 1}, 5, 3),
+    ],
+)
+async def test_profile_weekly_activity_covers_52_weeks_and_sums_to_the_messages_in_them(
+    client: AsyncClient, params: dict[str, int], last_message_days_ago: int, in_window: int
+) -> None:
+    payload = (await client.get("/api/users/100/profile", params=params)).json()
+    weeks = _weeks(payload)
+    assert list(weeks)[-1] == _monday(last_message_days_ago)
+    assert sum(weeks.values()) == in_window
+    assert weeks[_monday(40)] + weeks[_monday(39)] >= 2
+
+
+async def test_profile_weekly_activity_ends_with_an_old_last_message(
+    client: AsyncClient, database: Database
+) -> None:
+    # An archive is a copy of the past: the window ends with the author's last message,
+    # not today, and counts only what falls in its 52 weeks.
+    async with database.session() as session:
+        session.add(User(id=102, username="carol"))
+        for message_id, days in [(7, 400), (8, 403), (9, 400 + 52 * 7)]:
+            session.add(
+                Message(
+                    id=message_id,
+                    channel_id=10,
+                    author_id=102,
+                    content="old",
+                    clean_content="old",
+                    created_at=NOW - timedelta(days=days),
+                    scraped_at=NOW,
+                )
+            )
+    payload = (await client.get("/api/users/102/profile")).json()
+    weeks = _weeks(payload)
+    assert list(weeks)[-1] == _monday(400)
+    assert sum(weeks.values()) == 2
+    assert payload["total_messages"] == 3
+
+
+async def test_profile_weekly_activity_without_messages_is_52_empty_weeks_to_this_one(
+    client: AsyncClient, database: Database
+) -> None:
+    async with database.session() as session:
+        session.add(User(id=102, username="quiet"))
+    weeks = _weeks((await client.get("/api/users/102/profile")).json())
+    today = datetime.now(UTC).date()
+    assert list(weeks)[-1] == today - timedelta(days=today.weekday())
+    assert set(weeks.values()) == {0}

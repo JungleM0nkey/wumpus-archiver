@@ -13,6 +13,7 @@ from wumpus_archiver.api.schemas import (
     UserMonthlyActivity,
     UserProfileSchema,
     UserSchema,
+    UserWeeklyActivity,
 )
 from wumpus_archiver.storage import archive_reads
 from wumpus_archiver.storage.archive_reads import AuthorSort, Period, Scope
@@ -21,6 +22,20 @@ router = APIRouter()
 
 # How far back the profile's monthly activity reaches.
 ACTIVITY_WINDOW = dt.timedelta(days=730)
+
+# How many weeks the profile's weekly activity covers.
+ACTIVITY_WEEKS = 52
+
+
+def _activity_weeks(last_message_at: dt.datetime | None) -> list[dt.date]:
+    """The Mondays of the ACTIVITY_WEEKS weeks ending with the week of ``last_message_at``.
+
+    An archive is a copy of the past, so the window ends where the author's messages do
+    rather than today; with no messages it ends this week.
+    """
+    end = (last_message_at or dt.datetime.now(dt.UTC)).date()
+    last_week = end - dt.timedelta(days=end.weekday())
+    return [last_week - dt.timedelta(weeks=n) for n in reversed(range(ACTIVITY_WEEKS))]
 
 
 @router.get("/users/{user_id}", response_model=UserSchema)
@@ -107,7 +122,16 @@ async def get_user_profile(
             period=Period.MONTH,
             since=dt.datetime.now(dt.UTC) - ACTIVITY_WINDOW,
         )
+        weeks = _activity_weeks(summary.last_message_at)
+        weekly = await archive_reads.activity(
+            session,
+            scope,
+            period=Period.WEEK,
+            since=dt.datetime.combine(weeks[0], dt.time()),
+        )
         top_reactions = await archive_reads.reactions(session, scope, limit=10)
+
+    weekly_counts = {bucket.start: bucket.messages for bucket in weekly}
 
     return UserProfileSchema(
         id=user.id,
@@ -139,6 +163,9 @@ async def get_user_profile(
                 count=bucket.messages,
             )
             for bucket in monthly
+        ],
+        weekly_activity=[
+            UserWeeklyActivity(week=week, count=weekly_counts.get(week, 0)) for week in weeks
         ],
         top_reactions_received=[
             {"emoji": reaction.emoji_name or "?", "count": reaction.count}
