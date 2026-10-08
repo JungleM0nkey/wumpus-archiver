@@ -50,15 +50,14 @@ def parse_cors_origins(value: str) -> list[str]:
 
 
 def _blank_secret_is_none(value: object) -> object:
-    """Map an empty or whitespace-only secret to ``None`` before field validation.
+    """Map an empty or whitespace-only secret to ``None``; leave anything else as given.
 
     The one place the "blank means unset" rule lives for settings: the API auth
     token in ``Settings`` and the bot token in ``ServeSettings`` both use it.
     """
-    if isinstance(value, SecretStr):
-        value = value.get_secret_value()
-    if isinstance(value, str):
-        return value.strip() or None
+    raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+    if isinstance(raw, str) and not raw.strip():
+        return None
     return value
 
 
@@ -223,8 +222,11 @@ class Settings(BaseSettings):
     @field_validator("api_auth_token", mode="before")
     @classmethod
     def blank_auth_token_is_none(cls, v: object) -> object:
-        """Treat an empty or whitespace-only API auth token as unset."""
-        return _blank_secret_is_none(v)
+        """Treat an empty or whitespace-only API auth token as unset; strip any other."""
+        v = _blank_secret_is_none(v)
+        if isinstance(v, SecretStr):
+            v = v.get_secret_value()
+        return v.strip() if isinstance(v, str) else v
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -306,5 +308,5 @@ class ServeSettings(Settings):
     @field_validator("discord_bot_token", mode="before")
     @classmethod
     def blank_bot_token_is_none(cls, v: object) -> object:
-        """Treat an empty or whitespace-only bot token as unset."""
+        """Treat an empty or whitespace-only bot token as unset; keep any other as given."""
         return _blank_secret_is_none(v)

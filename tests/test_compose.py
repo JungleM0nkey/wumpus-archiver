@@ -8,7 +8,7 @@ from pydantic import SecretStr, ValidationError
 from wumpus_archiver import compose
 from wumpus_archiver.api.scrape_control import ReadOnlyScrape
 from wumpus_archiver.api.scrape_manager import ScrapeJobManager
-from wumpus_archiver.config import DEFAULT_CORS_ORIGINS
+from wumpus_archiver.config import DEFAULT_CORS_ORIGINS, Settings
 from wumpus_archiver.storage.database import Database
 
 
@@ -74,7 +74,7 @@ class TestServeConfig:
         config = compose.serve_config()
         assert _revealed(config.bot_token) == "env-token"
         assert _revealed(config.api_auth_token) == "api-token"
-        assert config.cors_origins == ["https://a.example"]
+        assert config.cors_origins == ("https://a.example",)
 
     def test_reads_dot_env_in_the_working_directory(self, clean_env: Path) -> None:
         (clean_env / ".env").write_text(
@@ -88,7 +88,7 @@ class TestServeConfig:
         config = compose.serve_config()
         assert config.bot_token is None
         assert config.api_auth_token is None
-        assert config.cors_origins == list(DEFAULT_CORS_ORIGINS)
+        assert config.cors_origins == DEFAULT_CORS_ORIGINS
 
     @pytest.mark.parametrize("blank", ["", "   "])
     def test_blank_tokens_are_none(
@@ -99,6 +99,18 @@ class TestServeConfig:
         config = compose.serve_config()
         assert config.bot_token is None
         assert config.api_auth_token is None
+
+    def test_bot_token_is_the_one_settings_reads(
+        self, clean_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``serve`` and ``scrape`` must hand Discord the same credential, padding and all."""
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", " padded-token ")
+        expected = Settings().discord_bot_token.get_secret_value()  # type: ignore[call-arg]
+        assert _revealed(compose.serve_config().bot_token) == expected == " padded-token "
+
+    def test_api_token_is_stripped(self, clean_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("API_AUTH_TOKEN", " api-token ")
+        assert _revealed(compose.serve_config().api_auth_token) == "api-token"
 
     def test_tokens_never_show_in_a_repr(
         self, clean_env: Path, monkeypatch: pytest.MonkeyPatch
