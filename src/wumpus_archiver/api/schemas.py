@@ -276,7 +276,7 @@ class GifListResponse(BaseModel):
 
 
 class ScrapeStartRequest(BaseModel):
-    """Request to start a scrape job."""
+    """Request to start a scrape job: `guild_id` as a string of digits (or a number)."""
 
     guild_id: int
 
@@ -305,7 +305,7 @@ class ScrapeJobSchema(BaseModel):
     """Response schema for a scrape job."""
 
     id: str
-    guild_id: int
+    guild_id: Snowflake
     status: str
     progress: ScrapeProgressSchema
     started_at: str | None = None

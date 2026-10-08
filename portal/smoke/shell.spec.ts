@@ -143,7 +143,7 @@ async function runningJob(page: Page): Promise<void> {
 				busy: true,
 				current_job: {
 					id: 'smoke-job',
-					guild_id: 1,
+					guild_id: '1',
 					status: 'scraping',
 					progress: {
 						current_channel: 'general',

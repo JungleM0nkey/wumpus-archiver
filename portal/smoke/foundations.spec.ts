@@ -184,7 +184,7 @@ test.describe('with reduced motion', () => {
 					busy: true,
 					current_job: {
 						id: 'smoke-job',
-						guild_id: 1,
+						guild_id: '1',
 						status: 'scraping',
 						progress: {
 							current_channel: 'general',

@@ -58,7 +58,7 @@ test('a running scrape job is polled until it finishes, then history is read onc
 				busy: running,
 				current_job: {
 					id: 'smoke-job',
-					guild_id: 1,
+					guild_id: '1',
 					status: running ? 'scraping' : 'completed',
 					progress: {
 						current_channel: 'general',
@@ -137,7 +137,7 @@ interface FakeChannel {
 
 interface FakeJob {
 	id: string;
-	guild_id: number;
+	guild_id: string;
 	status: string;
 	progress: {
 		current_channel: string;
@@ -198,7 +198,7 @@ async function fakeScrapeControl(page: Page) {
 		const body = route.request().postDataJSON();
 		server.job = {
 			id: 'smoke-job-1',
-			guild_id: Number(body.guild_id),
+			guild_id: body.guild_id,
 			status: 'scraping',
 			progress: {
 				current_channel: '',
@@ -293,4 +293,50 @@ test('a started scrape job shows live, cancels after a confirmation, then shows 
 	}));
 	expect(stored.local).not.toContain(API_TOKEN);
 	expect(stored.session).toContain(API_TOKEN);
+});
+
+test('a scrape job names its guild by exact id, above 2^53 and not in the archive', async ({
+	page
+}) => {
+	// #68: guild ids are matched as strings. This one is not in the archive, and a
+	// JavaScript number would round it (to ...064). Night Owls' id rounds to the same
+	// number as Smoke Test Guild's, so only an exact match names it.
+	const OUTSIDE_ID = '165682173540696065';
+	const job = (id: string, guild_id: string) => ({
+		id,
+		guild_id,
+		status: 'completed',
+		progress: {
+			current_channel: '',
+			channels_done: 3,
+			messages_scraped: 21,
+			attachments_found: 0,
+			errors: [],
+			channels: []
+		},
+		started_at: T0.toISOString(),
+		completed_at: T0.toISOString(),
+		result: null,
+		error_message: null,
+		duration_seconds: 4
+	});
+	const outside = job('smoke-job-outside', OUTSIDE_ID);
+	await page.route('**/api/scrape/status', (route) =>
+		route.fulfill({
+			json: { busy: false, current_job: outside, has_token: true, control_enabled: true }
+		})
+	);
+	await page.route('**/api/scrape/history', (route) =>
+		route.fulfill({ json: { jobs: [outside, job('smoke-job-night', NIGHT_ID)] } })
+	);
+
+	await page.goto('/archive', { waitUntil: 'networkidle' });
+	const main = page.locator('main');
+	const card = main.locator('section[aria-labelledby="job-card-title"]');
+	await expect(card.locator('.guild-name')).toHaveText(`Guild ${OUTSIDE_ID}`);
+	const history = main.locator('section[aria-labelledby="history-title"]');
+	const guildOf = (jobId: string) =>
+		history.getByRole('row', { name: new RegExp(jobId) }).locator('td.guild');
+	await expect(guildOf('smoke-job-outside')).toHaveText(`Guild ${OUTSIDE_ID}`);
+	await expect(guildOf('smoke-job-night')).toHaveText('Night Owls');
 });

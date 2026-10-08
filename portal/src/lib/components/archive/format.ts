@@ -20,17 +20,14 @@ export function jobStatus(status: Status): { label: string; tone: Tone; icon: Ic
 	return STATUS[status] ?? { label: status, tone: 'neutral', icon: 'circle' };
 }
 
-/**
- * The archived guild a scrape job is for, or null. A job's `guild_id` is a JSON number,
- * which rounds a snowflake; an archived guild's id rounds the same way.
- */
+/** The archived guild a scrape job is for, or null: snowflakes match as strings. */
 export function jobGuild(job: ScrapeJob, guilds: Guild[]): Guild | null {
-	return guilds.find((g) => Number(g.id) === job.guild_id) ?? null;
+	return guilds.find((g) => g.id === job.guild_id) ?? null;
 }
 
 /** A job's guild by name, or by id when the archive does not hold it yet. */
 export function jobGuildName(job: ScrapeJob, guilds: Guild[]): string {
-	return jobGuild(job, guilds)?.name ?? `Guild ${BigInt(job.guild_id)}`;
+	return jobGuild(job, guilds)?.name ?? `Guild ${job.guild_id}`;
 }
 
 export function formatDuration(seconds: number | null): string {

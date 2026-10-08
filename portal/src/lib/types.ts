@@ -198,7 +198,7 @@ export interface ScrapeProgress {
 
 export interface ScrapeJob {
 	id: string;
-	guild_id: number;
+	guild_id: string;
 	status: 'pending' | 'connecting' | 'scraping' | 'completed' | 'failed' | 'cancelled';
 	progress: ScrapeProgress;
 	started_at: string | null;

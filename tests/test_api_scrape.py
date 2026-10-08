@@ -67,7 +67,7 @@ async def test_cancel_ends_the_job_and_history_lists_it(
     assert status["busy"] is False
     assert status["current_job"]["status"] == "cancelled"
     jobs = (await client.get("/api/scrape/history")).json()["jobs"]
-    assert [(j["id"], j["status"], j["guild_id"]) for j in jobs] == [("job1", "cancelled", 42)]
+    assert [(j["id"], j["status"], j["guild_id"]) for j in jobs] == [("job1", "cancelled", "42")]
     assert jobs[0]["progress"]["channels"] == [{"name": "general", "messages": 12, "done": False}]
 
 
@@ -80,6 +80,25 @@ async def test_a_guild_id_sent_as_a_string_keeps_every_digit(
     )
     assert started.status_code == 202
     assert fake.started == [165682173540696064]
+
+
+async def test_a_jobs_guild_id_is_a_string_with_every_digit(
+    client: AsyncClient, fake: FakeScrapeControl
+) -> None:
+    """Status, the current job and history name the guild by a string: above 2^53, a
+    JSON number would lose the last digits in the portal."""
+    guild_id = "165682173540696065"
+    assert int(guild_id) > 2**53 and float(int(guild_id)) != int(guild_id)
+
+    started = await client.post("/api/scrape/start", json={"guild_id": guild_id}, headers=AUTH)
+    assert started.json()["job"]["guild_id"] == guild_id
+
+    status = (await client.get("/api/scrape/status")).json()
+    assert status["current_job"]["guild_id"] == guild_id
+
+    fake.finish()
+    jobs = (await client.get("/api/scrape/history")).json()["jobs"]
+    assert [j["guild_id"] for j in jobs] == [guild_id]
 
 
 async def test_a_finished_job_has_every_channel_done(

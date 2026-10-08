@@ -170,7 +170,8 @@ class TestConfiguredScrapeControl:
 
         start = await client.post("/api/scrape/start", json={"guild_id": 7}, headers=AUTH)
         assert start.status_code == 202
-        assert start.json()["job"]["guild_id"] == 7
+        # A snowflake, so a string like every other id the API returns (#68)
+        assert start.json()["job"]["guild_id"] == "7"
         assert fake.started == [7]
 
         again = await client.post("/api/scrape/start", json={"guild_id": 8}, headers=AUTH)
