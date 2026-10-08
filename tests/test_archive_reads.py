@@ -64,6 +64,10 @@ class TestMediaKind:
         assert MediaKind.GIF is not MediaKind.IMAGE
         assert set(MediaKind.GIF.content_types) < set(MediaKind.IMAGE.content_types)
 
+    def test_media_is_images_and_videos(self) -> None:
+        expected = MediaKind.IMAGE.content_types + MediaKind.VIDEO.content_types
+        assert MediaKind.MEDIA.content_types == expected
+
 
 def test_escape_like_is_importable_only_from_archive_reads() -> None:
     """One definition, and every caller imports it from archive reads."""
@@ -643,6 +647,7 @@ class TestAttachments:
             (MediaKind.IMAGE, [504, 506, 501]),
             (MediaKind.GIF, [504]),
             (MediaKind.VIDEO, [502]),
+            (MediaKind.MEDIA, [502, 504, 506, 501]),
         ],
     )
     async def test_media_kind_newest_first_with_an_id_tie_break(
@@ -651,6 +656,15 @@ class TestAttachments:
         page = await archive_reads.attachments(reads, Scope(guild=GUILD), kind=kind, limit=50)
         assert _attachment_ids(page) == expected
         assert (page.total, page.has_more) == (len(expected), False)
+
+    async def test_oldest_first_is_the_exact_reverse(self, reads: AsyncSession) -> None:
+        scope, kind = Scope(guild=GUILD), MediaKind.MEDIA
+        newest = await archive_reads.attachments(reads, scope, kind=kind, limit=50)
+        oldest = await archive_reads.attachments(
+            reads, scope, kind=kind, limit=50, order=Order.OLDEST_FIRST
+        )
+        assert _attachment_ids(oldest) == _attachment_ids(newest)[::-1]
+        assert oldest.total == newest.total
 
     async def test_offset_paging(self, reads: AsyncSession) -> None:
         scope = Scope(guild=GUILD)

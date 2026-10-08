@@ -31,6 +31,8 @@ class MediaKind(Enum):
     IMAGE = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/avif")
     GIF = ("image/gif",)
     VIDEO = ("video/mp4", "video/webm", "video/quicktime")
+    # Everything the Media screen shows: images (GIFs among them) and videos.
+    MEDIA = IMAGE + VIDEO
 
     @property
     def content_types(self) -> tuple[str, ...]:
@@ -454,13 +456,18 @@ async def attachments(
     kind: MediaKind,
     limit: int,
     offset: int = 0,
+    order: Order = Order.NEWEST_FIRST,
 ) -> Page[AttachmentRow]:
-    """Attachments of a media kind on messages in scope, newest message first.
+    """Attachments of a media kind on messages in scope, newest message first by default.
 
-    Ties on the message time are broken by attachment id, newest first. The channel
-    name and author come from joins.
+    Ties on the message time are broken by attachment id, in the same direction. The
+    channel name and author come from joins.
     """
     where = [*_message_scope(scope), Attachment.content_type.in_(kind.content_types)]
+    if order is Order.NEWEST_FIRST:
+        ordering = (Message.created_at.desc(), Attachment.id.desc())
+    else:
+        ordering = (Message.created_at.asc(), Attachment.id.asc())
     rows = (
         select(
             Attachment,
@@ -474,7 +481,7 @@ async def attachments(
         .join(Message, Attachment.message_id == Message.id)
         .outerjoin(Channel, Message.channel_id == Channel.id)
         .outerjoin(User, Message.author_id == User.id)
-        .order_by(Message.created_at.desc(), Attachment.id.desc())
+        .order_by(*ordering)
     )
     fetched, total, has_more = await _page(
         session,

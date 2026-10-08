@@ -226,7 +226,7 @@ class GalleryResponse(BaseModel):
 
 
 class TimelineGalleryGroup(BaseModel):
-    """A group of images for a time period."""
+    """The gallery timeline's attachments from one time period on one page."""
 
     period: str
     label: str
@@ -235,7 +235,7 @@ class TimelineGalleryGroup(BaseModel):
 
 
 class TimelineGalleryResponse(BaseModel):
-    """Gallery images grouped by time period."""
+    """The gallery timeline: one page of attachments, grouped by time period."""
 
     groups: list[TimelineGalleryGroup]
     total: int
