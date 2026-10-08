@@ -241,6 +241,8 @@ test('back and forward restore each screen’s scroll position', async ({ page }
 	await main.locator('.person-row').nth(index).click();
 	await expect(page).toHaveURL(/\/people\/\d+$/);
 	await expect(main.getByText('Recent messages')).toBeVisible();
+	// Scrolled once it has loaded, as a reader can only scroll what is there.
+	await expect(main.locator('[aria-busy="true"]')).toHaveCount(0);
 	await expect.poll(scrollTop).toBe(0);
 	await main.evaluate((m) => (m.scrollTop = 120));
 	const profileTop = await scrollTop();
@@ -253,6 +255,37 @@ test('back and forward restore each screen’s scroll position', async ({ page }
 	await page.goForward();
 	await expect(page).toHaveURL(/\/people\/\d+$/);
 	await expect.poll(scrollTop).toBe(profileTop);
+});
+
+test('back and forward keep the restored position while the screen finishes loading', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 600 });
+	await page.goto('/people/900000000000000100', { waitUntil: 'networkidle' });
+	const main = page.locator('main');
+	await expect(main.locator('[aria-busy="true"]')).toHaveCount(0);
+	const scrollTop = () => main.evaluate((m) => m.scrollTop);
+	await main.evaluate((m) => (m.scrollTop = 120));
+	expect(await scrollTop()).toBe(120);
+	await page.getByRole('navigation', { name: 'Destinations' }).getByRole('link', { name: 'Overview' }).click();
+	await expect(page).toHaveURL('/');
+
+	// Back on the profile, its recent messages arrive at once and its profile late: the
+	// position is reached on the page half-loaded, and the profile then grows above it.
+	let release = () => {};
+	const held = new Promise<void>((resolve) => (release = resolve));
+	await page.route('**/api/users/*/profile*', async (route) => {
+		await held;
+		await route.continue();
+	});
+	await page.goBack();
+	await expect(page).toHaveURL('/people/900000000000000100');
+	await page.waitForFunction(
+		() => document.getElementById('shell-scroller')?.scrollTop === 120 && !!document.querySelector('.recent'),
+		undefined,
+		{ polling: 'raf' }
+	);
+	release();
+	await expect(main.getByRole('heading', { name: 'Alice', level: 1 })).toBeVisible();
+	await expect.poll(scrollTop).toBe(120);
 });
 
 test('a new screen opens at the top', async ({ page }) => {

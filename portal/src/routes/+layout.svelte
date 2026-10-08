@@ -74,8 +74,11 @@
 	}
 
 	/**
-	 * Scroll back to `y`. The route is usually still loading what made it that tall, so
-	 * keep trying each frame until it is reached, the reader scrolls, or 3 s pass.
+	 * Scroll back to `y`, and hold it there for 3 s, or until the reader scrolls. The
+	 * route is usually still loading what made it that tall: reaching `y` early proves
+	 * nothing, as the content arriving later can still clamp the position (a skeleton
+	 * swapped for something shorter) or shift it (scroll anchoring, when content grows
+	 * above the view). So each frame puts it back where it moved.
 	 */
 	function restoreScroll(y: number) {
 		stopRestoring();
@@ -83,20 +86,20 @@
 		const step = () => {
 			restoring = undefined;
 			if (!scroller) return;
-			scroller.scrollTop = y;
-			if (Math.abs(scroller.scrollTop - y) > 1 && performance.now() < until) {
-				restoring = requestAnimationFrame(step);
-			}
+			if (Math.abs(scroller.scrollTop - y) > 1) scroller.scrollTop = y;
+			if (performance.now() < until) restoring = requestAnimationFrame(step);
 		};
 		step();
 	}
 
-	// The reader taking the scroll back stops a restore.
+	// The reader taking the scroll back stops a restore: anywhere on the page, as keys
+	// scroll <main> while focus is outside it.
 	$effect(() => {
 		const events = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
-		for (const type of events) scroller?.addEventListener(type, stopRestoring, { passive: true });
+		const options = { capture: true, passive: true };
+		for (const type of events) window.addEventListener(type, stopRestoring, options);
 		return () => {
-			for (const type of events) scroller?.removeEventListener(type, stopRestoring);
+			for (const type of events) window.removeEventListener(type, stopRestoring, options);
 		};
 	});
 
