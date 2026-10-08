@@ -153,7 +153,7 @@ first guild when absent), and every page shows that guild.
 |---|---|---|
 | `/` | Overview | Guild stats |
 | `/browse` | Browse | Opens the guild's most active channel (`/channels` and `/timeline` redirect here) |
-| `/browse/[channel]` | Browse | A channel's messages beside the channel pane; `?message=<id>` opens it on one message (`/channel/[id]` and `/timeline?channel=` redirect here) |
+| `/browse/[channel]` | Browse | A channel's messages beside the channel pane; `?message=<id>` opens it on one message (`/channel/[id]` and `/timeline?channel=` redirect here); `?tab=media` and `?tab=pinned` show the channel's media and pinned messages |
 | `/media` | Media | Images, GIFs and videos in justified rows under month headers, filtered by type, channel and sort in the URL (`/gallery` and `/channel/[id]/gallery` redirect here) |
 | `/search` | Search | Messages holding every term, narrowed by filter chips typed into the query (`in:`, `from:`, `has:`, `after:`, `before:`); highlighted snippets open in context in Browse, a refine rail counts channels, people and months and adds their chips, and the query and sort live in the URL |
 | `/people` | People | Authors as a table, sortable by messages, name or recent activity, searchable by name (`/users` redirects here) |
