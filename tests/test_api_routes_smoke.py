@@ -36,6 +36,7 @@ from httpx import AsyncClient
                 "has_newer": None,
             },
         ),
+        ("/api/channels/1/activity", 404, {"detail": "Channel not found"}),
         (
             "/api/channels/1/gallery",
             200,

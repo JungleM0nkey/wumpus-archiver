@@ -151,3 +151,91 @@ async def test_without_pinned_every_message_is_listed(client: AsyncClient) -> No
 async def test_pinned_does_not_combine_with_around(client: AsyncClient) -> None:
     response = await client.get("/api/channels/10/messages", params={"around": 2, "pinned": "true"})
     assert response.status_code == 400
+
+
+# ── Replies (#61) ────────────────────────────────────────────────────────────
+
+
+async def _add_replies(database: Database) -> None:
+    """Replies on general to 1, 2 and to messages elsewhere: one in #off-topic, one not archived."""
+    async with database.session() as session:
+        session.add(User(id=101, username="bob", global_name="Bob"))
+        session.add(Channel(id=11, guild_id=1, name="off-topic", type=0))
+        long = "A long line   of text\nthat goes on " + "and on " * 30
+        session.add(
+            Message(
+                id=50,
+                channel_id=11,
+                author_id=101,
+                content=long,
+                clean_content=long,
+                created_at=WHEN,
+                scraped_at=WHEN,
+            )
+        )
+        for message_id, minutes, refers_to in [(4, 4, 1), (5, 5, 2), (6, 6, 50), (7, 7, 999)]:
+            session.add(
+                Message(
+                    id=message_id,
+                    channel_id=10,
+                    author_id=101,
+                    content=f"reply {message_id}",
+                    clean_content=f"reply {message_id}",
+                    created_at=WHEN + timedelta(minutes=minutes),
+                    reference_id=refers_to,
+                    scraped_at=WHEN,
+                )
+            )
+
+
+async def test_a_reply_carries_the_author_and_a_snippet_of_its_message(
+    client: AsyncClient, database: Database
+) -> None:
+    await _add_replies(database)
+    by_id = {m["id"]: m for m in (await _page(client))["messages"]}
+    assert by_id["4"]["reference"] == {
+        "id": "1",
+        "channel_id": "10",
+        "author": {
+            "id": "100",
+            "username": "alice",
+            "discriminator": None,
+            "global_name": None,
+            "avatar_url": None,
+            "bot": False,
+            "display_name": "alice",
+        },
+        "snippet": "message 1",
+    }
+    # A message in another channel, its text on one line and cut with an ellipsis.
+    elsewhere = by_id["6"]["reference"]
+    assert (elsewhere["channel_id"], elsewhere["author"]["display_name"]) == ("11", "Bob")
+    assert elsewhere["snippet"].startswith("A long line of text that goes on and on")
+    assert len(elsewhere["snippet"]) == 120 and elsewhere["snippet"].endswith("…")
+    # A reply to a message the archive does not hold keeps its id and has no reference.
+    assert (by_id["7"]["reference_id"], by_id["7"]["reference"]) == ("999", None)
+    assert by_id["1"]["reference"] is None
+
+
+async def test_a_pages_references_are_read_in_one_statement(
+    client: AsyncClient, database: Database, statements: list[str]
+) -> None:
+    """No N+1: four replies cost one statement more than a page without any."""
+    await _add_replies(database)
+    statements.clear()
+    without = await client.get("/api/channels/10/messages", params={"before": 4})
+    assert without.status_code == 200
+    plain = len(statements)
+    statements.clear()
+    with_replies = await client.get("/api/channels/10/messages", params={"after": 3})
+    assert [m["reference_id"] for m in with_replies.json()["messages"]] == ["999", "50", "2", "1"]
+    assert len(statements) == plain + 1
+
+
+async def test_a_reply_on_an_around_page_carries_its_reference(
+    client: AsyncClient, database: Database
+) -> None:
+    await _add_replies(database)
+    page = await _page(client, limit=3, around=5)
+    reference = {m["id"]: m["reference"] for m in page["messages"]}["5"]
+    assert (reference["id"], reference["snippet"]) == ("2", "message 2")

@@ -89,6 +89,19 @@ class ReactionSchema(BaseModel):
     count: int = 1
 
 
+class MessageReferenceSchema(BaseModel):
+    """The message a reply refers to, as much of it as the reply shows.
+
+    ``snippet`` is the start of its text on one line, cut at ``REFERENCE_SNIPPET_LENGTH``
+    characters with an ellipsis; empty when it has no text (only attachments or embeds).
+    """
+
+    id: Snowflake
+    channel_id: Snowflake
+    author: UserSchema | None = None
+    snippet: str = ""
+
+
 class MessageSchema(BaseModel):
     """Message response schema."""
 
@@ -106,6 +119,9 @@ class MessageSchema(BaseModel):
     mention_everyone: bool = False
     embeds: str | None = None
     reference_id: OptionalSnowflake = None
+    # The message ``reference_id`` names, on the channel reader's pages; null when the
+    # archive does not hold it, and on other reads.
+    reference: MessageReferenceSchema | None = None
     author: UserSchema | None = None
     attachments: list[AttachmentSchema] = []
     reactions: list[ReactionSchema] = []
@@ -240,6 +256,22 @@ class ActivitySchema(BaseModel):
 
     period: Literal["month", "week"]
     buckets: list[ActivityBucketSchema]
+
+
+class ChannelActivityBucketSchema(ActivityBucketSchema):
+    """A channel's messages in one period, with the id of the period's first message."""
+
+    first_message_id: Snowflake
+
+
+class ChannelActivitySchema(BaseModel):
+    """A channel's activity: messages per period, oldest first, only periods holding messages.
+
+    Each period names its first message, so a reader can open the channel there.
+    """
+
+    period: Literal["month", "week"]
+    buckets: list[ChannelActivityBucketSchema]
 
 
 class GalleryAttachmentSchema(BaseModel):

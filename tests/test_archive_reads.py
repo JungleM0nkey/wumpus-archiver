@@ -1112,6 +1112,80 @@ class TestActivity:
         by_aware = await archive_reads.activity(reads, Scope(), period=Period.MONTH, since=aware)
         assert by_naive == by_aware == [ActivityBucket(date(2024, 2, 1), 1)]
 
+    async def test_each_bucket_can_name_its_first_message(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        """Browse's jump rail opens a channel at a month's first message (#61)."""
+        sibling = Scope(channel=SIBLING_CHANNEL)
+        buckets = await archive_reads.activity(
+            reads, sibling, period=Period.MONTH, with_first_message=True
+        )
+        assert buckets == [
+            ActivityBucket(date(2023, 12, 1), 1, 43),
+            ActivityBucket(date(2024, 1, 1), 3, 30),
+            ActivityBucket(date(2024, 2, 1), 1, 33),
+        ]
+        assert len(statements) == 2
+        # Over a guild, January's first is message 1 at 22:00, before 30 and 40 at 22:05.
+        guild = await archive_reads.activity(
+            reads, Scope(guild=GUILD), period=Period.MONTH, with_first_message=True
+        )
+        assert [b.first_message_id for b in guild] == [43, 1, 33]
+
+    async def test_without_first_messages_the_buckets_name_none(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        buckets = await archive_reads.activity(reads, IN_CHANNEL, period=Period.WEEK)
+        assert buckets == [ActivityBucket(date(2024, 1, 29), len(CHANNEL_ORDER))]
+        assert len(statements) == 1
+
+    async def test_an_empty_scope_has_no_buckets_to_name(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        empty = Scope(channel=QUIET_CHANNEL)
+        assert (
+            await archive_reads.activity(reads, empty, period=Period.MONTH, with_first_message=True)
+            == []
+        )
+        assert len(statements) == 1
+
+
+@in_module_loop
+class TestChannel:
+    async def test_one_channel_or_none(self, reads: AsyncSession) -> None:
+        found = await archive_reads.channel(reads, SIBLING_CHANNEL)
+        assert found is not None and found.name == "random"
+        assert await archive_reads.channel(reads, 999) is None
+
+
+@in_module_loop
+class TestReferencedMessages:
+    async def test_a_page_without_replies_reads_nothing(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        page = await archive_reads.messages(reads, IN_CHANNEL, order=OLDEST, limit=3)
+        statements.clear()
+        assert await archive_reads.referenced_messages(reads, page.rows) == {}
+        assert statements == []
+
+    async def test_one_statement_reads_every_referenced_message_with_its_author(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        # Replies that are not in the archive themselves: only their reference_id is read.
+        replies = [
+            Message(id=900, reference_id=2),
+            Message(id=901, reference_id=40),
+            Message(id=902, reference_id=2),
+            Message(id=903, reference_id=777),
+        ]
+        referenced = await archive_reads.referenced_messages(reads, replies)
+        assert sorted(referenced) == [2, 40]
+        assert len(statements) == 1
+        # Their authors are loaded with them, with no further statement.
+        assert {m.author.username for m in referenced.values() if m.author} == {"bob"}
+        assert referenced[40].channel_id == FOREIGN_CHANNEL
+        assert len(statements) == 1
+
 
 @in_module_loop
 class TestTopChannels:
@@ -1171,6 +1245,8 @@ async def test_every_read_compiles_for_sqlite_and_postgresql(reads: AsyncSession
         await archive_reads.authors(reads, scope, sort=AuthorSort.RECENT, limit=1, name="a")
         await archive_reads.guilds(reads)
         await archive_reads.guild(reads, GUILD)
+        await archive_reads.channel(reads, CHANNEL)
+        await archive_reads.referenced_messages(reads, [Message(id=900, reference_id=1)])
         await archive_reads.guild_channels(reads, GUILD)
         await archive_reads.guild_counts(reads, [GUILD])
         await archive_reads.user(reads, ALICE)
@@ -1182,6 +1258,7 @@ async def test_every_read_compiles_for_sqlite_and_postgresql(reads: AsyncSession
         await archive_reads.channel_activity(reads, scope, limit=1)
         await archive_reads.reactions(reads, scope, limit=1)
         await archive_reads.activity(reads, scope, period=Period.WEEK, since=T0)
+        await archive_reads.activity(reads, scope, period=Period.MONTH, with_first_message=True)
         await archive_reads.top_channels(reads, GUILD, limit=1)
         await archive_reads.search_facets(
             reads, scope, limit=1, terms=["a"], has=Has.IMAGE, since=T0, until=T0

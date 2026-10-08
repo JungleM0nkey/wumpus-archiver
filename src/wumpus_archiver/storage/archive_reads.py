@@ -218,10 +218,15 @@ class Period(StrEnum):
 
 @dataclass(frozen=True)
 class ActivityBucket:
-    """Messages in one calendar month or ISO week, starting on ``start``."""
+    """Messages in one calendar month or ISO week, starting on ``start``.
+
+    ``first_message_id`` is the bucket's oldest message, in the readers' ``(created_at,
+    id)`` order, when the read was asked for it (``with_first_message``); else ``None``.
+    """
 
     start: date
     messages: int
+    first_message_id: int | None = None
 
 
 class Order(StrEnum):
@@ -490,6 +495,22 @@ async def messages_around(
     )
 
 
+async def referenced_messages(session: AsyncSession, page: Sequence[Message]) -> dict[int, Message]:
+    """The messages that the messages of ``page`` reply to, by id, with their author loaded.
+
+    One statement for the whole page, and none when nothing on it is a reply. A reply to
+    a message the archive does not hold has no entry. The referenced message may be in
+    another channel; its other relationships are left unloaded.
+    """
+    ids = {message.reference_id for message in page if message.reference_id is not None}
+    if not ids:
+        return {}
+    result = await session.execute(
+        select(Message).options(joinedload(Message.author)).where(Message.id.in_(ids))
+    )
+    return {message.id: message for message in result.scalars().all()}
+
+
 async def _anchor(session: AsyncSession, cursor: int | None) -> tuple[datetime, int] | None:
     """The ``(created_at, id)`` of a cursor message, or ``None`` if there is none."""
     if cursor is None:
@@ -510,6 +531,12 @@ async def guilds(session: AsyncSession) -> list[Guild]:
 async def guild(session: AsyncSession, guild_id: int) -> Guild | None:
     """One archived guild, or ``None`` if the archive does not hold it."""
     result = await session.execute(select(Guild).where(Guild.id == guild_id))
+    return result.scalar_one_or_none()
+
+
+async def channel(session: AsyncSession, channel_id: int) -> Channel | None:
+    """One archived channel, or ``None`` if the archive does not hold it."""
+    result = await session.execute(select(Channel).where(Channel.id == channel_id))
     return result.scalar_one_or_none()
 
 
@@ -749,12 +776,18 @@ async def activity(
     *,
     period: Period,
     since: datetime | None = None,
+    with_first_message: bool = False,
 ) -> list[ActivityBucket]:
     """Messages per calendar month or ISO week over a scope, oldest first.
 
     Only buckets holding messages are returned. SQL groups by day with ``extract``
     and the days are folded into periods here, so no dialect-bound date function
     is emitted. ``since`` is inclusive; an aware datetime is converted to naive UTC.
+
+    ``with_first_message`` also finds each bucket's oldest message, for a reader that
+    opens at the start of a period: the day groups carry their earliest ``created_at``,
+    and one more statement reads the ids at those instants, keeping the lowest id where
+    several messages share one, as the readers' ``(created_at, id)`` order does.
     """
     where = _message_scope(scope)
     if since is not None:
@@ -763,14 +796,31 @@ async def activity(
     month = extract("month", Message.created_at)
     day = extract("day", Message.created_at)
     result = await session.execute(
-        select(year, month, day, func.count()).where(*where).group_by(year, month, day)
+        select(year, month, day, func.count(), func.min(Message.created_at))
+        .where(*where)
+        .group_by(year, month, day)
     )
     buckets: dict[date, int] = {}
-    for y, m, d, count in result.all():
+    earliest: dict[date, datetime] = {}
+    for y, m, d, count, first_at in result.all():
         on = date(int(y), int(m), int(d))
         start = on - timedelta(days=on.weekday()) if period is Period.WEEK else on.replace(day=1)
         buckets[start] = buckets.get(start, 0) + int(count)
-    return [ActivityBucket(start, buckets[start]) for start in sorted(buckets)]
+        if start not in earliest or first_at < earliest[start]:
+            earliest[start] = first_at
+    starts = sorted(buckets)
+    if not with_first_message or not starts:
+        return [ActivityBucket(start, buckets[start]) for start in starts]
+
+    firsts = await session.execute(
+        select(Message.created_at, func.min(Message.id))
+        .where(*where, Message.created_at.in_(set(earliest.values())))
+        .group_by(Message.created_at)
+    )
+    first_ids: dict[datetime, int] = {at: int(message_id) for at, message_id in firsts.all()}
+    return [
+        ActivityBucket(start, buckets[start], first_ids.get(earliest[start])) for start in starts
+    ]
 
 
 @dataclass(frozen=True)

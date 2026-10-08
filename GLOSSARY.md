@@ -114,3 +114,7 @@ _Avoid_: viewer, modal, image popup
 **People screen**:
 The portal page that lists authors.
 _Avoid_: users page, members page
+
+**Jump rail**:
+Browse's column of a channel's years and months, each with its message count from the channel's activity. Picking a month opens the reader at that month's first message.
+_Avoid_: timeline, date picker
