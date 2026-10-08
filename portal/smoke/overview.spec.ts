@@ -125,8 +125,10 @@ test("the archive health card's attachment progress matches download stats", asy
 	const card = page.locator('main .health');
 	await expect(card.locator('.downloaded-count')).toHaveText(`${stats.downloaded} of ${stats.total_images}`);
 	const meter = card.getByRole('progressbar', { name: 'Images downloaded' });
-	await expect(meter).toHaveAttribute('aria-valuenow', String(stats.downloaded));
-	await expect(meter).toHaveAttribute('aria-valuemax', String(stats.total_images));
+	await expect(meter).toHaveAttribute(
+		'aria-valuenow',
+		String(Math.round((stats.downloaded / stats.total_images) * 100))
+	);
 	await expect(card.locator('.health-value')).toHaveText(
 		`${Math.floor((stats.downloaded / stats.total_images) * 100)}%`
 	);

@@ -8,6 +8,7 @@
 	import type { DownloadStatsResponse, Guild, ScrapeStatusResponse, SinceLastScrape } from '#lib/types.ts';
 	import Icon from './ui/Icon.svelte';
 	import type { IconName } from './ui/icons.ts';
+	import ProgressBar from './ui/ProgressBar.svelte';
 
 	let {
 		guild,
@@ -119,17 +120,8 @@
 			<dt>Local attachments</dt>
 			{#if downloads}
 				<dd class="health-value mono">{percent === null ? '—' : `${percent}%`}</dd>
-				<dd class="meter-wrap">
-					<div
-						class="meter"
-						role="progressbar"
-						aria-label="Images downloaded"
-						aria-valuemin={0}
-						aria-valuemax={downloads.total_images}
-						aria-valuenow={downloads.downloaded}
-					>
-						<div class="meter-fill" style:width="{(progress ?? 0) * 100}%"></div>
-					</div>
+				<dd>
+					<ProgressBar value={progress === null ? 0 : progress * 100} label="Images downloaded" />
 				</dd>
 				<dd class="health-detail">
 					{#if downloads.total_images === 0}
@@ -231,19 +223,6 @@
 		font-size: 22px;
 		line-height: 28px;
 		color: var(--text-primary);
-	}
-
-	.meter {
-		height: 6px;
-		border-radius: var(--radius-full);
-		background: var(--accent-muted);
-		overflow: hidden;
-	}
-
-	.meter-fill {
-		height: 100%;
-		border-radius: var(--radius-full);
-		background: var(--accent);
 	}
 
 	.health-status {
