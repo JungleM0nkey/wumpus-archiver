@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { getGuilds, getMessages } from '#lib/api.ts';
+	import { getGuilds } from '#lib/api.ts';
+	import { keepingPosition, newestPage, olderPage, scrollToBottom } from '#lib/reader.ts';
 	import type { Guild, GuildDetail, Channel, Message } from '#lib/types.ts';
 	import { getGuild } from '#lib/api.ts';
 	import MessageCard from '#lib/components/MessageCard.svelte';
@@ -15,6 +16,8 @@
 	let loadingMore = $state(false);
 	let error = $state('');
 	let hasMore = $state(false);
+	let scroller: HTMLElement | undefined = $state();
+	const limit = 100;
 
 	// Filters
 	let selectedChannel: string | null = $state(null);
@@ -53,24 +56,24 @@
 		if (!selectedChannel) return;
 		loading = true;
 		try {
-			const res = await getMessages(selectedChannel, { limit: 100 });
-			messages = res.messages;
-			hasMore = res.has_more;
+			({ messages, hasMore } = await newestPage(selectedChannel, limit));
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load messages';
 		} finally {
 			loading = false;
 		}
+		await scrollToBottom(scroller);
 	}
 
-	async function loadMoreMessages() {
-		if (!selectedChannel || !hasMore || loadingMore) return;
+	async function loadOlderMessages() {
+		if (!selectedChannel || !hasMore || loadingMore || messages.length === 0) return;
 		loadingMore = true;
 		try {
-			const afterId = messages.length > 0 ? messages[messages.length - 1].id : undefined;
-			const res = await getMessages(selectedChannel, { limit: 100, after: afterId });
-			messages = [...messages, ...res.messages];
-			hasMore = res.has_more;
+			const older = await olderPage(selectedChannel, messages[0], limit);
+			await keepingPosition(scroller, () => {
+				messages = [...older.messages, ...messages];
+				hasMore = older.hasMore;
+			});
 		} catch (e) {
 			console.error('Failed to load more:', e);
 		} finally {
@@ -139,7 +142,7 @@
 			</header>
 		{/if}
 
-		<div class="timeline-content">
+		<div class="timeline-content" bind:this={scroller}>
 			{#if loading && messages.length === 0}
 				<div class="center-state">
 					<div class="spinner"></div>
@@ -152,20 +155,22 @@
 					<span class="mono">No messages in this channel.</span>
 				</div>
 			{:else}
-				<TimelineFeed {messages} />
+				<div class="feed">
+					{#if hasMore}
+						<div class="load-more">
+							<button class="load-more-btn" onclick={loadOlderMessages} disabled={loadingMore}>
+								{#if loadingMore}
+									<div class="spinner-sm"></div>
+									Loading...
+								{:else}
+									Load older messages
+								{/if}
+							</button>
+						</div>
+					{/if}
 
-				{#if hasMore}
-					<div class="load-more">
-						<button class="load-more-btn" onclick={loadMoreMessages} disabled={loadingMore}>
-							{#if loadingMore}
-								<div class="spinner-sm"></div>
-								Loading...
-							{:else}
-								Load older messages
-							{/if}
-						</button>
-					</div>
-				{/if}
+					<TimelineFeed {messages} />
+				</div>
 			{/if}
 		</div>
 	</div>
@@ -273,6 +278,7 @@
 		margin-top: var(--sp-1);
 	}
 
+	/* The feed sits at the bottom while it is shorter than the area, as a chat does. */
 	.timeline-content {
 		flex: 1;
 		overflow-y: auto;
@@ -280,6 +286,12 @@
 		max-width: var(--max-content);
 		width: 100%;
 		margin: 0 auto;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.feed {
+		margin-top: auto;
 	}
 
 	.center-state {

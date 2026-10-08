@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { PageProps } from './$types';
-	import { getMessages, getGuilds, getGuild } from '#lib/api.ts';
+	import { getGuilds, getGuild } from '#lib/api.ts';
+	import { keepingPosition, newestPage, olderPage, scrollToBottom } from '#lib/reader.ts';
 	import type { Message, Channel } from '#lib/types.ts';
 	import TimelineFeed from '#lib/components/TimelineFeed.svelte';
 
@@ -13,7 +14,8 @@
 	let loading = $state(true);
 	let loadingMore = $state(false);
 	let error = $state('');
-	let hasMore = $state(true);
+	let hasMore = $state(false);
+	let scroller: HTMLElement | undefined = $state();
 	const limit = 50;
 
 	onMount(async () => {
@@ -35,24 +37,24 @@
 
 	async function loadMessages() {
 		try {
-			const res = await getMessages(channelId, { limit });
-			messages = res.messages;
-			hasMore = res.has_more;
+			({ messages, hasMore } = await newestPage(channelId, limit));
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load messages';
 		} finally {
 			loading = false;
 		}
+		await scrollToBottom(scroller);
 	}
 
-	async function loadMore() {
-		if (loadingMore || !hasMore) return;
+	async function loadOlder() {
+		if (loadingMore || !hasMore || messages.length === 0) return;
 		loadingMore = true;
 		try {
-			const afterId = messages.length > 0 ? messages[messages.length - 1].id : undefined;
-			const res = await getMessages(channelId, { limit, after: afterId });
-			messages = [...messages, ...res.messages];
-			hasMore = res.has_more;
+			const older = await olderPage(channelId, messages[0], limit);
+			await keepingPosition(scroller, () => {
+				messages = [...older.messages, ...messages];
+				hasMore = older.hasMore;
+			});
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load more';
 		} finally {
@@ -83,7 +85,7 @@
 		{/if}
 	</header>
 
-	<div class="message-area">
+	<div class="message-area" bind:this={scroller}>
 		{#if loading}
 			<div class="center-state">
 				<div class="spinner"></div>
@@ -98,11 +100,9 @@
 			</div>
 		{:else}
 			<div class="feed-container">
-				<TimelineFeed {messages} />
-
 				{#if hasMore}
 					<div class="load-more">
-						<button class="load-more-btn" onclick={loadMore} disabled={loadingMore}>
+						<button class="load-more-btn" onclick={loadOlder} disabled={loadingMore}>
 							{#if loadingMore}
 								<span class="spinner small"></span> Loading...
 							{:else}
@@ -115,6 +115,8 @@
 						— Beginning of archive —
 					</div>
 				{/if}
+
+				<TimelineFeed {messages} />
 			</div>
 		{/if}
 	</div>
@@ -196,15 +198,19 @@
 
 	.gallery-link:hover { opacity: 0.8; }
 
+	/* The feed sits at the bottom while it is shorter than the area, as a chat does. */
 	.message-area {
 		flex: 1;
 		overflow-y: auto;
 		padding: var(--sp-6);
+		display: flex;
+		flex-direction: column;
 	}
 
 	.feed-container {
+		width: 100%;
 		max-width: var(--max-content);
-		margin: 0 auto;
+		margin: auto auto 0;
 	}
 
 	.load-more {

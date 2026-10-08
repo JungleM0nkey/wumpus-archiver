@@ -1,6 +1,7 @@
 """The channel messages route over a seeded archive."""
 
 from datetime import datetime, timedelta
+from typing import Any
 
 import pytest
 from httpx import AsyncClient
@@ -33,14 +34,49 @@ async def seeded(database: Database) -> None:
             )
 
 
-async def test_channel_messages_open_at_the_oldest(client: AsyncClient) -> None:
-    response = await client.get("/api/channels/10/messages", params={"limit": 2})
+async def _page(client: AsyncClient, **params: int) -> dict[str, Any]:
+    response = await client.get("/api/channels/10/messages", params=params)
     assert response.status_code == 200
-    payload = response.json()
-    assert [m["id"] for m in payload["messages"]] == ["1", "2"]
+    payload: dict[str, Any] = response.json()
+    return payload
+
+
+def _ids(payload: dict[str, Any]) -> list[str]:
+    return [m["id"] for m in payload["messages"]]
+
+
+async def test_channel_messages_open_at_the_newest(client: AsyncClient) -> None:
+    payload = await _page(client, limit=2)
+    assert _ids(payload) == ["3", "2"]
     assert payload["messages"][0]["author"]["username"] == "alice"
     assert (payload["total"], payload["has_more"]) == (3, True)
-    assert (payload["before_id"], payload["after_id"]) == ("1", "2")
+    assert (payload["before_id"], payload["after_id"]) == ("2", "3")
+
+
+async def test_before_the_oldest_loaded_returns_the_adjacent_older_page(
+    client: AsyncClient,
+) -> None:
+    first = await _page(client, limit=1)
+    older = await _page(client, limit=1, before=int(first["before_id"]))
+    assert (_ids(first), _ids(older)) == (["3"], ["2"])
+    assert (older["total"], older["has_more"]) == (3, True)
+    assert (older["before_id"], older["after_id"]) == ("2", "2")
+
+
+async def test_has_more_is_false_at_the_channels_first_message(client: AsyncClient) -> None:
+    last = await _page(client, limit=2, before=3)
+    assert _ids(last) == ["2", "1"]
+    assert last["has_more"] is False
+    assert (await _page(client, limit=5))["has_more"] is False
+    beyond = await _page(client, before=1)
+    assert (_ids(beyond), beyond["has_more"], beyond["before_id"]) == ([], False, None)
+
+
+async def test_after_returns_the_adjacent_newer_page_newest_first(client: AsyncClient) -> None:
+    newer = await _page(client, limit=1, after=1)
+    assert (_ids(newer), newer["has_more"]) == (["2"], True)
+    newest = await _page(client, limit=5, after=1)
+    assert (_ids(newest), newest["has_more"]) == (["3", "2"], False)
 
 
 async def test_the_page_does_not_load_the_channel(

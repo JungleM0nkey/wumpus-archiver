@@ -14,9 +14,8 @@ from wumpus_archiver.storage.archive_reads import Order, Scope
 
 router = APIRouter()
 
-# The channel reader opens at the oldest messages until the portal's reader is changed
-# to open at the newest; the default flips here (ADR 0003).
-DEFAULT_ORDER = Order.OLDEST_FIRST
+# The channel reader opens at the newest messages and pages back with ``before`` (ADR 0003).
+DEFAULT_ORDER = Order.NEWEST_FIRST
 
 
 @router.get("/channels/{channel_id}/messages", response_model=MessageListResponse)

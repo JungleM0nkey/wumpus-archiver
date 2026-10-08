@@ -55,7 +55,7 @@
 - `storage/archive_reads.py`: named reads over a `Scope(guild, channel, author)` that take the
   route's session and return their own totals (`Page`), replacing SQL composed in each route
 - Anchored message cursors as a `(created_at, id)` keyset; the newest-first flip waits for the
-  portal (`DEFAULT_ORDER` in `api/routes/messages.py`)
+  portal (`DEFAULT_ORDER` in `api/routes/messages.py`), since flipped (#56)
 - Search totals now agree with their rows (the author filter narrows the count too); guild and
   channel apply together everywhere
 - Guild list in three statements (no per-guild COUNTs); gallery and search channel names from joins
