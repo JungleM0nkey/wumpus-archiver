@@ -259,6 +259,8 @@
 		border: 1px solid transparent;
 		border-radius: var(--radius-sm);
 		transition: background-color var(--duration-micro) var(--ease-out-quint);
+		/* Scrolled into view (J/K, a reply), the row stops below its day's sticky pill. */
+		scroll-margin-top: var(--space-10);
 	}
 
 	.row.continuation {

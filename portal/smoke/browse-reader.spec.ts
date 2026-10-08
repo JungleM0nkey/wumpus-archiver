@@ -295,5 +295,10 @@ test('on a phone the reader has no jump rail', async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto(`/browse/${GENERAL_ID}`, { waitUntil: 'networkidle' });
 	await expect(said(page.locator('main'), 'The hello world of June.')).toBeInViewport();
-	await expect(rail(page)).toBeHidden();
+	// Loaded, but hidden below 768px.
+	const hiddenRail = page.getByRole('navigation', { name: 'Jump to a month', includeHidden: true });
+	await expect(
+		hiddenRail.getByRole('button', { name: 'May 2024, 4 messages', includeHidden: true })
+	).toBeAttached();
+	await expect(hiddenRail).toBeHidden();
 });
