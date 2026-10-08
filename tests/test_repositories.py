@@ -119,10 +119,24 @@ class TestChannelRepository:
         await repo.upsert(channel)
         await session.flush()
 
-        updated = Channel(id=2101, guild_id=2100, name="new-name", type=0, position=5)
+        stored = await repo.get_by_id(2101)
+        assert stored is not None
+        stored.first_message_id, stored.last_message_id, stored.message_count = 10, 20, 2
+        stored.last_scraped_at = datetime(2024, 1, 1)
+        await session.flush()
+
+        # A channel freshly built from Discord carries no archive metadata.
+        updated = Channel(id=2101, guild_id=2100, name="new-name", type=5, position=5)
         result = await repo.upsert(updated)
         assert result.name == "new-name"
+        assert result.type == 5
         assert result.position == 5
+        assert (result.first_message_id, result.last_message_id, result.message_count) == (
+            10,
+            20,
+            2,
+        )
+        assert result.last_scraped_at == datetime(2024, 1, 1)
 
     async def test_update_message_metadata(self, session: AsyncSession) -> None:
         """Test updating channel message metadata."""
@@ -141,12 +155,13 @@ class TestChannelRepository:
         )
         await session.flush()
 
-        await repo.update_message_metadata(2301, last_message_id=99999)
+        await repo.update_message_metadata(2301)
         await session.flush()
 
         result = await repo.get_by_id(2301)
         assert result is not None
-        assert result.last_message_id == 99999
+        # Oldest and newest archived, in the readers' (created_at, id) order.
+        assert (result.first_message_id, result.last_message_id) == (99997, 99999)
         assert result.message_count == 3
         assert result.last_scraped_at is not None
 

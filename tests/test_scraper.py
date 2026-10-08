@@ -100,3 +100,97 @@ async def test_the_channels_and_stats_routes_count_each_channels_messages_after_
         "general": 5,
         "random": 2,
     }
+
+
+# A channel's first and last message ids after scrapes (#70): they name the oldest and
+# newest messages the archive holds for the channel, whatever a given scrape read.
+
+
+async def _message_ids(database: Database) -> dict[int, tuple[int | None, int | None]]:
+    """Each channel's (``first_message_id``, ``last_message_id``)."""
+    async with database.session() as session:
+        rows = await session.execute(
+            select(Channel.id, Channel.first_message_id, Channel.last_message_id).where(
+                Channel.guild_id == GUILD
+            )
+        )
+    return {channel: (first, last) for channel, first, last in rows.all()}
+
+
+async def test_a_rescrape_that_reaches_older_messages_moves_the_first_message_id_back(
+    database: Database,
+) -> None:
+    guild = _guild()
+    bot = fake_archiver_bot(database, guild)
+    await bot.scrape_guild(GUILD)
+    assert (await _message_ids(database))[GENERAL] == (1_000, 1_004)
+
+    # History the first scrape did not reach, older than anything it archived.
+    guild.text_channels[0].post(900, 901)
+    await bot.scrape_guild(GUILD)
+
+    assert await _message_ids(database) == {GENERAL: (900, 1_004), RANDOM: (2_000, 2_001)}
+
+
+async def test_a_channel_first_scraped_empty_gets_both_ids_once_it_has_messages(
+    database: Database,
+) -> None:
+    guild = _guild()
+    quiet = guild.add_channel(512, "quiet")
+    bot = fake_archiver_bot(database, guild)
+    await bot.scrape_guild(GUILD)
+    assert (await _message_ids(database))[512] == (None, None)
+
+    quiet.post(3_000, 3_001, 3_002)
+    await bot.scrape_guild(GUILD)
+
+    assert (await _message_ids(database))[512] == (3_000, 3_002)
+
+
+async def test_a_rescrape_that_reads_less_keeps_the_ids_of_the_messages_still_archived(
+    database: Database,
+) -> None:
+    """Messages a scrape no longer reads stay archived, so the ids still name them."""
+    guild = _guild()
+    bot = fake_archiver_bot(database, guild)
+    await bot.scrape_guild(GUILD)
+
+    guild.text_channels[0].message_ids[:] = [1_002]
+    guild.text_channels[1].message_ids.clear()
+    await bot.scrape_guild(GUILD)
+
+    assert await _message_ids(database) == {GENERAL: (1_000, 1_004), RANDOM: (2_000, 2_001)}
+
+
+async def test_a_rescrape_refreshes_a_channels_details_and_keeps_its_archive_metadata(
+    database: Database,
+) -> None:
+    guild = _guild()
+    general = guild.text_channels[0]
+    bot = fake_archiver_bot(database, guild)
+    await bot.scrape_guild(GUILD)
+
+    general.name = "lobby"
+    general.topic = "Say hello"
+    general.position = 3
+    general.category_id = 590
+    general.type.value = 5  # converted to an announcement channel
+    await bot.scrape_guild(GUILD)
+
+    async with database.session() as session:
+        stored = await session.get(Channel, GENERAL)
+        assert stored is not None
+        assert (stored.name, stored.topic, stored.position, stored.parent_id, stored.type) == (
+            "lobby",
+            "Say hello",
+            3,
+            590,
+            5,
+        )
+        assert (stored.guild_id, stored.first_message_id, stored.last_message_id) == (
+            GUILD,
+            1_000,
+            1_004,
+        )
+        assert stored.message_count == 5
+        assert stored.last_scraped_at is not None

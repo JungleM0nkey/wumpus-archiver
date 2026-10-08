@@ -72,10 +72,17 @@ class ChannelRepository:
         return result.scalar_one_or_none()
 
     async def upsert(self, channel: Channel) -> Channel:
-        """Insert or update channel."""
+        """Insert a channel, or refresh a stored one's details from Discord.
+
+        Only what Discord says about the channel is copied: its name, type, topic,
+        position and parent. The archive metadata (first and last message ids, message
+        count, last scraped) is never taken from ``channel``, which a scraper builds
+        fresh without it; ``update_message_metadata`` derives it from the archive.
+        """
         existing = await self.get_by_id(channel.id)
         if existing:
             existing.name = channel.name
+            existing.type = channel.type
             existing.topic = channel.topic
             existing.position = channel.position
             existing.parent_id = channel.parent_id
@@ -84,23 +91,37 @@ class ChannelRepository:
             self.session.add(channel)
             return channel
 
-    async def update_message_metadata(
-        self, channel_id: int, last_message_id: int | None = None
-    ) -> None:
-        """Record a finished scrape of a channel: its last message, and its message count.
+    async def update_message_metadata(self, channel_id: int) -> None:
+        """Record a finished scrape of a channel from the messages the archive holds for it.
 
-        ``message_count`` is recounted from the messages the archive holds for the
-        channel rather than incremented by the messages the scrape read, so a re-scrape
-        cannot inflate it and a count inflated before this rule is corrected (#69).
+        ``first_message_id`` and ``last_message_id`` name the channel's oldest and newest
+        archived messages, in the readers' ``(created_at, id)`` order, and
+        ``message_count`` counts them. All three are read from the archive rather than
+        from what the scrape read, so a re-scrape cannot inflate the count (#69), a
+        scrape that reaches older history moves the first id back (#70), and values an
+        earlier scrape left wrong are corrected by the next one.
         """
         channel = await self.get_by_id(channel_id)
         if channel:
-            if last_message_id is not None:
-                channel.last_message_id = last_message_id
+            in_channel = Message.channel_id == channel_id
             archived = await self.session.execute(
-                select(func.count()).select_from(Message).where(Message.channel_id == channel_id)
+                select(func.count()).select_from(Message).where(in_channel)
             )
             channel.message_count = archived.scalar_one()
+            oldest = await self.session.execute(
+                select(Message.id)
+                .where(in_channel)
+                .order_by(Message.created_at.asc(), Message.id.asc())
+                .limit(1)
+            )
+            channel.first_message_id = oldest.scalar_one_or_none()
+            newest = await self.session.execute(
+                select(Message.id)
+                .where(in_channel)
+                .order_by(Message.created_at.desc(), Message.id.desc())
+                .limit(1)
+            )
+            channel.last_message_id = newest.scalar_one_or_none()
             channel.last_scraped_at = datetime.now(UTC)
 
 

@@ -229,8 +229,6 @@ class ArchiverBot:
         await channel_repo.upsert(db_channel)
 
         stats = {"messages": 0, "attachments": 0}
-        first_message_id: int | None = None
-        last_message_id: int | None = None
         batch_size = 100
 
         # Fetch messages with pagination (newest first)
@@ -238,11 +236,6 @@ class ArchiverBot:
             try:
                 await self._save_message(session, message)
                 stats["messages"] += 1
-
-                # Track first/last message IDs (oldest_first=False → first seen is newest)
-                if last_message_id is None:
-                    last_message_id = message.id
-                first_message_id = message.id
 
                 if message.attachments:
                     stats["attachments"] += len(message.attachments)
@@ -268,14 +261,10 @@ class ArchiverBot:
         if progress_callback:
             progress_callback(channel.name, stats["messages"])
 
-        # Update channel metadata using tracked IDs (avoids redundant API calls)
-        if first_message_id is not None:
-            db_channel.first_message_id = first_message_id
-        if last_message_id is not None:
-            db_channel.last_message_id = last_message_id
-        # Recounts the channel's archived messages, even when this scrape read none, so a
-        # re-scrape never adds messages already archived and an inflated count heals.
-        await channel_repo.update_message_metadata(channel.id, last_message_id)
+        # Reads the channel's first and last message ids and its count from the archive,
+        # even when this scrape read none, so a re-scrape never adds messages already
+        # archived, reaching older history moves the first id back, and stale values heal.
+        await channel_repo.update_message_metadata(channel.id)
 
         return stats
 
