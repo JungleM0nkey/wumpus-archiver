@@ -92,7 +92,7 @@ def scrape(
 
         bot = ArchiverBot(token, database)
 
-        def progress_callback(channel_name: str, message_count: int) -> None:
+        def progress_callback(_channel_id: int, channel_name: str, message_count: int) -> None:
             if verbose:
                 click.echo(f"  {channel_name}: {message_count} messages...")
 

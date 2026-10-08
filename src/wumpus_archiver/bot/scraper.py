@@ -15,15 +15,21 @@ from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.reaction import Reaction
 from wumpus_archiver.models.user import User
+from wumpus_archiver.storage import archive_reads
 from wumpus_archiver.storage.database import Database
 from wumpus_archiver.storage.repositories import (
     AttachmentRepository,
     ChannelRepository,
+    CompletedScrapeRepository,
     GuildRepository,
     MessageRepository,
     ReactionRepository,
     UserRepository,
 )
+
+
+class ScrapeCancelledError(Exception):
+    """The bot was closed while ``scrape_guild`` ran, so the scrape did not complete."""
 
 
 class ArchiverBot:
@@ -40,6 +46,8 @@ class ArchiverBot:
         self.database = database
         self._ready_event = asyncio.Event()
         self._bot_task: asyncio.Task[None] | None = None
+        # Set by ``close``: a scrape still running is cancelled, not completed.
+        self._closed = False
 
         # Setup Discord intents
         intents = discord.Intents.default()
@@ -64,16 +72,21 @@ class ArchiverBot:
     async def scrape_guild(
         self,
         guild_id: int,
-        progress_callback: Callable[[str, int], None] | None = None,
+        progress_callback: Callable[[int, str, int], None] | None = None,
     ) -> dict[str, object]:
         """Scrape all data from a guild.
 
         Args:
             guild_id: Discord guild ID
-            progress_callback: Optional callback for progress updates
+            progress_callback: Optional callback for progress updates, called with a
+                channel's id, its name and the messages of it written so far
 
         Returns:
             Dict with scraping statistics
+
+        Raises:
+            ScrapeCancelledError: If the bot was closed before the scrape completed. The
+                channels written so far stay, but the scrape is not recorded as completed.
         """
         guild = self.client.get_guild(guild_id)
         if not guild:
@@ -91,7 +104,14 @@ class ArchiverBot:
         attachments_found = 0
         errors: list[str] = []
 
+        # An archive written before completed scrapes were recorded gains their table here.
+        await self.database.create_tables()
+
         async with self.database.session() as session:
+            # The totals this scrape starts from, before it writes anything (ADR 0004)
+            started_at = datetime.now(UTC)
+            at_start = await archive_reads.guild_totals(session, guild_id)
+
             # Save guild info
             await self._save_guild(session, guild)
 
@@ -155,9 +175,18 @@ class ArchiverBot:
             except discord.Forbidden:
                 errors.append("No permission to list archived threads")
 
+            # Closing the bot cancels the scrape (the scrape job manager's cancel does). The
+            # loops above catch what the closed connection makes fail, and may have nothing
+            # left to fail at all, so only a scrape the bot stayed open for is completed.
+            if self._closed:
+                raise ScrapeCancelledError(f"the scrape of guild {guild_id} was cancelled")
+
             # Update guild scrape metadata
             guild_repo = GuildRepository(session)
             await guild_repo.update_scrape_metadata(guild_id)
+            await CompletedScrapeRepository(session).record(
+                guild_id, started_at=started_at, at_start=at_start
+            )
 
         stats["channels_scraped"] = channels_scraped
         stats["messages_scraped"] = messages_scraped
@@ -184,7 +213,7 @@ class ArchiverBot:
         self,
         session: AsyncSession,
         channel: discord.TextChannel | discord.VoiceChannel | discord.Thread | discord.StageChannel,
-        progress_callback: Callable[[str, int], None] | None = None,
+        progress_callback: Callable[[int, str, int], None] | None = None,
     ) -> dict[str, int]:
         """Scrape all messages from a channel or thread.
 
@@ -217,8 +246,6 @@ class ArchiverBot:
         await channel_repo.upsert(db_channel)
 
         stats = {"messages": 0, "attachments": 0}
-        first_message_id: int | None = None
-        last_message_id: int | None = None
         batch_size = 100
 
         # Fetch messages with pagination (newest first)
@@ -226,11 +253,6 @@ class ArchiverBot:
             try:
                 await self._save_message(session, message)
                 stats["messages"] += 1
-
-                # Track first/last message IDs (oldest_first=False → first seen is newest)
-                if last_message_id is None:
-                    last_message_id = message.id
-                first_message_id = message.id
 
                 if message.attachments:
                     stats["attachments"] += len(message.attachments)
@@ -241,6 +263,7 @@ class ArchiverBot:
 
                     if progress_callback:
                         progress_callback(
+                            channel.id,
                             channel.name,
                             stats["messages"],
                         )
@@ -251,15 +274,15 @@ class ArchiverBot:
         # Final commit for remaining messages
         await session.commit()
 
-        # Update channel metadata using tracked IDs (avoids redundant API calls)
-        if stats["messages"] > 0:
-            if first_message_id is not None:
-                db_channel.first_message_id = first_message_id
-            if last_message_id is not None:
-                db_channel.last_message_id = last_message_id
-                await channel_repo.update_message_metadata(
-                    channel.id, last_message_id, stats["messages"]
-                )
+        # Report every channel once it is written, with its final count, however few
+        # messages it has: progress shows each channel the scrape got through.
+        if progress_callback:
+            progress_callback(channel.id, channel.name, stats["messages"])
+
+        # Reads the channel's first and last message ids and its count from the archive,
+        # even when this scrape read none, so a re-scrape never adds messages already
+        # archived, reaching older history moves the first id back, and stale values heal.
+        await channel_repo.update_message_metadata(channel.id)
 
         return stats
 
@@ -386,7 +409,8 @@ class ArchiverBot:
         await self._ready_event.wait()
 
     async def close(self) -> None:
-        """Close the bot connection."""
+        """Close the bot connection, cancelling any scrape still running."""
+        self._closed = True
         await self.client.close()
         if self._bot_task is not None:
             self._bot_task.cancel()

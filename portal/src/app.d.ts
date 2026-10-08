@@ -8,6 +8,9 @@ declare global {
 		// interface PageState {}
 		// interface Platform {}
 	}
+
+	/** The portal's package version, from package.json (see vite.config.ts). */
+	const __PORTAL_VERSION__: string;
 }
 
 export {};

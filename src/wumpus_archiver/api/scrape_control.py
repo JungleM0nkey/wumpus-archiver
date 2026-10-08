@@ -25,6 +25,16 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class ScrapeChannelProgress(BaseModel):
+    """One channel of a scrape job: its id and name, the messages written so far, and whether
+    it is done."""
+
+    id: int
+    name: str
+    messages: int = 0
+    done: bool = False
+
+
 class ScrapeProgress(BaseModel):
     """Progress data for a running scrape job."""
 
@@ -33,6 +43,33 @@ class ScrapeProgress(BaseModel):
     messages_scraped: int = 0
     attachments_found: int = 0
     errors: list[str] = []
+    # The channels the job has reported, in the order it reached them.
+    channels: list[ScrapeChannelProgress] = []
+
+    def record_channel(self, channel_id: int, name: str, messages: int) -> None:
+        """Record the scraper's report that ``messages`` messages of a channel are written.
+
+        The scraper works through one channel at a time, so a report for a channel
+        other than the last one reported means that one is done. The live totals
+        follow: channels done, and messages across every channel reported. Channels
+        are told apart by id: Discord lets two channels share a name.
+        """
+        last = self.channels[-1] if self.channels else None
+        if last is None or last.id != channel_id:
+            if last is not None:
+                last.done = True
+            last = ScrapeChannelProgress(id=channel_id, name=name)
+            self.channels.append(last)
+        last.messages = messages
+        self.current_channel = name
+        self.channels_done = sum(1 for c in self.channels if c.done)
+        self.messages_scraped = sum(c.messages for c in self.channels)
+
+    def finish_channels(self) -> None:
+        """Mark every channel reported done: the job got through all of them."""
+        for channel in self.channels:
+            channel.done = True
+        self.channels_done = len(self.channels)
 
 
 class ScrapeJob(BaseModel):
@@ -107,6 +144,7 @@ class ReadOnlyScrape:
 __all__ = [
     "JobStatus",
     "ReadOnlyScrape",
+    "ScrapeChannelProgress",
     "ScrapeControl",
     "ScrapeJob",
     "ScrapeProgress",

@@ -65,7 +65,8 @@ class MessageRepository:
   predicates as the rows, skipping the COUNT when the first page is the whole result
 - Message cursors are anchored: `before` / `after` return the page adjacent to that message,
   as a `(created_at, id)` keyset, in the `Order` the caller requires. The channel messages
-  route keeps oldest-first in one `DEFAULT_ORDER` constant until the portal flips
+  route defaults to newest-first in one `DEFAULT_ORDER` constant; the portal's readers open
+  at the newest messages and page back with `before`
 - Every ORDER BY carries a primary-key (or group-key) tie-break; aware datetimes are
   normalised to naive UTC; activity groups by day with `extract` and folds in Python, so
   every statement compiles for sqlite and postgresql (only SQLite is promised)
@@ -169,7 +170,7 @@ SvelteKit 3 with adapter-static — builds to `portal/build/` as a pure SPA. The
 **Architecture**:
 - `lib/api.ts` — typed fetch wrapper with all API functions
 - `lib/types.ts` — TypeScript interfaces matching backend schemas
-- `lib/components/` — reusable components (MessageCard, GalleryGrid, etc.)
+- `lib/components/` — reusable components (MessageCard, JustifiedGrid, etc.)
 - `routes/` — page components (dashboard, channels, gallery, search, users, control)
 
 **Development**: Vite dev server on `:5173` proxies `/api` to FastAPI on `:8000`.

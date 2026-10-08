@@ -19,12 +19,24 @@ from httpx import AsyncClient
         ("/api/guilds/1/users", 200, {"users": [], "total": 0, "has_more": False, "offset": 0}),
         ("/api/users/1", 404, {"detail": "User not found"}),
         ("/api/users/1/profile", 404, {"detail": "User not found"}),
-        ("/api/search?q=hello", 200, {"results": [], "total": 0, "query": "hello"}),
+        (
+            "/api/search?q=hello",
+            200,
+            {"results": [], "total": 0, "query": "hello", "has_more": False, "facets": None},
+        ),
         (
             "/api/channels/1/messages",
             200,
-            {"messages": [], "total": 0, "has_more": False, "before_id": None, "after_id": None},
+            {
+                "messages": [],
+                "total": 0,
+                "has_more": False,
+                "before_id": None,
+                "after_id": None,
+                "has_newer": None,
+            },
         ),
+        ("/api/channels/1/activity", 404, {"detail": "Channel not found"}),
         (
             "/api/channels/1/gallery",
             200,

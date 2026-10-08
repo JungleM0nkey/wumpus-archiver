@@ -1,12 +1,22 @@
 """Tests for the scrape control port and its read-only adapter."""
 
+import asyncio
 import subprocess
 import sys
+from collections.abc import AsyncIterator, Callable
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.fakes import FakeScrapeControl
-from wumpus_archiver.api.scrape_control import ReadOnlyScrape, ScrapeControl
+from wumpus_archiver.api.scrape_control import (
+    JobStatus,
+    ReadOnlyScrape,
+    ScrapeControl,
+    ScrapeProgress,
+)
 from wumpus_archiver.api.scrape_manager import ScrapeJobManager
 from wumpus_archiver.storage.database import Database
 
@@ -65,6 +75,185 @@ class TestFakeScrapeControl:
         assert finished.result == {"messages_scraped": 5}
         assert fake.is_busy is False
         assert fake.history == [finished]
+
+
+class TestScrapeProgress:
+    """Per-channel progress follows the scraper's reports, one channel at a time."""
+
+    def test_a_report_for_the_next_channel_marks_the_last_one_done(self) -> None:
+        progress = ScrapeProgress()
+        progress.record_channel(1, "general", 100)
+        progress.record_channel(1, "general", 140)
+        progress.record_channel(2, "art", 0)
+        progress.record_channel(3, "memes", 200)
+
+        assert [(c.name, c.messages, c.done) for c in progress.channels] == [
+            ("general", 140, True),
+            ("art", 0, True),
+            ("memes", 200, False),
+        ]
+        assert progress.current_channel == "memes"
+        assert progress.channels_done == 2
+        assert progress.messages_scraped == 340
+
+    def test_two_channels_of_the_same_name_back_to_back_are_two_channels(self) -> None:
+        """Discord lets two channels share a name: the id tells them apart."""
+        progress = ScrapeProgress()
+        progress.record_channel(1, "general", 100)
+        progress.record_channel(1, "general", 140)
+        progress.record_channel(2, "general", 30)
+
+        assert [(c.id, c.name, c.messages, c.done) for c in progress.channels] == [
+            (1, "general", 140, True),
+            (2, "general", 30, False),
+        ]
+        assert (progress.current_channel, progress.channels_done, progress.messages_scraped) == (
+            "general",
+            1,
+            170,
+        )
+
+    def test_finishing_marks_every_channel_done(self) -> None:
+        progress = ScrapeProgress()
+        progress.record_channel(1, "general", 3)
+        progress.record_channel(2, "art", 4)
+        progress.finish_channels()
+        assert all(c.done for c in progress.channels)
+        assert progress.channels_done == 2
+
+    def test_jobs_do_not_share_progress(self) -> None:
+        fake = FakeScrapeControl()
+        fake.start_scrape(1)
+        fake.report(1, "general", 5)
+        first = fake.finish()
+        fake.start_scrape(2)
+        assert fake.current_job is not None
+        assert fake.current_job.progress.channels == []
+        assert [c.name for c in first.progress.channels] == ["general"]
+
+
+class FakeBot:
+    """Stands in for ArchiverBot inside the manager's job: reports channels, then waits."""
+
+    instances: list["FakeBot"] = []
+
+    def __init__(self, token: str, database: Any) -> None:
+        self.release = asyncio.Event()
+        self.closed = False
+        self.fail_on_close = False
+        self.progress: Callable[[int, str, int], None] | None = None
+        FakeBot.instances.append(self)
+
+    async def start(self) -> None:
+        return None
+
+    async def scrape_guild(
+        self, guild_id: int, progress: Callable[[int, str, int], None]
+    ) -> dict[str, object]:
+        self.progress = progress
+        progress(1, "general", 100)
+        progress(1, "general", 120)
+        progress(2, "art", 7)
+        await self.release.wait()
+        if self.closed:
+            raise RuntimeError("Session is closed")
+        return {
+            "channels_scraped": 2,
+            "messages_scraped": 127,
+            "attachments_found": 3,
+            "errors": [],
+        }
+
+    async def close(self) -> None:
+        self.closed = True
+        self.release.set()
+
+
+@pytest.fixture
+def fake_bot(monkeypatch: pytest.MonkeyPatch) -> type[FakeBot]:
+    """The manager's jobs run on FakeBot instead of connecting to Discord."""
+    import wumpus_archiver.bot.scraper as scraper
+
+    FakeBot.instances = []
+    monkeypatch.setattr(scraper, "ArchiverBot", FakeBot)
+    return FakeBot
+
+
+async def settle() -> None:
+    """Let the job's task run until it waits again."""
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+
+class TestScrapeJobManagerProgress:
+    """The manager reports each channel as the scraper works through them."""
+
+    async def test_reports_each_channel_and_finishes_them(self, fake_bot: type[FakeBot]) -> None:
+        manager = ScrapeJobManager(Database("sqlite+aiosqlite:///:memory:"), "token")
+        job = manager.start_scrape(42)
+        await settle()
+
+        assert manager.is_busy
+        progress = job.progress
+        assert [(c.name, c.messages, c.done) for c in progress.channels] == [
+            ("general", 120, True),
+            ("art", 7, False),
+        ]
+        assert (progress.current_channel, progress.channels_done, progress.messages_scraped) == (
+            "art",
+            1,
+            127,
+        )
+
+        fake_bot.instances[0].release.set()
+        await settle()
+        assert job.status == JobStatus.COMPLETED
+        assert all(c.done for c in job.progress.channels)
+        assert (job.progress.channels_done, job.progress.attachments_found) == (2, 3)
+        assert [j.id for j in manager.history] == [job.id]
+
+    async def test_a_cancelled_job_is_in_the_history_at_once_and_stays_cancelled(
+        self, fake_bot: type[FakeBot]
+    ) -> None:
+        manager = ScrapeJobManager(Database("sqlite+aiosqlite:///:memory:"), "token")
+        job = manager.start_scrape(42)
+        await settle()
+
+        assert manager.cancel() is True
+        assert not manager.is_busy
+        assert [(j.id, j.status) for j in manager.history] == [(job.id, JobStatus.CANCELLED)]
+
+        # Closing the connection makes the scrape raise; the job stays cancelled, once.
+        await settle()
+        assert fake_bot.instances[0].closed
+        assert job.status == JobStatus.CANCELLED
+        assert job.error_message is None
+        assert [(j.id, j.status) for j in manager.history] == [(job.id, JobStatus.CANCELLED)]
+
+
+async def test_the_scraper_reports_every_channel_once_it_is_written(session: AsyncSession) -> None:
+    """A channel too short for a batch report still reports its final count when done."""
+    from wumpus_archiver.bot.scraper import ArchiverBot
+
+    async def no_history(**_kwargs: Any) -> AsyncIterator[Any]:
+        return
+        yield
+
+    channel = SimpleNamespace(
+        id=900_001,
+        guild=SimpleNamespace(id=900_000),
+        name="quiet",
+        type=SimpleNamespace(value=0),
+        topic=None,
+        position=0,
+        parent_id=None,
+        category_id=None,
+        history=no_history,
+    )
+    reports: list[tuple[str, int]] = []
+    bot = ArchiverBot.__new__(ArchiverBot)
+    await bot._scrape_channel(session, channel, lambda _id, name, n: reports.append((name, n)))  # type: ignore[arg-type]
+    assert reports == [("quiet", 0)]
 
 
 def test_scrape_manager_module_does_not_import_discord() -> None:

@@ -2,6 +2,7 @@
 
 import datetime as dt
 from collections import OrderedDict
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 
@@ -13,12 +14,21 @@ from wumpus_archiver.api.schemas import (
     TimelineGalleryResponse,
 )
 from wumpus_archiver.storage import archive_reads
-from wumpus_archiver.storage.archive_reads import AttachmentRow, MediaKind, Scope
+from wumpus_archiver.storage.archive_reads import AttachmentRow, MediaKind, Order, Scope
 
 router = APIRouter()
 
 # The guild gallery's ``content_type`` parameter; anything else silently means images.
 _KIND_PARAMS = {"gif": MediaKind.GIF, "video": MediaKind.VIDEO}
+
+# The gallery timeline's ``content_type`` parameter, which accepts nothing else.
+TimelineContentType = Literal["image", "gif", "video", "media"]
+_TIMELINE_KINDS: dict[str, MediaKind] = {
+    "image": MediaKind.IMAGE,
+    "gif": MediaKind.GIF,
+    "video": MediaKind.VIDEO,
+    "media": MediaKind.MEDIA,
+}
 
 
 @router.get("/channels/{channel_id}/gallery", response_model=GalleryResponse)
@@ -99,19 +109,36 @@ async def guild_gallery_timeline(
     offset: int = Query(0, ge=0),
     limit: int = Query(120, ge=1, le=500),
     channel_id: int | None = Query(None, description="Filter by channel"),
+    author_id: int | None = Query(None, description="Filter by author"),
+    content_type: Annotated[
+        TimelineContentType,
+        Query(
+            description=(
+                "Filter by kind: image (GIFs included), gif, video, or media"
+                " (images, GIFs and videos together)"
+            )
+        ),
+    ] = "image",
+    order: Annotated[Order, Query(description="newest or oldest first")] = Order.NEWEST_FIRST,
     group_by: str = Query("month", description="Group by: week, month, year"),
 ) -> TimelineGalleryResponse:
-    """Get guild images grouped by time period for timeline view."""
+    """The gallery timeline: a guild's attachments of one kind, grouped by time period.
+
+    Behind the Media screen. A zero ``channel_id`` or ``author_id`` is no filter.
+    """
     async with db.session() as session:
         page = await archive_reads.attachments(
             session,
-            Scope(guild=guild_id, channel=channel_id or None),
-            kind=MediaKind.IMAGE,
+            Scope(guild=guild_id, channel=channel_id or None, author=author_id or None),
+            kind=_TIMELINE_KINDS[content_type],
             limit=limit,
             offset=offset,
+            order=order,
         )
 
-    # Grouping is page-local: it groups what is on this page, not the whole scope.
+    # Grouping is page-local: it groups what is on this page, not the whole scope. A
+    # period split across pages appears on both under the same ``period`` key, so a
+    # client paging through merges groups that share a key.
     groups: OrderedDict[str, list[AttachmentRow]] = OrderedDict()
     for row in page.rows:
         period, _label = _period_label(row.created_at, group_by)

@@ -1,8 +1,8 @@
 """Archive reads: the named reads of the archive, each over a scope.
 
-See ``docs/adr/0002`` and ``docs/adr/0003``. Every read takes the ``AsyncSession`` its
-caller opened and never writes, commits, flushes or closes it. This module imports the
-models only, never FastAPI or the API schemas.
+See ``docs/adr/0002``, ``docs/adr/0003`` and ``docs/adr/0004``. Every read takes the
+``AsyncSession`` its caller opened and never writes, commits, flushes or closes it. This
+module imports the models only, never FastAPI or the API schemas.
 """
 
 from collections.abc import Sequence
@@ -12,11 +12,13 @@ from enum import Enum, StrEnum
 from typing import Any
 
 from sqlalchemy import ColumnElement, Select, and_, exists, extract, func, join, or_, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
+from wumpus_archiver.models.completed_scrape import CompletedScrape
 from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.reaction import Reaction
@@ -29,6 +31,8 @@ class MediaKind(Enum):
     IMAGE = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/avif")
     GIF = ("image/gif",)
     VIDEO = ("video/mp4", "video/webm", "video/quicktime")
+    # Everything the Media screen shows: images (GIFs among them) and videos.
+    MEDIA = IMAGE + VIDEO
 
     @property
     def content_types(self) -> tuple[str, ...]:
@@ -78,6 +82,28 @@ class GuildCounts:
 
 
 @dataclass(frozen=True)
+class GuildTotals:
+    """A guild's totals as the stats report them: messages, channels, authors, attachments.
+
+    Channels are every channel row the guild has, categories included, as the
+    guild detail lists them; authors are distinct non-null author ids.
+    """
+
+    messages: int = 0
+    channels: int = 0
+    authors: int = 0
+    attachments: int = 0
+
+
+TEXT_CHANNEL_TYPES = (0, 5)
+"""The Discord channel types that are text channels: text (0) and announcement (5).
+
+Categories hold channels rather than messages, and voice and stage channels and
+threads are not text channels, so ``top_channels`` ranks only these.
+"""
+
+
+@dataclass(frozen=True)
 class Page[T]:
     """One page of a paged read.
 
@@ -90,6 +116,16 @@ class Page[T]:
     has_more: bool
     oldest_id: int | None = None
     newest_id: int | None = None
+
+
+@dataclass(frozen=True)
+class AroundPage(Page[Message]):
+    """A page of messages around an anchor message, with what remains on either side.
+
+    ``has_more`` says whether older messages remain, ``has_newer`` whether newer ones do.
+    """
+
+    has_newer: bool = False
 
 
 @dataclass(frozen=True)
@@ -116,7 +152,11 @@ class AuthorRow:
 
 
 class AuthorSort(StrEnum):
-    """How ``authors()`` orders its rows. Ties are broken by user id."""
+    """How ``authors()`` orders its rows. Ties are broken by user id.
+
+    ``NAME`` orders by the name the portal shows, the global name or else the username,
+    case-insensitively.
+    """
 
     MESSAGES = "messages"
     NAME = "name"
@@ -178,10 +218,15 @@ class Period(StrEnum):
 
 @dataclass(frozen=True)
 class ActivityBucket:
-    """Messages in one calendar month or ISO week, starting on ``start``."""
+    """Messages in one calendar month or ISO week, starting on ``start``.
+
+    ``first_message_id`` is the bucket's oldest message, in the readers' ``(created_at,
+    id)`` order, when the read was asked for it (``with_first_message``); else ``None``.
+    """
 
     start: date
     messages: int
+    first_message_id: int | None = None
 
 
 class Order(StrEnum):
@@ -267,6 +312,28 @@ async def _page(
     return fetched, int(counted.scalar_one()), has_more
 
 
+def _message_where(
+    scope: Scope,
+    *,
+    text: str | None = None,
+    terms: Sequence[str] = (),
+    has: Has | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> list[ColumnElement[bool]]:
+    """The predicates for messages in scope matching the text, terms, ``has`` and dates."""
+    where = _message_scope(scope)
+    for needle in ([text] if text is not None else []) + list(terms):
+        where.append(Message.content.ilike(f"%{escape_like(needle)}%", escape="\\"))
+    if has is not None:
+        where.append(_has(has))
+    if since is not None:
+        where.append(Message.created_at >= _naive_utc(since))
+    if until is not None:
+        where.append(Message.created_at < _naive_utc(until))
+    return where
+
+
 async def messages(
     session: AsyncSession,
     scope: Scope,
@@ -276,9 +343,11 @@ async def messages(
     before: int | None = None,
     after: int | None = None,
     text: str | None = None,
+    terms: Sequence[str] = (),
     has: Has | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
+    pinned: bool | None = None,
     with_channel: bool = False,
 ) -> Page[Message]:
     """Messages in scope, with their author, attachments and reactions loaded.
@@ -289,27 +358,23 @@ async def messages(
     A cursor is a message id. ``before`` returns the page adjacent to it on the older
     side and ``after`` the page adjacent on the newer side, in ``order`` either way;
     with both, the page is the one next to ``before`` that is still newer than
-    ``after``. An unknown cursor is ignored. ``has_more`` points away from the cursor:
-    older messages remain after ``before``, newer ones after ``after``, and on a first
-    page more follow in ``order``.
+    ``after``. An unknown cursor is ignored, and so is a message outside the scope.
+    ``has_more`` points away from the cursor: older messages remain after ``before``,
+    newer ones after ``after``, and on a first page more follow in ``order``.
 
     ``text`` matches the content case-insensitively with LIKE wildcards taken
-    literally. ``since`` is inclusive and ``until`` exclusive; aware datetimes are
-    converted to naive UTC.
+    literally, and so does each of ``terms``: a message must contain every one, in any
+    order. ``since`` is inclusive and ``until`` exclusive; aware datetimes are converted
+    to naive UTC. ``pinned`` keeps only the pinned messages when true, only the unpinned
+    ones when false; the total counts the same messages.
     """
-    where = _message_scope(scope)
-    if text is not None:
-        where.append(Message.content.ilike(f"%{escape_like(text)}%", escape="\\"))
-    if has is not None:
-        where.append(_has(has))
-    if since is not None:
-        where.append(Message.created_at >= _naive_utc(since))
-    if until is not None:
-        where.append(Message.created_at < _naive_utc(until))
+    where = _message_where(scope, text=text, terms=terms, has=has, since=since, until=until)
+    if pinned is not None:
+        where.append(Message.pinned.is_(pinned))
 
     paging: list[ColumnElement[bool]] = []
-    older_anchor = await _anchor(session, before)
-    newer_anchor = await _anchor(session, after)
+    older_anchor = await _anchor(session, scope, before)
+    newer_anchor = await _anchor(session, scope, after)
     if older_anchor is not None:
         at, at_id = older_anchor
         paging.append(
@@ -363,12 +428,101 @@ async def messages(
     )
 
 
-async def _anchor(session: AsyncSession, cursor: int | None) -> tuple[datetime, int] | None:
-    """The ``(created_at, id)`` of a cursor message, or ``None`` if there is none."""
+async def messages_around(
+    session: AsyncSession,
+    scope: Scope,
+    *,
+    order: Order,
+    limit: int,
+    around: int,
+) -> AroundPage:
+    """The page of messages in scope around the message ``around``, in ``order``.
+
+    The page holds the anchor, up to ``limit // 2`` newer messages and older ones for
+    the rest; near either end of the scope the other side fills the page. A reader
+    opened on a message pages away from it both ways with ``before`` and ``after``. An
+    unknown anchor, or a message outside the scope, falls back to the first page in
+    ``order``, as an unknown cursor does in ``messages``.
+    """
+    anchor = await _anchor(session, scope, around)
+    if anchor is None:
+        first = await messages(session, scope, order=order, limit=limit)
+        newest_first = order is Order.NEWEST_FIRST
+        return AroundPage(
+            rows=first.rows,
+            total=first.total,
+            has_more=first.has_more and newest_first,
+            has_newer=first.has_more and not newest_first,
+            oldest_id=first.oldest_id,
+            newest_id=first.newest_id,
+        )
+
+    at, at_id = anchor
+    where = _message_scope(scope)
+    rows = select(Message).options(
+        selectinload(Message.author),
+        selectinload(Message.attachments),
+        selectinload(Message.reactions),
+    )
+    # Read up to a whole page of newer messages first, so the older side can fill the
+    # page when the anchor is near the newest, and the newer side when it is near the oldest.
+    newer_side = rows.order_by(Message.created_at.asc(), Message.id.asc()).where(
+        *where, or_(Message.created_at > at, and_(Message.created_at == at, Message.id > at_id))
+    )
+    newer = list((await session.execute(newer_side.limit(limit + 1))).scalars().all())
+    older_side = rows.order_by(Message.created_at.desc(), Message.id.desc())
+    at_or_older = or_(Message.created_at < at, and_(Message.created_at == at, Message.id <= at_id))
+    older, total, has_older = await _page(
+        session,
+        older_side,
+        where,
+        Message,
+        limit=limit - min(len(newer), limit // 2),
+        paging=[at_or_older],
+    )
+    newer_kept = limit - len(older)
+    has_newer = len(newer) > newer_kept
+
+    oldest_first: list[Message] = [row[0] for row in reversed(older)] + newer[:newer_kept]
+    page = oldest_first[::-1] if order is Order.NEWEST_FIRST else oldest_first
+    return AroundPage(
+        rows=page,
+        total=total,
+        has_more=has_older,
+        has_newer=has_newer,
+        oldest_id=oldest_first[0].id if oldest_first else None,
+        newest_id=oldest_first[-1].id if oldest_first else None,
+    )
+
+
+async def referenced_messages(session: AsyncSession, page: Sequence[Message]) -> dict[int, Message]:
+    """The messages that the messages of ``page`` reply to, by id, with their author loaded.
+
+    One statement for the whole page, and none when nothing on it is a reply. A reply to
+    a message the archive does not hold has no entry. The referenced message may be in
+    another channel; its other relationships are left unloaded.
+    """
+    ids = {message.reference_id for message in page if message.reference_id is not None}
+    if not ids:
+        return {}
+    result = await session.execute(
+        select(Message).options(joinedload(Message.author)).where(Message.id.in_(ids))
+    )
+    return {message.id: message for message in result.scalars().all()}
+
+
+async def _anchor(
+    session: AsyncSession, scope: Scope, cursor: int | None
+) -> tuple[datetime, int] | None:
+    """The ``(created_at, id)`` of a cursor message in ``scope``, or ``None`` if there is none.
+
+    Only the scope confines the cursor, not a read's filters: a page of matches may page
+    from any message of its channel, but a message of another channel is no cursor of it.
+    """
     if cursor is None:
         return None
     result = await session.execute(
-        select(Message.created_at, Message.id).where(Message.id == cursor)
+        select(Message.created_at, Message.id).where(Message.id == cursor, *_message_scope(scope))
     )
     row = result.first()
     return (row[0], row[1]) if row else None
@@ -383,6 +537,12 @@ async def guilds(session: AsyncSession) -> list[Guild]:
 async def guild(session: AsyncSession, guild_id: int) -> Guild | None:
     """One archived guild, or ``None`` if the archive does not hold it."""
     result = await session.execute(select(Guild).where(Guild.id == guild_id))
+    return result.scalar_one_or_none()
+
+
+async def channel(session: AsyncSession, channel_id: int) -> Channel | None:
+    """One archived channel, or ``None`` if the archive does not hold it."""
+    result = await session.execute(select(Channel).where(Channel.id == channel_id))
     return result.scalar_one_or_none()
 
 
@@ -426,13 +586,18 @@ async def attachments(
     kind: MediaKind,
     limit: int,
     offset: int = 0,
+    order: Order = Order.NEWEST_FIRST,
 ) -> Page[AttachmentRow]:
-    """Attachments of a media kind on messages in scope, newest message first.
+    """Attachments of a media kind on messages in scope, newest message first by default.
 
-    Ties on the message time are broken by attachment id, newest first. The channel
-    name and author come from joins.
+    Ties on the message time are broken by attachment id, in the same direction. The
+    channel name and author come from joins.
     """
     where = [*_message_scope(scope), Attachment.content_type.in_(kind.content_types)]
+    if order is Order.NEWEST_FIRST:
+        ordering = (Message.created_at.desc(), Attachment.id.desc())
+    else:
+        ordering = (Message.created_at.asc(), Attachment.id.asc())
     rows = (
         select(
             Attachment,
@@ -446,7 +611,7 @@ async def attachments(
         .join(Message, Attachment.message_id == Message.id)
         .outerjoin(Channel, Message.channel_id == Channel.id)
         .outerjoin(User, Message.author_id == User.id)
-        .order_by(Message.created_at.desc(), Attachment.id.desc())
+        .order_by(*ordering)
     )
     fetched, total, has_more = await _page(
         session,
@@ -496,7 +661,7 @@ async def authors(
     last_seen = func.max(Message.created_at)
     ordering: dict[AuthorSort, ColumnElement[Any]] = {
         AuthorSort.MESSAGES: messages.desc(),
-        AuthorSort.NAME: User.username.asc(),
+        AuthorSort.NAME: func.lower(func.coalesce(User.global_name, User.username)).asc(),
         AuthorSort.RECENT: last_seen.desc(),
     }
     rows = (
@@ -617,12 +782,18 @@ async def activity(
     *,
     period: Period,
     since: datetime | None = None,
+    with_first_message: bool = False,
 ) -> list[ActivityBucket]:
     """Messages per calendar month or ISO week over a scope, oldest first.
 
     Only buckets holding messages are returned. SQL groups by day with ``extract``
     and the days are folded into periods here, so no dialect-bound date function
     is emitted. ``since`` is inclusive; an aware datetime is converted to naive UTC.
+
+    ``with_first_message`` also finds each bucket's oldest message, for a reader that
+    opens at the start of a period: the day groups carry their earliest ``created_at``,
+    and one more statement reads the ids at those instants, keeping the lowest id where
+    several messages share one, as the readers' ``(created_at, id)`` order does.
     """
     where = _message_scope(scope)
     if since is not None:
@@ -631,26 +802,163 @@ async def activity(
     month = extract("month", Message.created_at)
     day = extract("day", Message.created_at)
     result = await session.execute(
-        select(year, month, day, func.count()).where(*where).group_by(year, month, day)
+        select(year, month, day, func.count(), func.min(Message.created_at))
+        .where(*where)
+        .group_by(year, month, day)
     )
     buckets: dict[date, int] = {}
-    for y, m, d, count in result.all():
+    earliest: dict[date, datetime] = {}
+    for y, m, d, count, first_at in result.all():
         on = date(int(y), int(m), int(d))
         start = on - timedelta(days=on.weekday()) if period is Period.WEEK else on.replace(day=1)
         buckets[start] = buckets.get(start, 0) + int(count)
-    return [ActivityBucket(start, buckets[start]) for start in sorted(buckets)]
+        if start not in earliest or first_at < earliest[start]:
+            earliest[start] = first_at
+    starts = sorted(buckets)
+    if not with_first_message or not starts:
+        return [ActivityBucket(start, buckets[start]) for start in starts]
+
+    firsts = await session.execute(
+        select(Message.created_at, func.min(Message.id))
+        .where(*where, Message.created_at.in_(set(earliest.values())))
+        .group_by(Message.created_at)
+    )
+    first_ids: dict[datetime, int] = {at: int(message_id) for at, message_id in firsts.all()}
+    return [
+        ActivityBucket(start, buckets[start], first_ids.get(earliest[start])) for start in starts
+    ]
+
+
+@dataclass(frozen=True)
+class ChannelFacet:
+    """A channel and how many of a search's messages it holds."""
+
+    channel_id: int
+    name: str
+    messages: int
+
+
+@dataclass(frozen=True)
+class AuthorFacet:
+    """An author and how many of a search's messages they posted."""
+
+    user: User
+    messages: int
+
+
+@dataclass(frozen=True)
+class SearchFacets:
+    """How a search's messages divide by channel, by author and by calendar month.
+
+    ``channels`` and ``authors`` are the busiest first, ties by id, at most the limit
+    asked for; ``months`` is every month holding a match, oldest first.
+    """
+
+    channels: list[ChannelFacet]
+    authors: list[AuthorFacet]
+    months: list[ActivityBucket]
+
+
+async def search_facets(
+    session: AsyncSession,
+    scope: Scope,
+    *,
+    limit: int,
+    text: str | None = None,
+    terms: Sequence[str] = (),
+    has: Has | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> SearchFacets:
+    """The facets of the messages ``messages`` matches with the same filters.
+
+    Three grouped statements, one per facet, whatever the number of channels or authors.
+    A message whose author has no ``users`` row counts in channels and months but not
+    in authors. Months are grouped with ``extract``, as ``activity`` does.
+    """
+    where = _message_where(scope, text=text, terms=terms, has=has, since=since, until=until)
+    messages_ = func.count()
+    channels = await session.execute(
+        select(Channel.id, Channel.name, messages_)
+        .join(Message, Message.channel_id == Channel.id)
+        .where(*where)
+        .group_by(Channel.id, Channel.name)
+        .order_by(messages_.desc(), Channel.id.asc())
+        .limit(limit)
+    )
+    authors_ = await session.execute(
+        select(User, messages_)
+        .join(Message, Message.author_id == User.id)
+        .where(*where)
+        .group_by(User.id)
+        .order_by(messages_.desc(), User.id.asc())
+        .limit(limit)
+    )
+    year = extract("year", Message.created_at)
+    month = extract("month", Message.created_at)
+    months = await session.execute(
+        select(year, month, messages_).where(*where).group_by(year, month).order_by(year, month)
+    )
+    return SearchFacets(
+        channels=[ChannelFacet(*row) for row in channels.all()],
+        authors=[AuthorFacet(user, int(count)) for user, count in authors_.all()],
+        months=[ActivityBucket(date(int(y), int(m), 1), int(n)) for y, m, n in months.all()],
+    )
 
 
 async def top_channels(session: AsyncSession, guild_id: int, *, limit: int) -> list[TopChannel]:
-    """A guild's busiest channels, ties by id.
+    """A guild's busiest text channels (``TEXT_CHANNEL_TYPES``), ties by id.
 
-    Ranked by ``Channel.message_count``, the counter the ingest maintains, not by a
-    live count of messages: whether that counter survives is a separate decision.
+    Categories, voice channels and threads are never listed. Ranked by
+    ``Channel.message_count``, the counter the ingest maintains, not by a live count
+    of messages: whether that counter survives is a separate decision. The scraper
+    recounts it from the archive at the end of each channel's scrape, so it is as
+    current as the channel's last scrape.
     """
     result = await session.execute(
         select(Channel.id, Channel.name, Channel.message_count)
-        .where(Channel.guild_id == guild_id)
+        .where(Channel.guild_id == guild_id, Channel.type.in_(TEXT_CHANNEL_TYPES))
         .order_by(Channel.message_count.desc(), Channel.id.asc())
         .limit(limit)
     )
     return [TopChannel(*row) for row in result.all()]
+
+
+async def guild_totals(session: AsyncSession, guild_id: int) -> GuildTotals:
+    """A guild's messages, channels, authors and attachments, counted live, in three statements.
+
+    The stats route reports these, and a scrape job records them when it starts, so
+    the change since the last scrape compares like with like.
+    """
+    scope = Scope(guild=guild_id)
+    totals = await message_and_author_totals(session, scope)
+    attachments = await attachment_total(session, scope)
+    channels = await session.execute(
+        select(func.count()).select_from(Channel).where(Channel.guild_id == guild_id)
+    )
+    return GuildTotals(
+        messages=totals.messages,
+        channels=int(channels.scalar_one()),
+        authors=totals.authors,
+        attachments=attachments,
+    )
+
+
+async def last_completed_scrape(session: AsyncSession, guild_id: int) -> CompletedScrape | None:
+    """The guild's most recently completed scrape job, or ``None`` when none has completed.
+
+    An archive written before completed scrapes were recorded has no such table until
+    its next scrape creates it; that reads as ``None`` too, not as an error.
+    """
+    try:
+        result = await session.execute(
+            select(CompletedScrape)
+            .where(CompletedScrape.guild_id == guild_id)
+            .order_by(CompletedScrape.completed_at.desc(), CompletedScrape.id.desc())
+            .limit(1)
+        )
+    except OperationalError as error:
+        if "no such table" not in str(error.orig):
+            raise
+        return None
+    return result.scalar_one_or_none()

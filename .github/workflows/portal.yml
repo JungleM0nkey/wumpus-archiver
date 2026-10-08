@@ -1,0 +1,114 @@
+name: Portal
+
+# The portal's gate: svelte-check, the production build, and the smoke suite,
+# which serves a seeded archive with `wumpus-archiver serve` and opens every route
+# in Chromium. Any of them failing fails the run. The workflow also runs when the
+# Python side the smoke suite serves changes.
+
+on:
+  push:
+    branches: [main, "feat/**"]
+    paths:
+      - "portal/**"
+      - "src/**"
+      - "tests/smoke_archive.py"
+      - "pyproject.toml"
+      - ".github/workflows/portal.yml"
+  pull_request:
+    paths:
+      - "portal/**"
+      - "src/**"
+      - "tests/smoke_archive.py"
+      - "pyproject.toml"
+      - ".github/workflows/portal.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portal-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check-build:
+    name: Portal check and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: portal
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: portal/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Type-check (svelte-check)
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+  smoke:
+    name: Portal smoke suite (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # The smoke suite runs ../.venv/bin/python by default, as it does locally.
+      - name: Install the archiver
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e .
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: portal/package-lock.json
+
+      - name: Install portal dependencies
+        working-directory: portal
+        run: npm ci --ignore-scripts
+
+      - name: Install Chromium
+        working-directory: portal
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the smoke suite
+        working-directory: portal
+        run: npm run smoke
+
+      - name: Upload the report and traces
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: portal-smoke-report
+          path: |
+            portal/playwright-report/
+            portal/test-results/
+          retention-days: 7

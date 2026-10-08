@@ -12,6 +12,11 @@ Today's route compares raw ids against an oldest-first list, so `before=<id>` re
 ## Consequences
 
 - The response keeps `before_id` and `after_id`, set to the oldest and newest id on the page, so they keep meaning "pass this as `before` / `after`" after the flip.
-- An unknown cursor id falls back to the first page rather than erroring.
+- An unknown cursor id falls back to the first page rather than erroring, and so does the id of a message outside the read's scope (another channel's, say): it names no message of the list.
 - Every ORDER BY in the module ends in a tie-break that makes the order total: the primary key, or for a grouped read (such as `reactions`, grouped by emoji name) the group key, so pages are stable when timestamps or counts collide.
 - `has_more` points away from the cursor: after `before` it says whether older messages remain, after `after` whether newer ones do, and on a first page whether more follow in the requested order. With both cursors it says whether older messages remain that are still newer than `after`.
+- `around=<id>` is a third, anchored cursor for opening the reader on one message (#60): the page holds that message with the messages on either side, `has_more` says whether older ones remain and `has_newer` whether newer ones do, and the reader pages on from it with `before` and `after`. It takes no other cursor.
+
+## Status
+
+Flipped. The HTTP route now defaults to newest-first, and the portal's channel and timeline readers open at the newest messages and page back with `before` from the oldest loaded message (#56).

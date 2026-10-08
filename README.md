@@ -131,10 +131,11 @@ All endpoints are under `/api/`:
 | `GET /guilds/{id}/stats` | Guild statistics |
 | `GET /guilds/{id}/users` | Users in a guild |
 | `GET /guilds/{id}/gallery` | Image gallery for a guild |
-| `GET /guilds/{id}/gallery/timeline` | Timeline-grouped gallery |
-| `GET /channels/{id}/messages` | Paginated messages |
+| `GET /guilds/{id}/gallery/timeline` | The gallery timeline behind the Media screen: attachments grouped by month, filtered by `content_type` (image, gif, video, media), `channel_id` and `author_id` |
+| `GET /channels/{id}/messages` | Paginated messages, newest first (`before`, `after`, `around` cursors); `pinned=true` lists only the pinned ones; a reply carries `reference`, the author and a snippet of the message it answers |
+| `GET /channels/{id}/activity` | A channel's messages per month (`period=week` for weeks), each period with its first message, behind Browse's jump rail |
 | `GET /channels/{id}/gallery` | Channel image gallery |
-| `GET /search` | Full-text message search |
+| `GET /search` | Message search: every term of `q` (a quoted phrase is one term), filtered by `guild_id`, `channel_id`, `author_id`, `has` (file, image, video, link) and `after`/`before` days in UTC (`after` inclusive, `before` exclusive), sorted `newest` or `oldest`, paged with `cursor`; results carry an escaped `highlight` snippet, and `facets=true` adds counts per channel, author and month |
 | `GET /users/{id}/profile` | User profile with stats |
 | `GET /downloads/stats` | Local attachment download stats |
 | `GET /scrape/status` | Current scrape job status |
@@ -144,18 +145,27 @@ All endpoints are under `/api/`:
 
 ## Portal Pages
 
-| Route | Description |
-|---|---|
-| `/` | Dashboard with guild stats |
-| `/channels` | Channel list with message counts |
-| `/channel/[id]` | Message browser for a channel |
-| `/channel/[id]/gallery` | Image gallery for a channel |
-| `/gallery` | Guild-wide image gallery |
-| `/timeline` | Timeline-grouped media feed |
-| `/search` | Full-text search with filters |
-| `/users` | User directory |
-| `/users/[id]` | User profile page |
-| `/control` | Scrape control panel |
+A left sidebar, which collapses to an icon rail with Cmd+\ (Ctrl+\ elsewhere), holds a
+guild switcher, a search field, the five destinations and an archive-status card that
+leads to the Archive screen. The selected guild is part of the URL (`?guild=<id>`, the
+first guild when absent), and every page shows that guild. Below 768px a bottom tab bar
+carries the five destinations and the sidebar opens as a sheet from the top bar's menu.
+
+Cmd+K (Ctrl+K elsewhere) opens a command palette on every page: it jumps to a destination,
+a channel or a person, or searches messages for what you typed. Cmd+1–5 go to the five
+destinations, `/` searches in the current view, Esc closes or clears, and `?` lists every
+shortcut.
+
+| Route | Destination | Description |
+|---|---|---|
+| `/` | Overview | Guild stats |
+| `/browse` | Browse | Opens the guild's most active channel (`/channels` and `/timeline` redirect here) |
+| `/browse/[channel]` | Browse | A channel's messages beside the channel pane, grouped by author under sticky date pills, with a jump rail of the channel's months; `?message=<id>` opens it on one message (`/channel/[id]` and `/timeline?channel=` redirect here); `?tab=media` and `?tab=pinned` show the channel's media and pinned messages. `J`/`K` move between messages, `G` then `L` goes to the newest |
+| `/media` | Media | Images, GIFs and videos in justified rows under month headers, filtered by type, channel and sort in the URL (`/gallery` and `/channel/[id]/gallery` redirect here) |
+| `/search` | Search | Messages holding every term, narrowed by filter chips typed into the query (`in:`, `from:`, `has:`, `after:`, `before:`); highlighted snippets open in context in Browse, a refine rail counts channels, people and months and adds their chips, and the query and sort live in the URL |
+| `/people` | People | Authors as a table, sortable by messages, name or recent activity, searchable by name (`/users` redirects here) |
+| `/people/[id]` | People | A profile: stat tiles, a 52-week activity heatmap, top channels, reactions received, recent messages (`/users/[id]` redirects here) |
+| `/archive` | Archive screen (sidebar footer) | Scrape control: run a scrape, the live scrape job, attachments on disk, job history (`/control` redirects here) |
 
 ## Environment Variables
 
@@ -177,7 +187,7 @@ See `.env.example` for all options. Key variables:
 | `LOG_LEVEL` | `INFO` | Logging level |
 
 **Behaviour change:** starting or cancelling a scrape (`POST /api/scrape/start` and
-`/api/scrape/cancel`, including from the portal's control panel) now requires `API_AUTH_TOKEN`,
+`/api/scrape/cancel`, including from the portal's Archive screen) now requires `API_AUTH_TOKEN`,
 sent as `Authorization: Bearer <token>`. If it is not set, those endpoints return `403` rather
 than being open. Read-only endpoints are unchanged, and CORS no longer allows credentials,
 arbitrary methods or arbitrary headers.

@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from wumpus_archiver.api.auth import require_api_token
 from wumpus_archiver.api.deps import ApiAuthToken, Scrape
 from wumpus_archiver.api.schemas import (
+    ScrapeChannelProgressSchema,
     ScrapeHistoryResponse,
     ScrapeJobSchema,
     ScrapeProgressSchema,
@@ -41,6 +42,10 @@ def _job_to_schema(job: ScrapeJob) -> ScrapeJobSchema:
             messages_scraped=job.progress.messages_scraped,
             attachments_found=job.progress.attachments_found,
             errors=job.progress.errors,
+            channels=[
+                ScrapeChannelProgressSchema(id=c.id, name=c.name, messages=c.messages, done=c.done)
+                for c in job.progress.channels
+            ],
         ),
         started_at=job.started_at.isoformat() if job.started_at else None,
         completed_at=job.completed_at.isoformat() if job.completed_at else None,

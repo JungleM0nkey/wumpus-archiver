@@ -110,6 +110,9 @@ class ScrapeJobManager:
         self._cancel_requested = True
         self._current_job.status = JobStatus.CANCELLED
         self._current_job.completed_at = datetime.now(UTC)
+        # In the history at once: the job is over for every reader from here on, even
+        # while its task is still closing the connection.
+        self._archive(self._current_job)
 
         # Force-close the bot if running
         if self._bot is not None:
@@ -153,10 +156,9 @@ class ScrapeJobManager:
             job.status = JobStatus.SCRAPING
             logger.info("Scrape job %s: scraping guild %d...", job.id, job.guild_id)
 
-            def progress_callback(channel_name: str, message_count: int) -> None:
+            def progress_callback(channel_id: int, channel_name: str, message_count: int) -> None:
                 """Update job progress from scraper callback."""
-                job.progress.current_channel = channel_name
-                job.progress.messages_scraped = message_count
+                job.progress.record_channel(channel_id, channel_name, message_count)
 
             stats = await bot.scrape_guild(job.guild_id, progress_callback)
 
@@ -164,6 +166,7 @@ class ScrapeJobManager:
             job.status = JobStatus.COMPLETED
             job.completed_at = datetime.now(UTC)
             job.result = stats
+            job.progress.finish_channels()
             job.progress.channels_done = int(stats.get("channels_scraped", 0))
             job.progress.messages_scraped = int(stats.get("messages_scraped", 0))
             job.progress.attachments_found = int(stats.get("attachments_found", 0))
@@ -182,6 +185,10 @@ class ScrapeJobManager:
             logger.info("Scrape job %s: cancelled", job.id)
 
         except Exception as e:
+            if job.status == JobStatus.CANCELLED:
+                # Closing the connection to cancel the job is what made the scrape fail.
+                logger.info("Scrape job %s: cancelled", job.id)
+                return
             job.status = JobStatus.FAILED
             job.completed_at = datetime.now(UTC)
             job.error_message = str(e)
@@ -196,9 +203,17 @@ class ScrapeJobManager:
                     pass
                 self._bot = None
 
-            # Archive to history
-            if self._current_job is not None:
-                self._history.append(self._current_job.model_copy())
-                # Keep only last 50 jobs
-                if len(self._history) > 50:
-                    self._history = self._history[-50:]
+            # Archive to history: this task's job, which a later one may have replaced as current
+            self._archive(job)
+
+    def _archive(self, job: ScrapeJob) -> None:
+        """Put a snapshot of finished ``job`` in the history, replacing one already there."""
+        snapshot = job.model_copy(deep=True)
+        for i, archived in enumerate(self._history):
+            if archived.id == job.id:
+                self._history[i] = snapshot
+                return
+        self._history.append(snapshot)
+        # Keep only last 50 jobs
+        if len(self._history) > 50:
+            self._history = self._history[-50:]

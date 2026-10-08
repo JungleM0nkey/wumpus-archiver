@@ -2,6 +2,8 @@
 
 import ast
 import itertools
+import re
+from collections import Counter
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
@@ -63,6 +65,10 @@ class TestMediaKind:
     def test_gif_is_a_distinct_kind_although_images_include_gifs(self) -> None:
         assert MediaKind.GIF is not MediaKind.IMAGE
         assert set(MediaKind.GIF.content_types) < set(MediaKind.IMAGE.content_types)
+
+    def test_media_is_images_and_videos(self) -> None:
+        expected = MediaKind.IMAGE.content_types + MediaKind.VIDEO.content_types
+        assert MediaKind.MEDIA.content_types == expected
 
 
 def test_escape_like_is_importable_only_from_archive_reads() -> None:
@@ -151,6 +157,9 @@ SEED_MESSAGES: list[tuple[int, int, int, int, str]] = [
 # Channel 10 in time order, (created_at, id) ascending.
 CHANNEL_ORDER = [1, 2, 3, 4, 5, 6, 7, 9, 8]
 
+# #63 (Browse's Pinned tab): the pinned messages, two in channel 10 and one beside it.
+SEED_PINNED = {3, 9, 31}
+
 # (id, message, content_type)
 SEED_ATTACHMENTS: list[tuple[int, int, str | None]] = [
     (501, 3, "image/png"),
@@ -223,6 +232,7 @@ async def archive(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Dat
                     clean_content=content,
                     created_at=T0 + timedelta(minutes=minutes),
                     scraped_at=T0,
+                    pinned=message_id in SEED_PINNED,
                 )
             )
         for attachment_id, message_id, content_type in SEED_ATTACHMENTS:
@@ -361,6 +371,29 @@ class TestMessagesCursors:
         )
         assert _ids(page) == _ids(first)
 
+    # A message of another channel or guild is not a cursor of this scope: it reads as
+    # an unknown one, not as a point in time to page from.
+    @pytest.mark.parametrize(("scope", "elsewhere"), [(IN_CHANNEL, 31), (Scope(guild=GUILD), 41)])
+    @pytest.mark.parametrize("cursor", ["before", "after"])
+    @pytest.mark.parametrize("order", [OLDEST, NEWEST])
+    async def test_a_cursor_outside_the_scope_falls_back_to_the_first_page(
+        self, reads: AsyncSession, scope: Scope, elsewhere: int, cursor: str, order: Order
+    ) -> None:
+        first = await archive_reads.messages(reads, scope, order=order, limit=3)
+        page = await archive_reads.messages(
+            reads, scope, order=order, limit=3, **{cursor: elsewhere}
+        )
+        assert (_ids(page), page.has_more) == (_ids(first), first.has_more)
+
+    async def test_a_cursor_the_filters_leave_out_still_pages_from_it(
+        self, reads: AsyncSession
+    ) -> None:
+        """Only the scope decides: 7 is not pinned, yet the pinned page before it is 3 alone."""
+        page = await archive_reads.messages(
+            reads, IN_CHANNEL, order=OLDEST, limit=3, pinned=True, before=7
+        )
+        assert _ids(page) == [3]
+
     async def test_paging_back_from_the_newest_walks_the_whole_channel(
         self, reads: AsyncSession
     ) -> None:
@@ -373,6 +406,81 @@ class TestMessagesCursors:
             )
             seen += _ids(page)
         assert seen == CHANNEL_ORDER[::-1]
+
+
+@in_module_loop
+class TestMessagesAround:
+    # Message 6 ties 5 on time and is newer by id, so 5 is on its older side.
+    @pytest.mark.parametrize(
+        ("order", "expected"), [(OLDEST, [5, 6, 7, 9]), (NEWEST, [9, 7, 6, 5])]
+    )
+    async def test_the_page_holds_the_anchor_and_both_sides(
+        self, reads: AsyncSession, order: Order, expected: list[int]
+    ) -> None:
+        page = await archive_reads.messages_around(
+            reads, IN_CHANNEL, order=order, limit=4, around=6
+        )
+        assert _ids(page) == expected
+        assert (page.has_more, page.has_newer) == (True, True)
+        assert (page.oldest_id, page.newest_id, page.total) == (5, 9, len(CHANNEL_ORDER))
+
+    async def test_near_either_end_the_other_side_fills_the_page(self, reads: AsyncSession) -> None:
+        first = await archive_reads.messages_around(
+            reads, IN_CHANNEL, order=OLDEST, limit=4, around=1
+        )
+        assert (_ids(first), first.has_more, first.has_newer) == ([1, 2, 3, 4], False, True)
+        last = await archive_reads.messages_around(
+            reads, IN_CHANNEL, order=OLDEST, limit=4, around=8
+        )
+        assert (_ids(last), last.has_more, last.has_newer) == ([6, 7, 9, 8], True, False)
+
+    async def test_paging_away_from_the_anchor_walks_the_whole_channel(
+        self, reads: AsyncSession
+    ) -> None:
+        page = await archive_reads.messages_around(
+            reads, IN_CHANNEL, order=OLDEST, limit=2, around=5
+        )
+        seen = _ids(page)
+        older: Page[Message] = page
+        while older.has_more:
+            older = await archive_reads.messages(
+                reads, IN_CHANNEL, order=OLDEST, limit=2, before=older.oldest_id
+            )
+            seen = _ids(older) + seen
+        newer: Page[Message] = page
+        more_newer = page.has_newer
+        while more_newer:
+            newer = await archive_reads.messages(
+                reads, IN_CHANNEL, order=OLDEST, limit=2, after=newer.newest_id
+            )
+            seen += _ids(newer)
+            more_newer = newer.has_more
+        assert seen == CHANNEL_ORDER
+
+    @pytest.mark.parametrize("order", [OLDEST, NEWEST])
+    async def test_an_unknown_anchor_falls_back_to_the_first_page(
+        self, reads: AsyncSession, order: Order
+    ) -> None:
+        first = await archive_reads.messages(reads, IN_CHANNEL, order=order, limit=3)
+        page = await archive_reads.messages_around(
+            reads, IN_CHANNEL, order=order, limit=3, around=999_999
+        )
+        assert _ids(page) == _ids(first)
+        newest_first = order is NEWEST
+        assert (page.has_more, page.has_newer) == (newest_first, not newest_first)
+
+    @pytest.mark.parametrize(("scope", "elsewhere"), [(IN_CHANNEL, 31), (Scope(guild=GUILD), 41)])
+    @pytest.mark.parametrize("order", [OLDEST, NEWEST])
+    async def test_an_anchor_outside_the_scope_falls_back_to_the_first_page(
+        self, reads: AsyncSession, scope: Scope, elsewhere: int, order: Order
+    ) -> None:
+        first = await archive_reads.messages(reads, scope, order=order, limit=3)
+        page = await archive_reads.messages_around(
+            reads, scope, order=order, limit=3, around=elsewhere
+        )
+        assert _ids(page) == _ids(first)
+        newest_first = order is NEWEST
+        assert (page.has_more, page.has_newer) == (newest_first, not newest_first)
 
 
 @in_module_loop
@@ -465,6 +573,42 @@ class TestMessagesScopeAndFilters:
             reads, IN_CHANNEL, order=OLDEST, limit=50, since=aware
         )
         assert _ids(by_aware) == _ids(by_naive) == [5, 6, 7, 9, 8]
+
+
+@in_module_loop
+class TestMessagesPinned:
+    """Browse's Pinned tab reads a channel's pinned messages (#63)."""
+
+    async def test_pinned_keeps_only_the_channels_pinned_messages(
+        self, reads: AsyncSession
+    ) -> None:
+        page = await archive_reads.messages(reads, IN_CHANNEL, order=NEWEST, limit=50, pinned=True)
+        assert (_ids(page), page.total, page.has_more) == ([9, 3], 2, False)
+
+    async def test_unpinned_is_the_rest(self, reads: AsyncSession) -> None:
+        page = await archive_reads.messages(reads, IN_CHANNEL, order=OLDEST, limit=50, pinned=False)
+        assert _ids(page) == [m for m in CHANNEL_ORDER if m not in SEED_PINNED]
+        assert page.total == len(CHANNEL_ORDER) - 2
+
+    async def test_the_total_counts_the_pinned_messages_across_pages(
+        self, reads: AsyncSession
+    ) -> None:
+        first = await archive_reads.messages(reads, IN_CHANNEL, order=NEWEST, limit=1, pinned=True)
+        assert (_ids(first), first.total, first.has_more) == ([9], 2, True)
+        older = await archive_reads.messages(
+            reads, IN_CHANNEL, order=NEWEST, limit=1, before=9, pinned=True
+        )
+        assert (_ids(older), older.total, older.has_more) == ([3], 2, False)
+
+    async def test_pinned_follows_the_scope(self, reads: AsyncSession) -> None:
+        page = await archive_reads.messages(
+            reads, Scope(guild=GUILD), order=OLDEST, limit=50, pinned=True
+        )
+        assert (_ids(page), page.total) == ([31, 3, 9], 3)
+        foreign = await archive_reads.messages(
+            reads, Scope(channel=FOREIGN_CHANNEL), order=OLDEST, limit=50, pinned=True
+        )
+        assert (foreign.rows, foreign.total) == ([], 0)
 
 
 @in_module_loop
@@ -577,11 +721,101 @@ async def test_total_agrees_with_the_rows(reads: AsyncSession, scope: str, windo
             assert counted.total == len(expected), case
 
 
+# --- search terms and facets (#64) ----------------------------------------------------------
+
+
+@in_module_loop
+class TestTerms:
+    """``terms`` keeps messages holding every term, in any order and case."""
+
+    @pytest.mark.parametrize(
+        ("terms", "expected"),
+        [
+            (["with", "image"], [3]),
+            (["IMAGE", "with"], [3]),
+            (["with", "a"], [3, 4, 7]),
+            (["with", "nothing"], []),
+            (["100%", "sure"], [31]),
+            (["_"], [32]),
+        ],
+    )
+    async def test_every_term_must_occur(
+        self, reads: AsyncSession, terms: list[str], expected: list[int]
+    ) -> None:
+        page = await archive_reads.messages(
+            reads, Scope(guild=GUILD), order=OLDEST, limit=50, terms=terms
+        )
+        assert sorted(_ids(page)) == expected
+        assert page.total == len(expected)
+
+    async def test_terms_compose_with_text(self, reads: AsyncSession) -> None:
+        page = await archive_reads.messages(
+            reads, IN_CHANNEL, order=OLDEST, limit=50, text="with", terms=["video"]
+        )
+        assert _ids(page) == [4]
+
+
+def _by_count(counts: Counter[int]) -> list[tuple[int, int]]:
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+
+
+@in_module_loop
+# An aware window is converted as in messages(), whose test covers it.
+@pytest.mark.parametrize("window", ["any time", "naive window"])
+@pytest.mark.parametrize("scope", list(SCOPES))
+async def test_search_facets_count_what_messages_matches(
+    reads: AsyncSession, scope: str, window: str
+) -> None:
+    """Every text and ``has`` under this scope and window; the case names the failing pair."""
+    since, until = WINDOWS[window]
+    for text, has in itertools.product(TEXTS, [None, *Has]):
+        case = f"text={text!r} has={has}"
+        facets = await archive_reads.search_facets(
+            reads,
+            SCOPES[scope],
+            limit=10,
+            terms=[] if text is None else [text],
+            has=has,
+            since=since,
+            until=until,
+        )
+        expected = _expected(SCOPES[scope], text, has, WINDOWS[window])
+        rows = [row for row in SEED_MESSAGES if row[0] in expected]
+        channels = Counter(channel for _, channel, *_ in rows)
+        authors = Counter(author for _, _, author, *_ in rows)
+        months = Counter(
+            (T0 + timedelta(minutes=minutes)).date().replace(day=1) for *_, minutes, _ in rows
+        )
+        assert [(c.channel_id, c.messages) for c in facets.channels] == _by_count(channels), case
+        assert [(a.user.id, a.messages) for a in facets.authors] == _by_count(authors), case
+        assert facets.months == [ActivityBucket(m, months[m]) for m in sorted(months)], case
+
+
+@in_module_loop
+async def test_search_facets_are_three_grouped_statements_within_the_limit(
+    reads: AsyncSession, statements: list[str]
+) -> None:
+    facets = await archive_reads.search_facets(reads, Scope(), limit=1)
+    assert len(statements) == 3
+    assert all("GROUP BY" in statement for statement in statements)
+    # Alice and channel 10 hold the most messages; every month is listed whatever the limit.
+    assert [(c.channel_id, c.name, c.messages) for c in facets.channels] == [
+        (CHANNEL, "general", 9)
+    ]
+    assert [(a.user.username, a.messages) for a in facets.authors] == [("alice", 8)]
+    assert [m.start for m in facets.months] == [
+        date(2023, 12, 1),
+        date(2024, 1, 1),
+        date(2024, 2, 1),
+    ]
+
+
 def test_no_route_looks_up_channel_names_for_search_results() -> None:
     from wumpus_archiver.api.routes import search
 
     source = Path(search.__file__).read_text()
-    assert "Channel" not in source
+    # The model, that is; the facet schemas may say "Channel" in their names.
+    assert re.search(r"\bChannel\b", source) is None
     assert "select(" not in source
 
 
@@ -643,6 +877,7 @@ class TestAttachments:
             (MediaKind.IMAGE, [504, 506, 501]),
             (MediaKind.GIF, [504]),
             (MediaKind.VIDEO, [502]),
+            (MediaKind.MEDIA, [502, 504, 506, 501]),
         ],
     )
     async def test_media_kind_newest_first_with_an_id_tie_break(
@@ -651,6 +886,15 @@ class TestAttachments:
         page = await archive_reads.attachments(reads, Scope(guild=GUILD), kind=kind, limit=50)
         assert _attachment_ids(page) == expected
         assert (page.total, page.has_more) == (len(expected), False)
+
+    async def test_oldest_first_is_the_exact_reverse(self, reads: AsyncSession) -> None:
+        scope, kind = Scope(guild=GUILD), MediaKind.MEDIA
+        newest = await archive_reads.attachments(reads, scope, kind=kind, limit=50)
+        oldest = await archive_reads.attachments(
+            reads, scope, kind=kind, limit=50, order=Order.OLDEST_FIRST
+        )
+        assert _attachment_ids(oldest) == _attachment_ids(newest)[::-1]
+        assert oldest.total == newest.total
 
     async def test_offset_paging(self, reads: AsyncSession) -> None:
         scope = Scope(guild=GUILD)
@@ -719,14 +963,15 @@ class TestAuthors:
         [
             (AuthorSort.MESSAGES, Scope(), [ALICE, BOB, CAROL]),
             (AuthorSort.MESSAGES, Scope(channel=SIBLING_CHANNEL), [ALICE, BOB, CAROL]),
-            (AuthorSort.NAME, Scope(), [ALICE, CAROL, BOB]),
+            # Carol's username ties Alice's, but the shown name is her global name.
+            (AuthorSort.NAME, Scope(), [CAROL, ALICE, BOB]),
             (AuthorSort.RECENT, Scope(), [BOB, ALICE, CAROL]),
             (AuthorSort.RECENT, Scope(channel=FOREIGN_CHANNEL), [ALICE, CAROL, BOB]),
         ],
         ids=[
             "messages",
             "messages tie",
-            "name tie",
+            "name shown",
             "recent",
             "recent tie",
         ],
@@ -775,7 +1020,7 @@ class TestAuthors:
     async def test_paging(self, reads: AsyncSession) -> None:
         first = await archive_reads.authors(reads, Scope(), sort=AuthorSort.NAME, limit=2)
         rest = await archive_reads.authors(reads, Scope(), sort=AuthorSort.NAME, limit=2, offset=2)
-        assert (_user_ids(first), first.total, first.has_more) == ([ALICE, CAROL], 3, True)
+        assert (_user_ids(first), first.total, first.has_more) == ([CAROL, ALICE], 3, True)
         assert (_user_ids(rest), rest.total, rest.has_more) == ([BOB], 3, False)
 
     async def test_an_unknown_sort_is_refused(self, reads: AsyncSession) -> None:
@@ -903,6 +1148,80 @@ class TestActivity:
         by_aware = await archive_reads.activity(reads, Scope(), period=Period.MONTH, since=aware)
         assert by_naive == by_aware == [ActivityBucket(date(2024, 2, 1), 1)]
 
+    async def test_each_bucket_can_name_its_first_message(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        """Browse's jump rail opens a channel at a month's first message (#61)."""
+        sibling = Scope(channel=SIBLING_CHANNEL)
+        buckets = await archive_reads.activity(
+            reads, sibling, period=Period.MONTH, with_first_message=True
+        )
+        assert buckets == [
+            ActivityBucket(date(2023, 12, 1), 1, 43),
+            ActivityBucket(date(2024, 1, 1), 3, 30),
+            ActivityBucket(date(2024, 2, 1), 1, 33),
+        ]
+        assert len(statements) == 2
+        # Over a guild, January's first is message 1 at 22:00, before 30 and 40 at 22:05.
+        guild = await archive_reads.activity(
+            reads, Scope(guild=GUILD), period=Period.MONTH, with_first_message=True
+        )
+        assert [b.first_message_id for b in guild] == [43, 1, 33]
+
+    async def test_without_first_messages_the_buckets_name_none(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        buckets = await archive_reads.activity(reads, IN_CHANNEL, period=Period.WEEK)
+        assert buckets == [ActivityBucket(date(2024, 1, 29), len(CHANNEL_ORDER))]
+        assert len(statements) == 1
+
+    async def test_an_empty_scope_has_no_buckets_to_name(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        empty = Scope(channel=QUIET_CHANNEL)
+        assert (
+            await archive_reads.activity(reads, empty, period=Period.MONTH, with_first_message=True)
+            == []
+        )
+        assert len(statements) == 1
+
+
+@in_module_loop
+class TestChannel:
+    async def test_one_channel_or_none(self, reads: AsyncSession) -> None:
+        found = await archive_reads.channel(reads, SIBLING_CHANNEL)
+        assert found is not None and found.name == "random"
+        assert await archive_reads.channel(reads, 999) is None
+
+
+@in_module_loop
+class TestReferencedMessages:
+    async def test_a_page_without_replies_reads_nothing(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        page = await archive_reads.messages(reads, IN_CHANNEL, order=OLDEST, limit=3)
+        statements.clear()
+        assert await archive_reads.referenced_messages(reads, page.rows) == {}
+        assert statements == []
+
+    async def test_one_statement_reads_every_referenced_message_with_its_author(
+        self, reads: AsyncSession, statements: list[str]
+    ) -> None:
+        # Replies that are not in the archive themselves: only their reference_id is read.
+        replies = [
+            Message(id=900, reference_id=2),
+            Message(id=901, reference_id=40),
+            Message(id=902, reference_id=2),
+            Message(id=903, reference_id=777),
+        ]
+        referenced = await archive_reads.referenced_messages(reads, replies)
+        assert sorted(referenced) == [2, 40]
+        assert len(statements) == 1
+        # Their authors are loaded with them, with no further statement.
+        assert {m.author.username for m in referenced.values() if m.author} == {"bob"}
+        assert referenced[40].channel_id == FOREIGN_CHANNEL
+        assert len(statements) == 1
+
 
 @in_module_loop
 class TestTopChannels:
@@ -957,10 +1276,13 @@ async def test_every_read_compiles_for_sqlite_and_postgresql(reads: AsyncSession
             until=T0 + timedelta(days=1),
         )
         await archive_reads.messages(reads, scope, order=OLDEST, limit=1, has=Has.LINK)
+        await archive_reads.messages_around(reads, scope, order=NEWEST, limit=2, around=5)
         await archive_reads.attachments(reads, scope, kind=MediaKind.IMAGE, limit=1)
         await archive_reads.authors(reads, scope, sort=AuthorSort.RECENT, limit=1, name="a")
         await archive_reads.guilds(reads)
         await archive_reads.guild(reads, GUILD)
+        await archive_reads.channel(reads, CHANNEL)
+        await archive_reads.referenced_messages(reads, [Message(id=900, reference_id=1)])
         await archive_reads.guild_channels(reads, GUILD)
         await archive_reads.guild_counts(reads, [GUILD])
         await archive_reads.user(reads, ALICE)
@@ -972,7 +1294,11 @@ async def test_every_read_compiles_for_sqlite_and_postgresql(reads: AsyncSession
         await archive_reads.channel_activity(reads, scope, limit=1)
         await archive_reads.reactions(reads, scope, limit=1)
         await archive_reads.activity(reads, scope, period=Period.WEEK, since=T0)
+        await archive_reads.activity(reads, scope, period=Period.MONTH, with_first_message=True)
         await archive_reads.top_channels(reads, GUILD, limit=1)
+        await archive_reads.search_facets(
+            reads, scope, limit=1, terms=["a"], has=Has.IMAGE, since=T0, until=T0
+        )
     finally:
         event.remove(reads.sync_session, "do_orm_execute", capture)
 

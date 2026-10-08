@@ -69,6 +69,8 @@ export interface Message {
 	mention_everyone: boolean;
 	embeds: string | null;
 	reference_id: string | null;
+	/** What a reply shows of the message it refers to; on the channel reader's pages only. */
+	reference?: MessageReference | null;
 	author: User | null;
 	attachments: Attachment[];
 	reactions: Reaction[];
@@ -80,6 +82,8 @@ export interface MessageListResponse {
 	has_more: boolean;
 	before_id: string | null;
 	after_id: string | null;
+	/** Whether newer messages remain: set on a page read `around` a message, else null. */
+	has_newer: boolean | null;
 }
 
 export interface GuildDetail extends Guild {
@@ -95,10 +99,31 @@ export interface SearchResult {
 export interface SearchResponse {
 	results: SearchResult[];
 	total: number;
-	query: string;
+	/** The search query; null when the read is an author's messages with no query. */
+	query: string | null;
+	/** Whether more results follow in the sort; pass the last result's id as `cursor`. */
+	has_more: boolean;
+	/** The matches' counts per channel, author and month; null unless asked for. */
+	facets: SearchFacets | null;
+}
+
+export interface SearchFacets {
+	/** The busiest channels first, at most ten. */
+	channels: { id: string; name: string; count: number }[];
+	/** The busiest authors first, at most ten. */
+	authors: {
+		id: string;
+		username: string;
+		display_name: string;
+		avatar_url: string | null;
+		count: number;
+	}[];
+	/** Every month holding a match, oldest first; `start` is its first day, YYYY-MM-DD. */
+	months: { start: string; count: number }[];
 }
 
 export interface TopChannel {
+	id: string;
 	name: string;
 	message_count: number;
 }
@@ -119,6 +144,8 @@ export interface Stats {
 	total_attachments: number;
 	top_channels: TopChannel[];
 	top_users: TopUser[];
+	/** The change since the last completed scrape job started; null when none completed. */
+	since_last_scrape: SinceLastScrape | null;
 }
 
 // Discord channel types
@@ -175,17 +202,28 @@ export interface TimelineGalleryResponse {
 
 // --- Scrape Control Panel types ---
 
+/** One channel a scrape job has reached: the messages written so far, and whether it is done. */
+export interface ScrapeChannelProgress {
+	/** The channel's id: two channels may share a name. */
+	id: string;
+	name: string;
+	messages: number;
+	done: boolean;
+}
+
 export interface ScrapeProgress {
 	current_channel: string;
 	channels_done: number;
 	messages_scraped: number;
 	attachments_found: number;
 	errors: string[];
+	/** The channels the job has reached, in order; the last one not done is the current one. */
+	channels: ScrapeChannelProgress[];
 }
 
 export interface ScrapeJob {
 	id: string;
-	guild_id: number;
+	guild_id: string;
 	status: 'pending' | 'connecting' | 'scraping' | 'completed' | 'failed' | 'cancelled';
 	progress: ScrapeProgress;
 	started_at: string | null;
@@ -259,6 +297,14 @@ export interface UserProfile {
 	monthly_activity: UserMonthlyActivity[];
 	top_reactions_received: { emoji: string; count: number }[];
 	top_words: { word: string; count: number }[];
+	/** The 52 weeks ending with the week of the last message in scope, oldest first, empty weeks included. */
+	weekly_activity: UserWeeklyActivity[];
+}
+
+/** Messages in one ISO week; `week` is its Monday, as YYYY-MM-DD. */
+export interface UserWeeklyActivity {
+	week: string;
+	count: number;
 }
 
 // --- Download stats types ---
@@ -283,4 +329,48 @@ export interface DownloadStatsResponse {
 	downloaded_bytes: number;
 	attachments_dir: string | null;
 	channels: DownloadChannelStats[];
+}
+
+// --- Overview (#67) ---
+
+/** How each stats total changed since the guild's last completed scrape job started (ADR 0004). */
+export interface SinceLastScrape {
+	started_at: string;
+	completed_at: string;
+	messages: number;
+	channels: number;
+	authors: number;
+	attachments: number;
+}
+
+/** Messages in one calendar month or ISO week; `start` is its first day, YYYY-MM-DD. */
+export interface ActivityBucket {
+	start: string;
+	messages: number;
+}
+
+/** A guild's activity: only the periods holding messages, oldest first. */
+export interface GuildActivity {
+	period: 'month' | 'week';
+	buckets: ActivityBucket[];
+}
+
+/** The message a reply refers to: its author and the start of its text on one line. */
+export interface MessageReference {
+	id: string;
+	channel_id: string;
+	author: User | null;
+	/** Empty when the message has no text, only attachments or embeds. */
+	snippet: string;
+}
+
+/** A channel's messages in one month or week, and the first of them. */
+export interface ChannelActivityBucket extends ActivityBucket {
+	first_message_id: string;
+}
+
+/** A channel's activity: only the periods holding messages, oldest first. */
+export interface ChannelActivity {
+	period: 'month' | 'week';
+	buckets: ChannelActivityBucket[];
 }

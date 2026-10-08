@@ -1,7 +1,7 @@
 """Pydantic schemas for API responses."""
 
-from datetime import datetime
-from typing import Annotated
+from datetime import date, datetime
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, PlainSerializer
 
@@ -89,6 +89,19 @@ class ReactionSchema(BaseModel):
     count: int = 1
 
 
+class MessageReferenceSchema(BaseModel):
+    """The message a reply refers to, as much of it as the reply shows.
+
+    ``snippet`` is the start of its text on one line, cut at ``REFERENCE_SNIPPET_LENGTH``
+    characters with an ellipsis; empty when it has no text (only attachments or embeds).
+    """
+
+    id: Snowflake
+    channel_id: Snowflake
+    author: UserSchema | None = None
+    snippet: str = ""
+
+
 class MessageSchema(BaseModel):
     """Message response schema."""
 
@@ -106,6 +119,9 @@ class MessageSchema(BaseModel):
     mention_everyone: bool = False
     embeds: str | None = None
     reference_id: OptionalSnowflake = None
+    # The message ``reference_id`` names, on the channel reader's pages; null when the
+    # archive does not hold it, and on other reads.
+    reference: MessageReferenceSchema | None = None
     author: UserSchema | None = None
     attachments: list[AttachmentSchema] = []
     reactions: list[ReactionSchema] = []
@@ -119,6 +135,8 @@ class MessageListResponse(BaseModel):
     has_more: bool
     before_id: OptionalSnowflake = None
     after_id: OptionalSnowflake = None
+    # Whether newer messages remain: set on a page read ``around`` a message, else null.
+    has_newer: bool | None = None
 
 
 class ChannelListResponse(BaseModel):
@@ -135,23 +153,86 @@ class GuildDetailSchema(GuildSchema):
 
 
 class SearchResultSchema(BaseModel):
-    """Search result item."""
+    """Search result item.
+
+    ``highlight`` is HTML: the snippet of the content around its first match, escaped,
+    with every occurrence of the query's terms in ``<mark>``. Nothing else is markup.
+    """
 
     message: MessageSchema
     channel_name: str
     highlight: str = ""
 
 
+class SearchChannelFacetSchema(BaseModel):
+    """A channel and how many of the search's messages it holds."""
+
+    id: Snowflake
+    name: str
+    count: int
+
+
+class SearchAuthorFacetSchema(BaseModel):
+    """An author and how many of the search's messages they posted."""
+
+    id: Snowflake
+    username: str
+    display_name: str
+    avatar_url: str | None = None
+    count: int
+
+
+class SearchMonthFacetSchema(BaseModel):
+    """How many of the search's messages fall in the month starting on ``start``."""
+
+    start: date
+    count: int
+
+
+class SearchFacetsSchema(BaseModel):
+    """How the search's messages divide by channel, author and month (``facets=true``)."""
+
+    channels: list[SearchChannelFacetSchema]
+    authors: list[SearchAuthorFacetSchema]
+    months: list[SearchMonthFacetSchema]
+
+
 class SearchResponse(BaseModel):
-    """Search results response."""
+    """Search results response.
+
+    ``has_more`` says whether more results follow in the requested sort; pass the last
+    result's id as ``cursor`` for them. ``facets`` is only filled when asked for.
+    """
 
     results: list[SearchResultSchema]
     total: int
-    query: str
+    query: str | None
+    has_more: bool = False
+    facets: SearchFacetsSchema | None = None
+
+
+class SinceLastScrapeSchema(BaseModel):
+    """How the guild's totals changed since its last completed scrape job started.
+
+    Each count is the current total minus the total when that job started, so it is
+    what that job added plus anything ingested after it (see ``docs/adr/0004``).
+    ``authors`` is the change in ``total_users``.
+    """
+
+    started_at: datetime
+    completed_at: datetime
+    messages: int
+    channels: int
+    authors: int
+    attachments: int
 
 
 class StatsSchema(BaseModel):
-    """Guild statistics."""
+    """Guild statistics.
+
+    ``top_channels`` lists text channels only. ``since_last_scrape`` is ``None`` when
+    no scrape job of the guild has completed (or none was recorded), never zeros.
+    """
 
     guild_name: str
     total_channels: int
@@ -160,6 +241,37 @@ class StatsSchema(BaseModel):
     total_attachments: int
     top_channels: list[dict[str, object]]
     top_users: list[dict[str, object]]
+    since_last_scrape: SinceLastScrapeSchema | None = None
+
+
+class ActivityBucketSchema(BaseModel):
+    """Messages in one calendar month or ISO week, starting on ``start``."""
+
+    start: date
+    messages: int
+
+
+class ActivitySchema(BaseModel):
+    """A guild's activity: messages per period, oldest first, only periods holding messages."""
+
+    period: Literal["month", "week"]
+    buckets: list[ActivityBucketSchema]
+
+
+class ChannelActivityBucketSchema(ActivityBucketSchema):
+    """A channel's messages in one period, with the id of the period's first message."""
+
+    first_message_id: Snowflake
+
+
+class ChannelActivitySchema(BaseModel):
+    """A channel's activity: messages per period, oldest first, only periods holding messages.
+
+    Each period names its first message, so a reader can open the channel there.
+    """
+
+    period: Literal["month", "week"]
+    buckets: list[ChannelActivityBucketSchema]
 
 
 class GalleryAttachmentSchema(BaseModel):
@@ -191,7 +303,7 @@ class GalleryResponse(BaseModel):
 
 
 class TimelineGalleryGroup(BaseModel):
-    """A group of images for a time period."""
+    """The gallery timeline's attachments from one time period on one page."""
 
     period: str
     label: str
@@ -200,7 +312,7 @@ class TimelineGalleryGroup(BaseModel):
 
 
 class TimelineGalleryResponse(BaseModel):
-    """Gallery images grouped by time period."""
+    """The gallery timeline: one page of attachments, grouped by time period."""
 
     groups: list[TimelineGalleryGroup]
     total: int
@@ -241,9 +353,19 @@ class GifListResponse(BaseModel):
 
 
 class ScrapeStartRequest(BaseModel):
-    """Request to start a scrape job."""
+    """Request to start a scrape job: `guild_id` as a string of digits (or a number)."""
 
     guild_id: int
+
+
+class ScrapeChannelProgressSchema(BaseModel):
+    """One channel of a scrape job: its id and name, the messages written so far, and whether
+    it is done. Two channels may share a name; the id tells them apart."""
+
+    id: Snowflake
+    name: str
+    messages: int = 0
+    done: bool = False
 
 
 class ScrapeProgressSchema(BaseModel):
@@ -254,13 +376,15 @@ class ScrapeProgressSchema(BaseModel):
     messages_scraped: int = 0
     attachments_found: int = 0
     errors: list[str] = []
+    # The channels the job has reached, in order; the last one not done is the current one
+    channels: list[ScrapeChannelProgressSchema] = []
 
 
 class ScrapeJobSchema(BaseModel):
     """Response schema for a scrape job."""
 
     id: str
-    guild_id: int
+    guild_id: Snowflake
     status: str
     progress: ScrapeProgressSchema
     started_at: str | None = None
@@ -328,6 +452,13 @@ class UserMonthlyActivity(BaseModel):
     count: int
 
 
+class UserWeeklyActivity(BaseModel):
+    """Messages in one ISO week, which starts on Monday ``week``."""
+
+    week: date
+    count: int
+
+
 class UserProfileSchema(BaseModel):
     """Full user profile with statistics."""
 
@@ -349,6 +480,9 @@ class UserProfileSchema(BaseModel):
     avg_message_length: float = 0.0
     top_channels: list[UserChannelActivity] = []
     monthly_activity: list[UserMonthlyActivity] = []
+    # The 52 weeks ending with the week of the last message in scope, oldest first,
+    # empty weeks included.
+    weekly_activity: list[UserWeeklyActivity] = []
     top_reactions_received: list[dict[str, object]] = []
     top_words: list[dict[str, object]] = []
 

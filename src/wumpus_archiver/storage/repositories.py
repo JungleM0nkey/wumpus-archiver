@@ -2,15 +2,17 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
+from wumpus_archiver.models.completed_scrape import CompletedScrape
 from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.reaction import Reaction
 from wumpus_archiver.models.user import User
+from wumpus_archiver.storage.archive_reads import GuildTotals
 
 
 class GuildRepository:
@@ -70,10 +72,17 @@ class ChannelRepository:
         return result.scalar_one_or_none()
 
     async def upsert(self, channel: Channel) -> Channel:
-        """Insert or update channel."""
+        """Insert a channel, or refresh a stored one's details from Discord.
+
+        Only what Discord says about the channel is copied: its name, type, topic,
+        position and parent. The archive metadata (first and last message ids, message
+        count, last scraped) is never taken from ``channel``, which a scraper builds
+        fresh without it; ``update_message_metadata`` derives it from the archive.
+        """
         existing = await self.get_by_id(channel.id)
         if existing:
             existing.name = channel.name
+            existing.type = channel.type
             existing.topic = channel.topic
             existing.position = channel.position
             existing.parent_id = channel.parent_id
@@ -82,14 +91,37 @@ class ChannelRepository:
             self.session.add(channel)
             return channel
 
-    async def update_message_metadata(
-        self, channel_id: int, last_message_id: int, increment: int = 1
-    ) -> None:
-        """Update channel message count and last message."""
+    async def update_message_metadata(self, channel_id: int) -> None:
+        """Record a finished scrape of a channel from the messages the archive holds for it.
+
+        ``first_message_id`` and ``last_message_id`` name the channel's oldest and newest
+        archived messages, in the readers' ``(created_at, id)`` order, and
+        ``message_count`` counts them. All three are read from the archive rather than
+        from what the scrape read, so a re-scrape cannot inflate the count (#69), a
+        scrape that reaches older history moves the first id back (#70), and values an
+        earlier scrape left wrong are corrected by the next one.
+        """
         channel = await self.get_by_id(channel_id)
         if channel:
-            channel.last_message_id = last_message_id
-            channel.message_count += increment
+            in_channel = Message.channel_id == channel_id
+            archived = await self.session.execute(
+                select(func.count()).select_from(Message).where(in_channel)
+            )
+            channel.message_count = archived.scalar_one()
+            oldest = await self.session.execute(
+                select(Message.id)
+                .where(in_channel)
+                .order_by(Message.created_at.asc(), Message.id.asc())
+                .limit(1)
+            )
+            channel.first_message_id = oldest.scalar_one_or_none()
+            newest = await self.session.execute(
+                select(Message.id)
+                .where(in_channel)
+                .order_by(Message.created_at.desc(), Message.id.desc())
+                .limit(1)
+            )
+            channel.last_message_id = newest.scalar_one_or_none()
             channel.last_scraped_at = datetime.now(UTC)
 
 
@@ -201,3 +233,43 @@ class ReactionRepository:
         else:
             self.session.add(reaction)
             return reaction
+
+
+class CompletedScrapeRepository:
+    """Repository for the record each completed scrape job leaves (see ``docs/adr/0004``)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def record(
+        self,
+        guild_id: int,
+        *,
+        started_at: datetime,
+        at_start: GuildTotals,
+        completed_at: datetime | None = None,
+    ) -> CompletedScrape:
+        """Record that a scrape job of ``guild_id`` completed, with the totals it started from.
+
+        ``at_start`` must be read before the job writes anything. Times are stored as
+        naive UTC; ``completed_at`` defaults to now.
+        """
+        completed = completed_at or datetime.now(UTC)
+        record = CompletedScrape(
+            guild_id=guild_id,
+            started_at=_naive_utc(started_at),
+            completed_at=_naive_utc(completed),
+            messages_at_start=at_start.messages,
+            channels_at_start=at_start.channels,
+            authors_at_start=at_start.authors,
+            attachments_at_start=at_start.attachments,
+        )
+        self.session.add(record)
+        return record
+
+
+def _naive_utc(value: datetime) -> datetime:
+    """The archive stores naive UTC; convert an aware datetime to that."""
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(UTC).replace(tzinfo=None)
