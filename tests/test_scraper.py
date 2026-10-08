@@ -269,3 +269,28 @@ async def test_a_job_that_completes_records_one_completed_scrape(
     assert job.status == JobStatus.COMPLETED
     assert job.result is not None and job.result["messages_scraped"] == 9
     assert await _completed_scrapes(database) == 1
+
+
+async def test_a_jobs_progress_keeps_apart_two_channels_of_the_same_name(
+    database: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Discord allows two #general (in two categories, say), scraped back to back."""
+    guild = _guild()
+    guild.add_channel(512, "general", 4_000, 4_001, 4_002)
+    guild.text_channels.insert(1, guild.text_channels.pop())
+    manager = _manager_on(monkeypatch, database, guild)
+
+    job = manager.start_scrape(GUILD)
+    await _job_ends(manager)
+
+    progress = job.progress
+    assert [(c.name, c.messages, c.done) for c in progress.channels] == [
+        ("general", 5, True),
+        ("general", 3, True),
+        ("random", 2, True),
+    ]
+    assert (progress.channels_done, len(progress.channels), progress.messages_scraped) == (
+        3,
+        3,
+        10,
+    )

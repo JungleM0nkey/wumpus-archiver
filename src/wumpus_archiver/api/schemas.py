@@ -359,8 +359,10 @@ class ScrapeStartRequest(BaseModel):
 
 
 class ScrapeChannelProgressSchema(BaseModel):
-    """One channel of a scrape job: its name, the messages written so far, and whether it is done."""
+    """One channel of a scrape job: its id and name, the messages written so far, and whether
+    it is done. Two channels may share a name; the id tells them apart."""
 
+    id: Snowflake
     name: str
     messages: int = 0
     done: bool = False

@@ -62,11 +62,12 @@ class FakeScrapeControl:
         self._history.append(self.current_job)
         return True
 
-    def report(self, channel: str, messages: int) -> None:
-        """Report progress of the current job as the scraper does: ``messages`` written in ``channel``."""
+    def report(self, channel_id: int, channel: str, messages: int) -> None:
+        """Report progress of the current job as the scraper does: ``messages`` written in
+        the channel ``channel_id``, named ``channel``."""
         if self.current_job is None:
             raise RuntimeError("no job to report on")
-        self.current_job.progress.record_channel(channel, messages)
+        self.current_job.progress.record_channel(channel_id, channel, messages)
 
     def finish(self, **result: Any) -> ScrapeJob:
         """Complete the current job with ``result`` and move it to the history."""

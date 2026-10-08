@@ -72,13 +72,14 @@ class ArchiverBot:
     async def scrape_guild(
         self,
         guild_id: int,
-        progress_callback: Callable[[str, int], None] | None = None,
+        progress_callback: Callable[[int, str, int], None] | None = None,
     ) -> dict[str, object]:
         """Scrape all data from a guild.
 
         Args:
             guild_id: Discord guild ID
-            progress_callback: Optional callback for progress updates
+            progress_callback: Optional callback for progress updates, called with a
+                channel's id, its name and the messages of it written so far
 
         Returns:
             Dict with scraping statistics
@@ -212,7 +213,7 @@ class ArchiverBot:
         self,
         session: AsyncSession,
         channel: discord.TextChannel | discord.VoiceChannel | discord.Thread | discord.StageChannel,
-        progress_callback: Callable[[str, int], None] | None = None,
+        progress_callback: Callable[[int, str, int], None] | None = None,
     ) -> dict[str, int]:
         """Scrape all messages from a channel or thread.
 
@@ -262,6 +263,7 @@ class ArchiverBot:
 
                     if progress_callback:
                         progress_callback(
+                            channel.id,
                             channel.name,
                             stats["messages"],
                         )
@@ -275,7 +277,7 @@ class ArchiverBot:
         # Report every channel once it is written, with its final count, however few
         # messages it has: progress shows each channel the scrape got through.
         if progress_callback:
-            progress_callback(channel.name, stats["messages"])
+            progress_callback(channel.id, channel.name, stats["messages"])
 
         # Reads the channel's first and last message ids and its count from the archive,
         # even when this scrape read none, so a re-scrape never adds messages already

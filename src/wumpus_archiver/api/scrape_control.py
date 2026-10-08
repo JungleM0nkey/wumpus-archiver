@@ -26,8 +26,10 @@ class JobStatus(str, Enum):
 
 
 class ScrapeChannelProgress(BaseModel):
-    """One channel of a scrape job: its name, the messages written so far, and whether it is done."""
+    """One channel of a scrape job: its id and name, the messages written so far, and whether
+    it is done."""
 
+    id: int
     name: str
     messages: int = 0
     done: bool = False
@@ -44,19 +46,19 @@ class ScrapeProgress(BaseModel):
     # The channels the job has reported, in the order it reached them.
     channels: list[ScrapeChannelProgress] = []
 
-    def record_channel(self, name: str, messages: int) -> None:
-        """Record the scraper's report that ``messages`` messages of channel ``name`` are written.
+    def record_channel(self, channel_id: int, name: str, messages: int) -> None:
+        """Record the scraper's report that ``messages`` messages of a channel are written.
 
         The scraper works through one channel at a time, so a report for a channel
         other than the last one reported means that one is done. The live totals
-        follow: channels done, and messages across every channel reported. Two
-        channels of the same name reported back to back count as one.
+        follow: channels done, and messages across every channel reported. Channels
+        are told apart by id: Discord lets two channels share a name.
         """
         last = self.channels[-1] if self.channels else None
-        if last is None or last.name != name:
+        if last is None or last.id != channel_id:
             if last is not None:
                 last.done = True
-            last = ScrapeChannelProgress(name=name)
+            last = ScrapeChannelProgress(id=channel_id, name=name)
             self.channels.append(last)
         last.messages = messages
         self.current_channel = name

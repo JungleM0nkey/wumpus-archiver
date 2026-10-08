@@ -82,10 +82,10 @@ class TestScrapeProgress:
 
     def test_a_report_for_the_next_channel_marks_the_last_one_done(self) -> None:
         progress = ScrapeProgress()
-        progress.record_channel("general", 100)
-        progress.record_channel("general", 140)
-        progress.record_channel("art", 0)
-        progress.record_channel("memes", 200)
+        progress.record_channel(1, "general", 100)
+        progress.record_channel(1, "general", 140)
+        progress.record_channel(2, "art", 0)
+        progress.record_channel(3, "memes", 200)
 
         assert [(c.name, c.messages, c.done) for c in progress.channels] == [
             ("general", 140, True),
@@ -96,10 +96,27 @@ class TestScrapeProgress:
         assert progress.channels_done == 2
         assert progress.messages_scraped == 340
 
+    def test_two_channels_of_the_same_name_back_to_back_are_two_channels(self) -> None:
+        """Discord lets two channels share a name: the id tells them apart."""
+        progress = ScrapeProgress()
+        progress.record_channel(1, "general", 100)
+        progress.record_channel(1, "general", 140)
+        progress.record_channel(2, "general", 30)
+
+        assert [(c.id, c.name, c.messages, c.done) for c in progress.channels] == [
+            (1, "general", 140, True),
+            (2, "general", 30, False),
+        ]
+        assert (progress.current_channel, progress.channels_done, progress.messages_scraped) == (
+            "general",
+            1,
+            170,
+        )
+
     def test_finishing_marks_every_channel_done(self) -> None:
         progress = ScrapeProgress()
-        progress.record_channel("general", 3)
-        progress.record_channel("art", 4)
+        progress.record_channel(1, "general", 3)
+        progress.record_channel(2, "art", 4)
         progress.finish_channels()
         assert all(c.done for c in progress.channels)
         assert progress.channels_done == 2
@@ -107,7 +124,7 @@ class TestScrapeProgress:
     def test_jobs_do_not_share_progress(self) -> None:
         fake = FakeScrapeControl()
         fake.start_scrape(1)
-        fake.report("general", 5)
+        fake.report(1, "general", 5)
         first = fake.finish()
         fake.start_scrape(2)
         assert fake.current_job is not None
@@ -124,19 +141,19 @@ class FakeBot:
         self.release = asyncio.Event()
         self.closed = False
         self.fail_on_close = False
-        self.progress: Callable[[str, int], None] | None = None
+        self.progress: Callable[[int, str, int], None] | None = None
         FakeBot.instances.append(self)
 
     async def start(self) -> None:
         return None
 
     async def scrape_guild(
-        self, guild_id: int, progress: Callable[[str, int], None]
+        self, guild_id: int, progress: Callable[[int, str, int], None]
     ) -> dict[str, object]:
         self.progress = progress
-        progress("general", 100)
-        progress("general", 120)
-        progress("art", 7)
+        progress(1, "general", 100)
+        progress(1, "general", 120)
+        progress(2, "art", 7)
         await self.release.wait()
         if self.closed:
             raise RuntimeError("Session is closed")
@@ -235,7 +252,7 @@ async def test_the_scraper_reports_every_channel_once_it_is_written(session: Asy
     )
     reports: list[tuple[str, int]] = []
     bot = ArchiverBot.__new__(ArchiverBot)
-    await bot._scrape_channel(session, channel, lambda name, n: reports.append((name, n)))  # type: ignore[arg-type]
+    await bot._scrape_channel(session, channel, lambda _id, name, n: reports.append((name, n)))  # type: ignore[arg-type]
     assert reports == [("quiet", 0)]
 
 

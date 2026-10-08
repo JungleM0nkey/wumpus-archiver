@@ -156,9 +156,9 @@ class ScrapeJobManager:
             job.status = JobStatus.SCRAPING
             logger.info("Scrape job %s: scraping guild %d...", job.id, job.guild_id)
 
-            def progress_callback(channel_name: str, message_count: int) -> None:
+            def progress_callback(channel_id: int, channel_name: str, message_count: int) -> None:
                 """Update job progress from scraper callback."""
-                job.progress.record_channel(channel_name, message_count)
+                job.progress.record_channel(channel_id, channel_name, message_count)
 
             stats = await bot.scrape_guild(job.guild_id, progress_callback)
 

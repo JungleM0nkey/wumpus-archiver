@@ -43,7 +43,7 @@ def _job_to_schema(job: ScrapeJob) -> ScrapeJobSchema:
             attachments_found=job.progress.attachments_found,
             errors=job.progress.errors,
             channels=[
-                ScrapeChannelProgressSchema(name=c.name, messages=c.messages, done=c.done)
+                ScrapeChannelProgressSchema(id=c.id, name=c.name, messages=c.messages, done=c.done)
                 for c in job.progress.channels
             ],
         ),

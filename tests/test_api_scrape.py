@@ -37,16 +37,16 @@ async def test_a_job_reports_each_channel_it_reaches(
     assert started.status_code == 202
     assert started.json()["job"]["progress"]["channels"] == []
 
-    fake.report("general", 100)
-    fake.report("general", 140)
-    fake.report("art", 7)
+    fake.report(1, "general", 100)
+    fake.report(1, "general", 140)
+    fake.report(2, "art", 7)
 
     status = (await client.get("/api/scrape/status")).json()
     assert status["busy"] is True
     progress = status["current_job"]["progress"]
     assert progress["channels"] == [
-        {"name": "general", "messages": 140, "done": True},
-        {"name": "art", "messages": 7, "done": False},
+        {"id": "1", "name": "general", "messages": 140, "done": True},
+        {"id": "2", "name": "art", "messages": 7, "done": False},
     ]
     assert progress["current_channel"] == "art"
     assert progress["channels_done"] == 1
@@ -57,7 +57,7 @@ async def test_cancel_ends_the_job_and_history_lists_it(
     client: AsyncClient, fake: FakeScrapeControl
 ) -> None:
     await client.post("/api/scrape/start", json={"guild_id": 42}, headers=AUTH)
-    fake.report("general", 12)
+    fake.report(1, "general", 12)
     assert (await client.get("/api/scrape/history")).json() == {"jobs": []}
 
     cancelled = await client.post("/api/scrape/cancel", headers=AUTH)
@@ -68,7 +68,9 @@ async def test_cancel_ends_the_job_and_history_lists_it(
     assert status["current_job"]["status"] == "cancelled"
     jobs = (await client.get("/api/scrape/history")).json()["jobs"]
     assert [(j["id"], j["status"], j["guild_id"]) for j in jobs] == [("job1", "cancelled", "42")]
-    assert jobs[0]["progress"]["channels"] == [{"name": "general", "messages": 12, "done": False}]
+    assert jobs[0]["progress"]["channels"] == [
+        {"id": "1", "name": "general", "messages": 12, "done": False}
+    ]
 
 
 async def test_a_guild_id_sent_as_a_string_keeps_every_digit(
@@ -105,8 +107,8 @@ async def test_a_finished_job_has_every_channel_done(
     client: AsyncClient, fake: FakeScrapeControl
 ) -> None:
     await client.post("/api/scrape/start", json={"guild_id": 42}, headers=AUTH)
-    fake.report("general", 12)
-    fake.report("art", 3)
+    fake.report(1, "general", 12)
+    fake.report(2, "art", 3)
     fake.finish(channels_scraped=2)
 
     jobs = (await client.get("/api/scrape/history")).json()["jobs"]

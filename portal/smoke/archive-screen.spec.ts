@@ -130,6 +130,7 @@ test('without a bot token the form is disabled and an alert says why and how to 
 const API_TOKEN = 'smoke-api-token-not-a-secret';
 
 interface FakeChannel {
+	id: string;
 	name: string;
 	messages: number;
 	done: boolean;
@@ -168,10 +169,10 @@ async function fakeScrapeControl(page: Page) {
 	};
 	const busy = () => server.job?.status === 'scraping';
 	const steps: FakeChannel[][] = [
-		[{ name: 'general', messages: 100, done: false }],
+		[{ id: '1', name: 'general', messages: 100, done: false }],
 		[
-			{ name: 'general', messages: 140, done: true },
-			{ name: 'art', messages: 7, done: false }
+			{ id: '1', name: 'general', messages: 140, done: true },
+			{ id: '2', name: 'art', messages: 7, done: false }
 		]
 	];
 

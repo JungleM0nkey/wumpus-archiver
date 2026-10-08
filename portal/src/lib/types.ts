@@ -204,6 +204,8 @@ export interface TimelineGalleryResponse {
 
 /** One channel a scrape job has reached: the messages written so far, and whether it is done. */
 export interface ScrapeChannelProgress {
+	/** The channel's id: two channels may share a name. */
+	id: string;
 	name: string;
 	messages: number;
 	done: boolean;
