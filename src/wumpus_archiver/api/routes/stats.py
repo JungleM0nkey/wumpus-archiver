@@ -21,7 +21,7 @@ async def get_guild_stats(db: Db, guild_id: int) -> StatsSchema:
 
         scope = Scope(guild=guild_id)
         channels = await archive_reads.guild_channels(session, guild_id)
-        summary = await archive_reads.summary(session, scope)
+        totals = await archive_reads.message_and_author_totals(session, scope)
         attachments = await archive_reads.attachment_total(session, scope)
         top_channels = await archive_reads.top_channels(session, guild_id, limit=10)
         authors = await archive_reads.authors(session, scope, sort=AuthorSort.MESSAGES, limit=10)
@@ -29,8 +29,8 @@ async def get_guild_stats(db: Db, guild_id: int) -> StatsSchema:
     return StatsSchema(
         guild_name=guild.name,
         total_channels=len(channels),
-        total_messages=summary.messages,
-        total_users=summary.authors,
+        total_messages=totals.messages,
+        total_users=totals.authors,
         total_attachments=attachments,
         top_channels=[
             {

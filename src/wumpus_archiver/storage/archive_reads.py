@@ -136,6 +136,14 @@ class Summary:
 
 
 @dataclass(frozen=True)
+class MessageAndAuthorTotals:
+    """How many messages are in a scope and how many distinct authors posted them."""
+
+    messages: int = 0
+    authors: int = 0
+
+
+@dataclass(frozen=True)
 class ChannelActivity:
     """How many messages in scope a channel holds, counted live."""
 
@@ -530,6 +538,29 @@ async def message_total(session: AsyncSession, scope: Scope) -> int:
         select(func.count()).select_from(Message).where(*_message_scope(scope))
     )
     return int(result.scalar_one())
+
+
+async def message_and_author_totals(session: AsyncSession, scope: Scope) -> MessageAndAuthorTotals:
+    """How many messages are in scope and how many distinct authors posted them.
+
+    One statement and two ``count(*)``, both under ``message_total``'s predicates. The
+    authors are the distinct non-null ``author_id`` values, exactly as ``summary`` counts
+    them, so an author with no ``users`` row still counts (``authors().total`` joins
+    ``users`` and would not). Unlike ``summary``, it reads no content or timestamps.
+    """
+    where = _message_scope(scope)
+    distinct_authors = (
+        select(Message.author_id)
+        .where(*where, Message.author_id.is_not(None))
+        .distinct()
+        .subquery()
+    )
+    authors_ = select(func.count()).select_from(distinct_authors).scalar_subquery()
+    result = await session.execute(
+        select(func.count(), authors_).select_from(Message).where(*where)
+    )
+    messages, authors_total = result.one()
+    return MessageAndAuthorTotals(messages=int(messages), authors=int(authors_total))
 
 
 async def attachment_total(session: AsyncSession, scope: Scope) -> int:
