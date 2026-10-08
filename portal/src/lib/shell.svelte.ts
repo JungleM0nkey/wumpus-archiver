@@ -13,7 +13,9 @@
 //   A screen about one channel or one author belongs to one guild. Switching guild
 //   there goes to its destination's index instead (GUILD_BOUND below; a route that
 //   takes such an id adds itself there), and `guildHolding(channelId)` selects the
-//   guild that holds a channel when a link names it without one.
+//   guild that holds a channel when a link names it without one. A screen whose
+//   params name a channel or an author stays, without them: GUILD_BOUND_PARAMS lists
+//   such params, and GUILD_BOUND_REWRITES rewrites a screen's own (Search's chips).
 //
 // The scroll container
 //   Page content scrolls in one element, the shell's <main> (`shell.scroller`), which
@@ -37,6 +39,7 @@ import { goto, type BeforeNavigate } from '$app/navigation';
 import { page } from '$app/state';
 import { getGuild, getGuilds } from './api';
 import type { IconName } from './components/ui/icons';
+import { GUILD_BOUND_CHIPS, dropChips } from './search';
 import type { Guild, GuildDetail } from './types';
 
 /** The search param that names the selected guild. */
@@ -56,6 +59,24 @@ const GUILD_BOUND: [RegExp, string][] = [
 
 /** Search params that name something in one guild (a channel), dropped when the guild changes. */
 const GUILD_BOUND_PARAMS = ['channel'];
+
+/**
+ * Screens whose params name things in one guild in their own way, by path, and how
+ * switching guild rewrites those params so they name nothing from the old guild.
+ */
+const GUILD_BOUND_REWRITES: [RegExp, (params: URLSearchParams) => void][] = [
+	// Search's `in:` and `from:` chips name a channel and an author.
+	[
+		/^\/search$/,
+		(params) => {
+			const q = params.get('q');
+			if (q === null) return;
+			const kept = dropChips(q, ...GUILD_BOUND_CHIPS);
+			if (kept) params.set('q', kept);
+			else params.delete('q');
+		}
+	]
+];
 
 export interface Destination {
 	href: string;
@@ -175,6 +196,9 @@ export function guildSwitchHref(id: string, from: string = page.url.href): strin
 		url.search = '';
 	}
 	for (const param of GUILD_BOUND_PARAMS) url.searchParams.delete(param);
+	for (const [pattern, rewrite] of GUILD_BOUND_REWRITES) {
+		if (pattern.test(url.pathname)) rewrite(url.searchParams);
+	}
 	url.searchParams.set(GUILD_PARAM, id);
 	return url.pathname + url.search;
 }

@@ -114,6 +114,26 @@ test("switching guild on a channel goes to Browse's index, as the channel is not
 	await expect(page.locator('main').getByRole('heading', { name: 'lounge' })).toBeVisible();
 });
 
+test("switching guild on Search drops the chips that name the old guild's channel or author", async ({
+	page
+}) => {
+	const main = page.locator('main');
+	const q = 'game in:general from:alice has:link';
+	await page.goto(`/search?q=${encodeURIComponent(q)}`, { waitUntil: 'networkidle' });
+	await expect(main.getByRole('button', { name: 'Remove in:general' })).toBeVisible();
+	await switchGuild(page, 'Night Owls');
+	// The terms and the guild-independent chips stay, as written.
+	await expect(page).toHaveURL(
+		(url) =>
+			url.pathname === '/search' &&
+			[...url.searchParams].join('&') === ['q,game has:link', `guild,${NIGHT_ID}`].join('&')
+	);
+	await expect(main.getByText('Game night is on Friday.')).toBeVisible();
+	await expect(main.getByRole('button', { name: 'Remove has:link' })).toBeVisible();
+	await expect(main.getByRole('button', { name: /^Remove (in|from):/ })).toHaveCount(0);
+	await expect(main.getByText(/No channel is named|Nobody named/)).toHaveCount(0);
+});
+
 test("a screen's own links keep the selected guild", async ({ page }) => {
 	await page.goto(`/browse/${LOUNGE_ID}?guild=${NIGHT_ID}`, { waitUntil: 'networkidle' });
 	const main = page.locator('main');

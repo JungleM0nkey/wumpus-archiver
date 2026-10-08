@@ -21,6 +21,7 @@ from tests.smoke_archive import (
     HANGOUT_ID,
     LOBBY_ID,
     LURKERS,
+    NIGHT_GAME,
     NIGHT_GUILD_ID,
     NIGHT_SCRAPE_ADDED,
     PINNED,
@@ -81,10 +82,12 @@ async def test_a_search_scoped_to_a_guild_finds_only_its_messages(client: AsyncC
         search = (await client.get("/api/search", params={"q": "game", **params})).json()
         return sorted(r["message"]["content"] for r in search["results"])
 
-    first, night = ["Anyone up for a game tonight?"], ["Game night is on Friday."]
+    first, night = ["Anyone up for a game tonight?"], [NIGHT_GAME]
     assert await found() == sorted(first + night)
     assert await found(guild_id=GUILD_ID) == first
     assert await found(guild_id=NIGHT_GUILD_ID) == night
+    # #71: what is left of Search's query after a switch to Night Owls still finds it.
+    assert await found(guild_id=NIGHT_GUILD_ID, has="link") == night
 
 
 async def test_the_people_screen_has_a_third_page(client: AsyncClient) -> None:

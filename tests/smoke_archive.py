@@ -470,8 +470,8 @@ def _add_night_guild(session: AsyncSession) -> None:
                 id=_FIRST_NIGHT_MESSAGE_ID + index,
                 channel_id=channel_id,
                 author_id=author_id,
-                content=content,
-                clean_content=content,
+                content=_searched(_FIRST_NIGHT_MESSAGE_ID + index, content),
+                clean_content=_searched(_FIRST_NIGHT_MESSAGE_ID + index, content),
                 created_at=NIGHT_START + timedelta(minutes=minutes),
                 scraped_at=last,
             )
@@ -516,6 +516,13 @@ _SEARCH_CONTENT = {
     LURKER_LINK_ID: "Lurker 101 says hi, notes at https://example.com/lurk",
     ECHO_ID: "Lurker 102 shouts echo <b>echo</b> & echo!",
 }
+
+# ── #71 Switching guild on Search ───────────────────────────────────────────
+# Night Owls' game night carries a link, so `game has:link` finds it once Search's
+# guild-bound chips are dropped on a switch. No row, id or count changes.
+NIGHT_GAME_ID = _FIRST_NIGHT_MESSAGE_ID
+NIGHT_GAME = "Game night is on Friday. Sign up at https://example.com/game-night"
+_SEARCH_CONTENT[NIGHT_GAME_ID] = NIGHT_GAME
 
 
 def _searched(message_id: int, content: str) -> str:

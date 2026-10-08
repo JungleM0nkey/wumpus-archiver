@@ -95,6 +95,19 @@ export function withoutChips(query: SearchQuery, ...kinds: ChipKind[]): SearchQu
 	return { text: query.text, chips: query.chips.filter((c) => !kinds.includes(c.kind)) };
 }
 
+/** The kinds of chip that name something in one guild: a channel, an author. */
+export const GUILD_BOUND_CHIPS: ChipKind[] = ['in', 'from'];
+
+/** Query text `input` without its chips of `kinds`; the rest stays as written. */
+export function dropChips(input: string, ...kinds: ChipKind[]): string {
+	return (input.match(TOKEN) ?? [])
+		.filter((token) => {
+			const chip = token.startsWith('"') ? null : chipOf(token);
+			return !chip || !kinds.includes(chip.kind);
+		})
+		.join(' ');
+}
+
 /** The value of `query`'s chip of `kind`, or undefined. */
 export function chipValue(query: SearchQuery, kind: ChipKind): string | undefined {
 	return query.chips.find((c) => c.kind === kind)?.value;
