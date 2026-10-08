@@ -96,9 +96,9 @@
 					Most Active Channels
 				</h2>
 				<div class="bar-chart">
-					{#each stats.top_channels as ch, i}
+					{#each stats.top_channels as ch, i (ch.id)}
 						{@const maxCount = stats!.top_channels[0].message_count}
-						<a href="/channels" class="bar-row" style="animation-delay: {i * 40}ms">
+						<a href="/channel/{ch.id}" class="bar-row" style="animation-delay: {i * 40}ms">
 							<span class="bar-label truncate">#{ch.name}</span>
 							<div class="bar-track">
 								<div

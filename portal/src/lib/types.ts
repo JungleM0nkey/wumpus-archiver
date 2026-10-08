@@ -99,6 +99,7 @@ export interface SearchResponse {
 }
 
 export interface TopChannel {
+	id: string;
 	name: string;
 	message_count: number;
 }
