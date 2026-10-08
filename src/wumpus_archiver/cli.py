@@ -480,7 +480,8 @@ def dev(
 
     # Resolve paths
     db_path = database.resolve()
-    att_dir = attachments_dir.resolve() if attachments_dir.exists() else None
+    # Like serve: only an existing directory is handed to the factory, which raises otherwise.
+    att_dir = attachments_dir.resolve() if attachments_dir.is_dir() else None
 
     # Find npm and portal directory
     try:

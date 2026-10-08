@@ -185,6 +185,37 @@ class TestCLI:
         # Should not report 'not yet implemented'
         assert "not yet implemented" not in (result.output or "")
 
+    @pytest.mark.parametrize("kind", ["file", "missing"])
+    def test_dev_passes_no_attachments_dir_unless_it_is_a_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+    ) -> None:
+        """Like serve, dev never hands the factory a path that is not a directory."""
+        db_file = tmp_path / "test.db"
+        db_file.touch()
+        attachments = tmp_path / "attachments"
+        if kind == "file":
+            attachments.write_text("not a directory")
+        portal = tmp_path / "portal"
+        (portal / "node_modules").mkdir(parents=True)
+        written: list[Path | None] = []
+
+        async def no_processes(*args: object, **kwargs: object) -> int:
+            return 0
+
+        monkeypatch.setattr("wumpus_archiver.utils.process_manager.find_npm", lambda: "npm")
+        monkeypatch.setattr(
+            "wumpus_archiver.utils.process_manager.resolve_portal_dir", lambda: portal
+        )
+        monkeypatch.setattr("wumpus_archiver.utils.process_manager.run_concurrently", no_processes)
+        monkeypatch.setattr(
+            "wumpus_archiver.cli._write_dev_app_module", lambda db, att: written.append(att)
+        )
+
+        result = CliRunner().invoke(cli, ["dev", str(db_file), "-a", str(attachments)])
+
+        assert result.exit_code == 0, result.output
+        assert written == [None]
+
     def test_update_not_implemented(self, tmp_path) -> None:
         """Test update command returns error (not implemented)."""
         db_file = tmp_path / "test.db"
