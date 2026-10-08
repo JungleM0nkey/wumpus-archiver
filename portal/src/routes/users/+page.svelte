@@ -257,7 +257,7 @@
 
 	.user-row {
 		display: grid;
-		grid-template-columns: 1fr 180px 160px;
+		grid-template-columns: minmax(0, 1fr) 160px 200px;
 		align-items: center;
 		gap: var(--space-4);
 		padding: var(--space-2) var(--space-3);
