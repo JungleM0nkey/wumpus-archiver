@@ -73,11 +73,22 @@
 		</span>
 
 		<div class="image-frame">
-			<img
-				src={attachment.proxy_url || attachment.url}
-				alt={attachment.filename}
-				class="lightbox-img"
-			/>
+			{#if attachment.content_type?.startsWith('video/')}
+				<!-- svelte-ignore a11y_media_has_caption -->
+				<video
+					src={attachment.proxy_url || attachment.url}
+					class="lightbox-img"
+					controls
+					playsinline
+					preload="metadata"
+				></video>
+			{:else}
+				<img
+					src={attachment.proxy_url || attachment.url}
+					alt={attachment.filename}
+					class="lightbox-img"
+				/>
+			{/if}
 		</div>
 
 		<div class="info-bar">

@@ -32,7 +32,7 @@
 			icon: 'hash',
 			owns: (p) => /^\/(channels|channel|timeline)(\/|$)/.test(p)
 		},
-		{ href: '/gallery', label: 'Media', icon: 'images', owns: (p) => /^\/gallery(\/|$)/.test(p) },
+		{ href: '/media', label: 'Media', icon: 'images', owns: (p) => /^\/media(\/|$)/.test(p) },
 		{ href: '/search', label: 'Search', icon: 'search', owns: (p) => /^\/search(\/|$)/.test(p) },
 		{ href: '/people', label: 'People', icon: 'users', owns: (p) => /^\/people(\/|$)/.test(p) }
 	];

@@ -28,10 +28,9 @@ const ROUTES: RouteVisit[] = [
 	{ route: '/', url: '/', shows: 'Smoke Test Guild' },
 	{ route: '/channels', url: '/channels', shows: 'general' },
 	{ route: '/channel/[id]', url: `/channel/${ART_ID}`, shows: 'My first sketch' },
-	{ route: '/channel/[id]/gallery', url: `/channel/${ART_ID}/gallery`, shows: 'art' },
 	{ route: '/timeline', url: '/timeline', shows: 'Welcome to the smoke test guild!' },
 	{ route: '/search', url: '/search?q=hello', shows: 'The hello world of June.' },
-	{ route: '/gallery', url: '/gallery', shows: 'art' },
+	{ route: '/media', url: '/media', shows: 'May 2024' },
 	{ route: '/people', url: '/people', shows: 'Alice' },
 	{ route: '/people/[id]', url: `/people/${ALICE_ID}`, shows: 'Another drawing' },
 	{ route: '/archive', url: '/archive', shows: '.smoke-archive/attachments' }

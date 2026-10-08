@@ -12,7 +12,6 @@ const GUILD_ID = '900000000000000001';
 const NIGHT_ID = '900000000000000002';
 const GENERAL_ID = '900000000000000020';
 const LOUNGE_ID = '900000000000000031';
-const PHOTOS_ID = '900000000000000032';
 const CAROL_ID = '900000000000000110';
 
 /** Every /api request the page makes from now on, as "METHOD /path?query". */
@@ -67,7 +66,7 @@ test('switching guild re-scopes every destination, and the URL carries it throug
 	await expect(main.getByText('general', { exact: true })).toHaveCount(0);
 
 	await open(page, 'Media');
-	await expect(page).toHaveURL(`/gallery?guild=${NIGHT_ID}`);
+	await expect(page).toHaveURL(`/media?guild=${NIGHT_ID}`);
 	await expect(main.getByRole('img', { name: 'moonrise.png' })).toBeVisible();
 	await expect(main.getByRole('img', { name: 'sketch.png' })).toHaveCount(0);
 
@@ -165,12 +164,6 @@ const VISITS: Visit[] = [
 		hides: (m) => m.getByText('Smoke Test Guild')
 	},
 	{
-		route: '/channel/[id]/gallery',
-		url: `/channel/${PHOTOS_ID}/gallery?${g}`,
-		shows: (m) => m.getByRole('img', { name: 'moonrise.png' }),
-		hides: (m) => m.getByRole('img', { name: 'sketch.png' })
-	},
-	{
 		route: '/timeline',
 		url: `/timeline?${g}`,
 		shows: (m) => m.getByText('Night owls unite.'),
@@ -183,10 +176,10 @@ const VISITS: Visit[] = [
 		hides: (m) => m.getByText('Anyone up for a game tonight?')
 	},
 	{
-		route: '/gallery',
-		url: `/gallery?${g}`,
+		route: '/media',
+		url: `/media?${g}`,
 		shows: (m) => m.getByRole('img', { name: 'moonrise.png' }),
-		hides: (m) => m.getByText('art', exact)
+		hides: (m) => m.getByRole('img', { name: 'sketch.png' })
 	},
 	{
 		route: '/people',

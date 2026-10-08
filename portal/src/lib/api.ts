@@ -6,7 +6,6 @@ import type {
 	MessageListResponse,
 	SearchResponse,
 	Stats,
-	GalleryResponse,
 	TimelineGalleryResponse,
 	ScrapeStatusResponse,
 	ScrapeHistoryResponse,
@@ -87,39 +86,27 @@ export async function getStats(guildId: string | number): Promise<Stats> {
 	return fetchJSON<Stats>(`/guilds/${guildId}/stats`);
 }
 
-export async function getGallery(
-	channelId: string | number,
-	opts: { offset?: number; limit?: number } = {}
-): Promise<GalleryResponse> {
-	const params = new URLSearchParams();
-	if (opts.offset) params.set('offset', String(opts.offset));
-	if (opts.limit) params.set('limit', String(opts.limit));
-	const qs = params.toString();
-	return fetchJSON<GalleryResponse>(`/channels/${channelId}/gallery${qs ? `?${qs}` : ''}`);
-}
-
-export async function getGuildGallery(
-	guildId: string | number,
-	opts: { offset?: number; limit?: number; channel_id?: string | number; content_type?: string } = {}
-): Promise<GalleryResponse> {
-	const params = new URLSearchParams();
-	if (opts.offset) params.set('offset', String(opts.offset));
-	if (opts.limit) params.set('limit', String(opts.limit));
-	if (opts.channel_id) params.set('channel_id', String(opts.channel_id));
-	if (opts.content_type) params.set('content_type', opts.content_type);
-	const qs = params.toString();
-	return fetchJSON<GalleryResponse>(`/guilds/${guildId}/gallery${qs ? `?${qs}` : ''}`);
-}
-
 export async function getGuildGalleryTimeline(
 	guildId: string | number,
-	opts: { offset?: number; limit?: number; channel_id?: string | number; group_by?: string } = {}
+	opts: {
+		offset?: number;
+		limit?: number;
+		channel_id?: string | number;
+		group_by?: string;
+		/** image (GIFs included), gif, video, or media for all three; the API's default is image. */
+		content_type?: 'image' | 'gif' | 'video' | 'media';
+		author_id?: string | number;
+		order?: 'newest' | 'oldest';
+	} = {}
 ): Promise<TimelineGalleryResponse> {
 	const params = new URLSearchParams();
 	if (opts.offset) params.set('offset', String(opts.offset));
 	if (opts.limit) params.set('limit', String(opts.limit));
 	if (opts.channel_id) params.set('channel_id', String(opts.channel_id));
 	if (opts.group_by) params.set('group_by', opts.group_by);
+	if (opts.content_type) params.set('content_type', opts.content_type);
+	if (opts.author_id) params.set('author_id', String(opts.author_id));
+	if (opts.order) params.set('order', opts.order);
 	const qs = params.toString();
 	return fetchJSON<TimelineGalleryResponse>(`/guilds/${guildId}/gallery/timeline${qs ? `?${qs}` : ''}`);
 }

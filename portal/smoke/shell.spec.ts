@@ -11,7 +11,6 @@ const portalPackage = JSON.parse(
 
 // Ids and text from tests/smoke_archive.py.
 const GENERAL_ID = '900000000000000020';
-const ART_ID = '900000000000000022';
 
 test('the tab shows the Wumpus Archiver favicon', async ({ page }) => {
 	await page.goto('/', { waitUntil: 'networkidle' });
@@ -41,7 +40,7 @@ test('the sidebar holds the five destinations, and the Archive screen is not one
 
 	for (const [name, url, heading] of [
 		['Browse', '/channels', 'Channels'],
-		['Media', '/gallery', 'Media'],
+		['Media', '/media', 'Media'],
 		['Search', '/search', 'Search'],
 		['People', '/people', 'People'],
 		['Overview', '/', 'Smoke Test Guild']
@@ -194,10 +193,9 @@ const SCREENS: [string, string][] = [
 	['/', 'Most Active Channels'],
 	['/channels', 'general'],
 	[`/channel/${GENERAL_ID}`, 'The hello world of June.'],
-	[`/channel/${ART_ID}/gallery`, 'Gallery'],
 	['/timeline', 'Welcome to the smoke test guild!'],
 	['/search?q=hello', 'The hello world of June.'],
-	['/gallery', 'Media'],
+	['/media', 'May 2024'],
 	['/people', 'Lurker 001'],
 	['/people/900000000000000100', 'Alice'],
 	['/archive', 'Attachments on disk']

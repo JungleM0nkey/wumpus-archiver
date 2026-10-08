@@ -19,7 +19,7 @@ const SOURCES = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 const GLYPH =
 	/[←-⇿⊕-⊡⌀-⏿■-◿☀-➿⟀-⟯⤀-⥿⬀-⯿]|\p{Extended_Pictographic}/u;
 
-const VISITS = ['/', `/channel/${ART_ID}`, '/gallery', '/search?q=hello', '/people', '/archive'];
+const VISITS = ['/', `/channel/${ART_ID}`, '/media', '/search?q=hello', '/people', '/archive'];
 
 /** The first family of an element's computed font-family, unquoted. */
 async function firstFamily(page: Page, selector: string): Promise<string> {
