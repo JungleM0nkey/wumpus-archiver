@@ -2,10 +2,10 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { searchMessages, getGuilds, getGuild } from '$lib/api';
-	import type { SearchResult, Channel, Guild } from '$lib/types';
-	import MessageCard from '$lib/components/MessageCard.svelte';
-	import SearchBar from '$lib/components/SearchBar.svelte';
+	import { searchMessages, getGuilds, getGuild } from '#lib/api.ts';
+	import type { SearchResult, Channel, Guild } from '#lib/types.ts';
+	import MessageCard from '#lib/components/MessageCard.svelte';
+	import SearchBar from '#lib/components/SearchBar.svelte';
 
 	let query = $state('');
 	let results: SearchResult[] = $state([]);
@@ -59,7 +59,7 @@
 			// Update URL
 			const url = new URL(window.location.href);
 			url.searchParams.set('q', query.trim());
-			goto(url.pathname + url.search, { replaceState: true, noScroll: true });
+			goto(url.pathname + url.search, { replace: true, reset: false });
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Search failed';
 		} finally {

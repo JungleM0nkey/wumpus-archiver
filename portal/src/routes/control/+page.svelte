@@ -10,8 +10,8 @@
 		getApiToken,
 		setApiToken,
 		ApiError
-	} from '$lib/api';
-	import type { Guild, ScrapeJob, ScrapeStatusResponse, ScrapeHistoryResponse, DownloadStatsResponse } from '$lib/types';
+	} from '#lib/api.ts';
+	import type { Guild, ScrapeJob, ScrapeStatusResponse, ScrapeHistoryResponse, DownloadStatsResponse } from '#lib/types.ts';
 
 	let guilds: Guild[] = $state([]);
 	let status = $state<ScrapeStatusResponse | null>(null);

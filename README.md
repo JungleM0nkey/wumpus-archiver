@@ -116,7 +116,7 @@ wumpus-archiver/
 
 - **Backend**: Python 3.12 · discord.py · FastAPI · SQLAlchemy 2.0 (async) · uvicorn
 - **Database**: SQLite (aiosqlite) with optional PostgreSQL (asyncpg)
-- **Frontend**: SvelteKit 2 · Svelte 5 · TypeScript · Vite
+- **Frontend**: SvelteKit 3 · Svelte 5 · TypeScript 6 · Vite 8 (Node.js 22.17+)
 - **Quality**: ruff · black · mypy · pytest · svelte-check
 
 ## API Endpoints

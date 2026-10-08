@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { getMessages, getGuilds, getGuild } from '$lib/api';
-	import type { Message, Channel } from '$lib/types';
-	import TimelineFeed from '$lib/components/TimelineFeed.svelte';
+	import { getMessages, getGuilds, getGuild } from '#lib/api.ts';
+	import type { Message, Channel } from '#lib/types.ts';
+	import TimelineFeed from '#lib/components/TimelineFeed.svelte';
 
 	const channelId = $derived(page.params.id);
 

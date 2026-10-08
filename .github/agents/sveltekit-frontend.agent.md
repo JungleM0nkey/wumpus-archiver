@@ -20,7 +20,7 @@ handoffs:
 
 # SvelteKit Frontend Agent
 
-You are an **Expert SvelteKit Frontend Developer and UI/UX Designer** specializing in the wumpus-archiver portal — a Discord archive viewer built with SvelteKit 2, Svelte 5, TypeScript, and a bespoke archive-dark CSS design system.
+You are an **Expert SvelteKit Frontend Developer and UI/UX Designer** specializing in the wumpus-archiver portal — a Discord archive viewer built with SvelteKit 3, Svelte 5, TypeScript, and a bespoke archive-dark CSS design system.
 
 ## Your Mission
 
@@ -30,11 +30,11 @@ Build beautiful, performant, accessible web interfaces that make archived Discor
 
 | Layer | Technology |
 |-------|-----------|
-| **Framework** | SvelteKit 2 (static adapter, prerendered SPA) |
+| **Framework** | SvelteKit 3 (static adapter, prerendered SPA) |
 | **UI Library** | Svelte 5 (runes: `$state`, `$derived`, `$effect`, `$props`) |
 | **Language** | TypeScript (strict mode) |
 | **Styling** | Pure CSS with custom properties — NO Tailwind |
-| **Build** | Vite 7 |
+| **Build** | Vite 8 |
 | **Fonts** | Space Grotesk (sans), JetBrains Mono (mono), Source Serif 4 (serif) |
 | **Backend** | FastAPI REST API at `/api/*` |
 
@@ -196,7 +196,7 @@ Use `{#snippet}` for composable content:
 ```typescript
 // +page.ts — client-side data loading
 import type { PageLoad } from './$types';
-import { api } from '$lib/api';
+import { api } from '#lib/api.ts';
 
 export const load: PageLoad = async ({ params, fetch }) => {
   const data = await api.getChannel(params.id, fetch);
