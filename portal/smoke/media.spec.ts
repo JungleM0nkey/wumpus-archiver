@@ -33,11 +33,14 @@ function params(page: Page): Record<string, string> {
 
 // ── Redirects from the old galleries ──
 
-test('/gallery redirects to /media, keeping the selected guild', async ({ page }) => {
+test('/gallery redirects to /media', async ({ page }) => {
 	await page.goto('/gallery', { waitUntil: 'networkidle' });
 	await expect(page).toHaveURL('/media');
 	await expect(page.locator('main h1')).toHaveText('Media');
+	await expect(tiles(page)).toHaveCount(8);
+});
 
+test('/gallery redirects to /media, keeping the selected guild', async ({ page }) => {
 	await page.goto(`/gallery?guild=${NIGHT_ID}`, { waitUntil: 'networkidle' });
 	await expect(page).toHaveURL(`/media?guild=${NIGHT_ID}`);
 	await expect(page.getByRole('img', { name: 'moonrise.png' })).toBeVisible();
@@ -54,18 +57,18 @@ test("a channel's gallery redirects to /media filtered to that channel", async (
 	]);
 });
 
-test("a channel's gallery keeps the guild, and without one selects the guild holding the channel", async ({
-	page
-}) => {
+test("a channel's gallery redirect keeps the selected guild", async ({ page }) => {
 	await page.goto(`/channel/${PHOTOS_ID}/gallery?guild=${NIGHT_ID}`, { waitUntil: 'networkidle' });
-	expect(new URL(page.url()).pathname).toBe('/media');
-	expect(params(page)).toEqual({ guild: NIGHT_ID, channel: PHOTOS_ID });
+	await expect(page).toHaveURL(/^[^?]*\/media\?/);
+	await expect.poll(() => params(page)).toEqual({ guild: NIGHT_ID, channel: PHOTOS_ID });
 	await expect(page.getByRole('img', { name: 'moonrise.png' })).toBeVisible();
+});
 
+test("a channel's gallery without a guild selects the guild holding the channel", async ({ page }) => {
 	await page.goto(`/channel/${PHOTOS_ID}/gallery`, { waitUntil: 'networkidle' });
 	await expect(page.getByRole('button', { name: 'Guild: Night Owls' })).toBeVisible();
-	expect(new URL(page.url()).pathname).toBe('/media');
-	expect(params(page)).toEqual({ guild: NIGHT_ID, channel: PHOTOS_ID });
+	await expect(page).toHaveURL(/^[^?]*\/media\?/);
+	await expect.poll(() => params(page)).toEqual({ guild: NIGHT_ID, channel: PHOTOS_ID });
 	await expect(page.getByLabel('Channel')).toHaveValue(PHOTOS_ID);
 	await expect(page.getByRole('img', { name: 'moonrise.png' })).toBeVisible();
 });
