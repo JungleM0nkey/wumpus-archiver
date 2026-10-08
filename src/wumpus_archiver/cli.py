@@ -2,6 +2,7 @@
 
 import asyncio
 import ipaddress
+import json
 import sys
 from datetime import UTC, datetime
 from importlib.metadata import version as pkg_version
@@ -245,6 +246,65 @@ def _warn_if_not_loopback(host: str) -> None:
     )
 
 
+def _portal_dependencies_current(portal_dir: Path) -> bool:
+    """Whether the portal's ``node_modules`` holds exactly what its lockfile pins.
+
+    npm records the tree it installed in ``node_modules/.package-lock.json``. The install
+    is current when every installed package is at its locked version and every locked
+    package is installed, except optional ones (binaries for other platforms, which npm
+    never installs). Without a lockfile there is nothing to compare, so an existing
+    ``node_modules`` counts as current.
+    """
+    node_modules = portal_dir / "node_modules"
+    lockfile = portal_dir / "package-lock.json"
+    if not node_modules.is_dir():
+        return False
+    if not lockfile.is_file():
+        return True
+    try:
+        locked = json.loads(lockfile.read_text(encoding="utf-8"))["packages"]
+        record = node_modules / ".package-lock.json"
+        installed = json.loads(record.read_text(encoding="utf-8"))["packages"]
+        if any(
+            path not in locked or locked[path].get("version") != entry.get("version")
+            for path, entry in installed.items()
+        ):
+            return False
+        return all(
+            path in installed or entry.get("optional", False)
+            for path, entry in locked.items()
+            if path
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        # A missing or unreadable record: npm will rebuild it.
+        return False
+
+
+def _ensure_portal_dependencies(npm: str, portal_dir: Path) -> None:
+    """Install the portal's dependencies unless ``node_modules`` already matches its lockfile.
+
+    With a lockfile the install is ``npm ci``, so it is exactly what the lockfile pins.
+
+    Raises:
+        SystemExit: If the install fails.
+    """
+    import subprocess
+
+    if _portal_dependencies_current(portal_dir):
+        return
+    has_lockfile = (portal_dir / "package-lock.json").is_file()
+    click.echo("Installing portal dependencies...")
+    result = subprocess.run(
+        [npm, "ci" if has_lockfile else "install"],
+        cwd=str(portal_dir),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        click.echo(f"Error installing portal dependencies:\n{result.stderr}", err=True)
+        sys.exit(1)
+
+
 def _build_portal_static() -> None:
     """Build the SvelteKit portal into static files.
 
@@ -262,19 +322,7 @@ def _build_portal_static() -> None:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    # Install dependencies if needed
-    node_modules = portal_dir / "node_modules"
-    if not node_modules.exists():
-        click.echo("Installing portal dependencies...")
-        result = subprocess.run(
-            [npm, "install"],
-            cwd=str(portal_dir),
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            click.echo(f"Error installing portal dependencies:\n{result.stderr}", err=True)
-            sys.exit(1)
+    _ensure_portal_dependencies(npm, portal_dir)
 
     click.echo("Building portal...")
     result = subprocess.run(
@@ -468,12 +516,21 @@ def dev(
     attachments_dir: Path,
 ) -> None:
     """Start development environment (backend + frontend with hot-reload)."""
+    from wumpus_archiver.compose import serve_config
     from wumpus_archiver.utils.process_manager import (
         ManagedProcess,
         find_npm,
         resolve_portal_dir,
         run_concurrently,
     )
+
+    # Like serve, bad config stops dev before anything starts. The backend loads the
+    # settings again in its own process; this load only checks them.
+    try:
+        serve_config()
+    except ValidationError as e:
+        click.echo(f"Error: Failed to load settings: {e}", err=True)
+        sys.exit(1)
 
     # Resolve paths
     db_path = database.resolve()
@@ -488,21 +545,7 @@ def dev(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    # Check that portal dependencies are installed
-    node_modules = portal_dir / "node_modules"
-    if not node_modules.exists():
-        click.echo("Installing portal dependencies...")
-        import subprocess
-
-        result = subprocess.run(
-            [npm, "install"],
-            cwd=str(portal_dir),
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            click.echo(f"Error installing dependencies: {result.stderr}", err=True)
-            sys.exit(1)
+    _ensure_portal_dependencies(npm, portal_dir)
 
     # Build CLI args for the backend
     backend_cmd = [
