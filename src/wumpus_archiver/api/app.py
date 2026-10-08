@@ -10,7 +10,7 @@ for the helpers they share.
 import os
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,9 +45,9 @@ def create_app(
     Routes are mounted in this order, and the order is part of the contract:
     CORS, ``/attachments``, the ``/api`` router, then the portal (``/_app``,
     then the SPA fallback last), so every defined ``/api`` route wins over the
-    fallback. The fallback serves a build file when one matches, a 404 for any
-    other path whose last segment has a file extension, and ``index.html`` for
-    the rest.
+    fallback. The fallback serves a build file when one matches, a 404 for an
+    unknown ``/api`` path or any other path whose last segment has a file
+    extension, and ``index.html`` for the rest.
 
     Args:
         database: The archive to serve.
@@ -161,28 +161,35 @@ def _mount_portal(app: FastAPI, portal_root: Path) -> None:
             name="portal_assets",
         )
 
-    # SPA fallback: a build file if there is one, a 404 for any other path that names a
-    # file, and index.html for everything else (the portal's own routes).
+    # SPA fallback: a build file if there is one, a 404 for an unknown API path or any
+    # other path that names a file, and index.html for everything else (the portal's
+    # own routes).
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str) -> FileResponse:
         # Never anything that resolves outside the build directory.
         file_path = _resolve_portal_file(portal_root, full_path)
         if file_path is not None:
             return FileResponse(str(file_path))
-        if _names_a_file(full_path):
+        if _is_api_path(full_path) or _names_a_file(full_path):
             raise HTTPException(status_code=404)
         return FileResponse(str(index_html))
+
+
+def _is_api_path(requested: str) -> bool:
+    """Whether a request path is under ``/api``, which the portal never routes."""
+    return requested == "api" or requested.startswith("api/")
 
 
 def _names_a_file(requested: str) -> bool:
     """Whether a request path names a file rather than a portal route.
 
-    It does when its last segment has an extension (``favicon.ico``, ``robots.txt``). A
-    portal route never does: its segments are names and numeric ids. A leading dot alone
-    (``.env``) is not an extension, so such a path stays a route.
+    It does when its last segment has an extension (``favicon.ico``, ``robots.txt``),
+    a trailing slash ignored. A portal route never does: its segments are names and
+    numeric ids. A leading or trailing dot alone (``.env``, ``123.``) is not an
+    extension, so such a path stays a route. POSIX rules on every platform: a
+    backslash is not a separator.
     """
-    last_segment = requested.rsplit("/", 1)[-1]
-    return os.path.splitext(last_segment)[1] != ""
+    return PurePosixPath(requested).suffix != ""
 
 
 # ``Path.resolve()`` is quadratic in the number of path segments and runs on the event loop,

@@ -190,7 +190,9 @@ class TestSpaServing:
         assert response.status_code == 404
 
     @pytest.mark.parametrize(
-        "path", ["/archive/channels/123", "/channel/123", "/users/42", "/img", "/.env"]
+        "path",
+        ["/archive/channels/123", "/channel/123", "/channel/123/", "/channel/123.", "/users/42"]
+        + ["/img", "/.env"],
     )
     async def test_unknown_route_and_directory_fall_back_to_index(
         self, client: httpx.AsyncClient, path: str
@@ -208,7 +210,7 @@ class TestSpaServing:
             "/sitemap.xml",
             "/.well-known/security.txt",
             "/img/missing.svg",
-            "/_app/../missing.css",
+            "/sitemap.xml/",
         ],
     )
     async def test_missing_file_with_an_extension_is_404(
@@ -216,8 +218,20 @@ class TestSpaServing:
     ) -> None:
         """A path that names a file the build does not have is a 404, never the index HTML."""
         response = await client.get(path)
-        assert response.status_code == 404
-        assert INDEX_HTML not in response.text
+        _assert_not_found(response.status_code, response.text)
+
+    async def test_missing_file_after_leaving_the_app_mount_is_404(self, app: Any) -> None:
+        """Sent raw (an HTTP client would collapse the ``..`` before it left)."""
+        status, body = await _asgi_get(app, "/_app/../missing.css")
+        _assert_not_found(status, body)
+
+    @pytest.mark.parametrize("path", ["/api/no-such-route", "/api/guilds/1/no-such", "/api"])
+    async def test_unknown_api_path_is_404_not_the_index(
+        self, client: httpx.AsyncClient, path: str
+    ) -> None:
+        """An API caller must see a 404, not portal HTML its JSON parser chokes on."""
+        response = await client.get(path)
+        _assert_not_found(response.status_code, response.text)
 
     async def test_query_string_does_not_make_a_route_a_file(
         self, client: httpx.AsyncClient
@@ -686,9 +700,7 @@ class TestSymlinkedBuildDirectory:
         _symlink(linked_site.build / "linked", linked_site.root / "outside")
         for path in ("/leak.txt", "/linked/data.txt"):
             response = await client.get(path)
-            assert SECRET not in response.text, path
-            assert INDEX_HTML not in response.text, path
-            assert response.status_code == 404, path
+            _assert_not_found(response.status_code, response.text)
 
     async def test_symlink_staying_inside_build_is_still_served(
         self, client: httpx.AsyncClient, linked_site: SimpleNamespace
