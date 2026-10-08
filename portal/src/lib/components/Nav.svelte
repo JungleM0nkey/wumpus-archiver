@@ -38,7 +38,7 @@
 		</div>
 
 		<div class="nav-right">
-			<span class="version mono">v0.1.0</span>
+			<span class="version mono">v{__PORTAL_VERSION__}</span>
 		</div>
 	</div>
 </nav>
