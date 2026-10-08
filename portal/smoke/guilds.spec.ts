@@ -58,7 +58,7 @@ test('switching guild re-scopes every destination, and the URL carries it throug
 	await expect(page.getByRole('button', { name: 'Guild: Night Owls' })).toBeVisible();
 	await expect(stat(main, 'Messages')).toHaveText('5');
 	await expect(stat(main, 'Channels')).toHaveText('3');
-	await expect(stat(main, 'Users')).toHaveText('2');
+	await expect(stat(main, 'Authors')).toHaveText('2');
 	await expect(stat(main, 'Attachments')).toHaveText('1');
 
 	await open(page, 'Browse');

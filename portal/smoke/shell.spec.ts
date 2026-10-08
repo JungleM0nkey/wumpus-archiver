@@ -44,7 +44,7 @@ test('the sidebar holds the five destinations, and the Archive screen is not one
 		['Media', '/gallery', 'Media'],
 		['Search', '/search', 'Search'],
 		['People', '/people', 'People'],
-		['Overview', '/', 'Archive']
+		['Overview', '/', 'Smoke Test Guild']
 	]) {
 		await nav.getByRole('link', { name }).click();
 		await expect(page).toHaveURL(url);
