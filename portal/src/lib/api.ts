@@ -13,7 +13,8 @@ import type {
 	DownloadStatsResponse,
 	UserListResponse,
 	UserProfile,
-	GuildActivity
+	GuildActivity,
+	ChannelActivity
 } from './types';
 
 const API_BASE = '/api';
@@ -245,4 +246,15 @@ export async function getGuildActivity(
 ): Promise<GuildActivity> {
 	const qs = opts.period ? `?period=${opts.period}` : '';
 	return fetchJSON<GuildActivity>(`/guilds/${guildId}/activity${qs}`);
+}
+
+// --- Channel activity ---
+
+/** A channel's messages per month (or week), each period with its first message. */
+export async function getChannelActivity(
+	channelId: string | number,
+	opts: { period?: 'month' | 'week' } = {}
+): Promise<ChannelActivity> {
+	const qs = opts.period ? `?period=${opts.period}` : '';
+	return fetchJSON<ChannelActivity>(`/channels/${channelId}/activity${qs}`);
 }

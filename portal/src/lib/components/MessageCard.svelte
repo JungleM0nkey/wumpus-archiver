@@ -144,12 +144,12 @@
 		</div>
 	{/if}
 
-	<div class="card-footer">
-		<span class="msg-id mono">ID {message.id}</span>
-		{#if message.reference_id}
+	<!-- No raw ids on a card (audit #16). -->
+	{#if message.reference_id}
+		<div class="card-footer">
 			<Badge icon="reply">reply</Badge>
-		{/if}
-	</div>
+		</div>
+	{/if}
 </article>
 
 <style>
@@ -356,10 +356,5 @@
 		gap: var(--space-2);
 		padding-top: var(--space-2);
 		border-top: 1px solid var(--border-subtle);
-	}
-
-	.msg-id {
-		font: var(--type-mono-sm);
-		color: var(--text-tertiary);
 	}
 </style>

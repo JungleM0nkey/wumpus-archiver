@@ -69,6 +69,8 @@ export interface Message {
 	mention_everyone: boolean;
 	embeds: string | null;
 	reference_id: string | null;
+	/** What a reply shows of the message it refers to; on the channel reader's pages only. */
+	reference?: MessageReference | null;
 	author: User | null;
 	attachments: Attachment[];
 	reactions: Reaction[];
@@ -349,4 +351,24 @@ export interface ActivityBucket {
 export interface GuildActivity {
 	period: 'month' | 'week';
 	buckets: ActivityBucket[];
+}
+
+/** The message a reply refers to: its author and the start of its text on one line. */
+export interface MessageReference {
+	id: string;
+	channel_id: string;
+	author: User | null;
+	/** Empty when the message has no text, only attachments or embeds. */
+	snippet: string;
+}
+
+/** A channel's messages in one month or week, and the first of them. */
+export interface ChannelActivityBucket extends ActivityBucket {
+	first_message_id: string;
+}
+
+/** A channel's activity: only the periods holding messages, oldest first. */
+export interface ChannelActivity {
+	period: 'month' | 'week';
+	buckets: ChannelActivityBucket[];
 }

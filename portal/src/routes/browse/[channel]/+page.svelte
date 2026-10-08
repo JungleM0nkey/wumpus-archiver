@@ -8,12 +8,19 @@
 	// screen's grid, scoped to the channel) and its Pinned messages. The tab is the URL's
 	// `tab` param (none for Messages), so it survives a reload. Each tab loads the first
 	// time it is shown and keeps its place while another is shown.
+	//
+	// Beside the feed, the jump rail (#61) lists the channel's months; picking one reads
+	// the page around that month's first message and puts it at the top of the view. A
+	// reply's link scrolls to the message it answers when it is loaded. On the Messages
+	// tab, J and K move the keyboard focus from message to message, and G then L goes to
+	// the newest; these keys are the reader's own and do nothing while typing in a field.
 	import { onMount, tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { getMessages } from '#lib/api.ts';
+	import { getChannelActivity, getMessages } from '#lib/api.ts';
 	import { getBrowseGuild } from '#lib/browse.ts';
 	import { channelIcon } from '#lib/channels.ts';
+	import { messageMonth } from '#lib/feed.ts';
 	import {
 		keepingPosition,
 		newerPage,
@@ -24,12 +31,13 @@
 	} from '#lib/reader.ts';
 	import { channelHref } from '#lib/routes.ts';
 	import { guildHolding, shell, stickyHeader } from '#lib/shell.svelte.ts';
-	import type { Channel, Message } from '#lib/types.ts';
+	import type { Channel, ChannelActivityBucket, Message, MessageReference } from '#lib/types.ts';
+	import JumpRail from '#lib/components/JumpRail.svelte';
 	import LoadMore from '#lib/components/LoadMore.svelte';
 	import MediaTimeline from '#lib/components/MediaTimeline.svelte';
 	import MessageCard from '#lib/components/MessageCard.svelte';
+	import MessageFeed from '#lib/components/MessageFeed.svelte';
 	import MessageSkeleton from '#lib/components/MessageSkeleton.svelte';
-	import TimelineFeed from '#lib/components/TimelineFeed.svelte';
 	import Alert from '#lib/components/ui/Alert.svelte';
 	import Badge from '#lib/components/ui/Badge.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
@@ -43,6 +51,8 @@
 
 	const browse = getBrowseGuild();
 	const limit = 50;
+	/** How long after G an L still completes "G then L". */
+	const CHORD_MS = 1500;
 
 	let channel: Channel | null = $state(null);
 	let messages: Message[] = $state([]);
@@ -57,6 +67,27 @@
 	/** Set once the reader has scrolled to where it opens; newer pages load after that. */
 	let settled = $state(false);
 	let newerEdge: HTMLElement | undefined = $state();
+	let feedEl: HTMLElement | undefined = $state();
+
+	/** The channel's months for the jump rail; null while they load. */
+	let months: ChannelActivityBucket[] | null = $state(null);
+	/** The month of the message at the top of the view, YYYY-MM. */
+	let currentMonth: string | null = $state(null);
+	/** The message a month was picked at, kept at the top of the view. */
+	let jumpTarget: string | null = $state(null);
+	/** Room below the feed, so a month's first message can reach the top of the view. */
+	let spacer = $state(0);
+	let jumping = false;
+
+	/** The message a reply's link was just followed to. */
+	let flashId: string | null = $state(null);
+	/** The row Tab reaches in the feed (roving focus); J and K move it. */
+	let focusId: string | null = $state(null);
+	const focusable = $derived(
+		focusId && messages.some((m) => m.id === focusId)
+			? focusId
+			: (anchor ?? messages[messages.length - 1]?.id ?? null)
+	);
 
 	// ── Tabs ──
 	type ReaderTab = 'messages' | 'media' | 'pinned';
@@ -118,6 +149,7 @@
 
 	/** Open the Messages tab: at the newest, or on the message the link names. */
 	async function openMessages() {
+		void loadMonths();
 		try {
 			if (messageId) {
 				const around = await pageAround(channelId, messageId, limit);
@@ -136,6 +168,7 @@
 		if (anchor) await scrollToMessage(anchor);
 		else await scrollToBottom(shell.scroller);
 		settled = true;
+		trackMonth();
 	}
 
 	// ── The Pinned tab: the channel's pinned messages, newest first ──
@@ -180,10 +213,23 @@
 		return true;
 	}
 
+	/** Read the channel's months for the jump rail; without them the rail is left out. */
+	async function loadMonths() {
+		try {
+			months = (await getChannelActivity(channelId)).buckets;
+		} catch {
+			months = [];
+		}
+	}
+
+	/** The row of message `id` in the feed, when it is loaded. */
+	function rowOf(id: string): HTMLElement | null {
+		return feedEl?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`) ?? null;
+	}
+
 	async function scrollToMessage(id: string) {
 		await tick();
-		const card = shell.scroller?.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
-		card?.scrollIntoView({ block: 'center' });
+		rowOf(id)?.scrollIntoView({ block: 'center' });
 	}
 
 	async function loadOlder() {
@@ -209,6 +255,8 @@
 			const newer = await newerPage(channelId, messages[messages.length - 1], limit);
 			messages = [...messages, ...newer.messages];
 			hasNewer = newer.hasMore;
+			await tick();
+			fitSpacer();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load newer messages';
 		} finally {
@@ -232,9 +280,235 @@
 		observer.observe(edge);
 		return () => observer.disconnect();
 	});
+
+	// ── The jump rail ───────────────────────────────────────────────────────────
+
+	/** Where `el` starts in the scroller's content, in px from its top. */
+	function offsetIn(scroller: HTMLElement, el: HTMLElement): number {
+		return el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+	}
+
+	/** What goes at the top of the view for message `id`: its day's pill when it opens the day. */
+	function topOf(id: string): HTMLElement | null {
+		const row = rowOf(id);
+		const day = row?.closest<HTMLElement>('[data-day]');
+		return day && day.querySelector('[data-message-id]') === row ? day : row;
+	}
+
+	/** Size the room below the feed so the picked month's first message can reach the top. */
+	function fitSpacer() {
+		const scroller = shell.scroller;
+		const target = jumpTarget ? topOf(jumpTarget) : null;
+		if (!scroller || !target) {
+			spacer = 0;
+			return;
+		}
+		const below = scroller.scrollHeight - spacer - offsetIn(scroller, target);
+		spacer = Math.max(0, Math.ceil(scroller.clientHeight - headerHeight - below));
+	}
+
+	async function jumpTo(bucket: ChannelActivityBucket) {
+		if (jumping) return;
+		jumping = true;
+		try {
+			const around = await pageAround(channelId, bucket.first_message_id, limit);
+			messages = around.messages;
+			hasOlder = around.hasOlder;
+			hasNewer = around.hasNewer;
+			anchor = null;
+			error = '';
+			jumpTarget = bucket.first_message_id;
+			focusId = bucket.first_message_id;
+			await tick();
+			fitSpacer();
+			await tick();
+			const scroller = shell.scroller;
+			const target = topOf(bucket.first_message_id);
+			if (scroller && target) scroller.scrollTop = offsetIn(scroller, target) - headerHeight;
+			currentMonth = bucket.start.slice(0, 7);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load the month';
+		} finally {
+			jumping = false;
+		}
+	}
+
+	/** Mark the month of the message at the top of the view in the rail. */
+	function trackMonth() {
+		const scroller = shell.scroller;
+		if (!scroller || !feedEl) return;
+		const top = scroller.getBoundingClientRect().top + headerHeight;
+		for (const row of feedEl.querySelectorAll<HTMLElement>('[data-message-id]')) {
+			if (row.getBoundingClientRect().bottom <= top) continue;
+			const message = messages.find((m) => m.id === row.dataset.messageId);
+			if (message) currentMonth = messageMonth(message);
+			return;
+		}
+	}
+
+	$effect(() => {
+		const scroller = shell.scroller;
+		if (!scroller || !settled) return;
+		let frame = 0;
+		const onScroll = () => {
+			cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(trackMonth);
+		};
+		scroller.addEventListener('scroll', onScroll, { passive: true });
+		return () => {
+			cancelAnimationFrame(frame);
+			scroller.removeEventListener('scroll', onScroll);
+		};
+	});
+
+	// ── Replies ─────────────────────────────────────────────────────────────────
+
+	/** Follow a reply to the message it answers: in place when it is loaded here. */
+	async function followReference(reference: MessageReference, event: MouseEvent) {
+		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+			return;
+		}
+		const row = reference.channel_id === channelId ? rowOf(reference.id) : null;
+		if (!row) return; // The link opens the message in context.
+		event.preventDefault();
+		row.scrollIntoView({ block: 'center' });
+		focusId = reference.id;
+		row.focus({ preventScroll: true });
+		flashId = null;
+		await tick();
+		flashId = reference.id;
+	}
+
+	// ── The newest messages ─────────────────────────────────────────────────────
+
+	/** Show the channel's newest messages at the bottom of the view. */
+	async function toNewest() {
+		if (messageId) {
+			// Leave the message link, as the Newest messages pill does.
+			await goto(channelHref(channelId));
+			return;
+		}
+		if (hasNewer) {
+			try {
+				const newest = await newestPage(channelId, limit);
+				messages = newest.messages;
+				hasOlder = newest.hasMore;
+				hasNewer = false;
+				anchor = null;
+			} catch (e) {
+				error = e instanceof Error ? e.message : 'Failed to load messages';
+				return;
+			}
+		}
+		jumpTarget = null;
+		spacer = 0;
+		await scrollToBottom(shell.scroller);
+	}
+
+	function onNewestPill(event: MouseEvent) {
+		if (messageId || event.metaKey || event.ctrlKey || event.shiftKey) return;
+		event.preventDefault();
+		void toNewest();
+	}
+
+	// ── Keys ────────────────────────────────────────────────────────────────────
+
+	let chord: ReturnType<typeof setTimeout> | undefined;
+
+	function isTyping(target: EventTarget | null): boolean {
+		if (!(target instanceof HTMLElement)) return false;
+		return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+	}
+
+	function onkeydown(event: KeyboardEvent) {
+		if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+		if (isTyping(event.target) || loading || tab !== 'messages') return;
+		const key = event.key.toLowerCase();
+		if (chord !== undefined) {
+			clearTimeout(chord);
+			chord = undefined;
+			if (key === 'l') {
+				event.preventDefault();
+				void toNewest().then(focusNewest);
+				return;
+			}
+		}
+		if (event.shiftKey) return;
+		if (key === 'g') {
+			chord = setTimeout(() => (chord = undefined), CHORD_MS);
+		} else if (key === 'j' || key === 'k') {
+			event.preventDefault();
+			void move(key === 'j' ? 1 : -1);
+		}
+	}
+
+	function rows(): HTMLElement[] {
+		return [...(feedEl?.querySelectorAll<HTMLElement>('[data-message-id]') ?? [])];
+	}
+
+	/** The first row whose top is in view below the header, else the first one partly in view. */
+	function firstInView(list: HTMLElement[]): number {
+		const scroller = shell.scroller;
+		if (!scroller) return 0;
+		const bounds = scroller.getBoundingClientRect();
+		const top = bounds.top + headerHeight;
+		const whole = list.findIndex((row) => row.getBoundingClientRect().top >= top - 1);
+		if (whole !== -1 && list[whole].getBoundingClientRect().top < bounds.bottom) return whole;
+		const partly = list.findIndex((row) => row.getBoundingClientRect().bottom > top);
+		return partly === -1 ? list.length - 1 : partly;
+	}
+
+	/** Move the keyboard focus `step` messages down (newer) or up (older). */
+	async function move(step: 1 | -1) {
+		let list = rows();
+		if (list.length === 0) return;
+		const focused = document.activeElement?.closest<HTMLElement>('[data-message-id]') ?? null;
+		let index = focused ? list.indexOf(focused) : -1;
+		let next: number;
+		if (index === -1) {
+			next = firstInView(list);
+		} else {
+			next = index + step;
+			if (next < 0 && hasOlder) {
+				await loadOlder();
+				list = rows();
+				index = list.indexOf(focused!);
+				next = index + step;
+			} else if (next >= list.length && hasNewer) {
+				await loadNewer();
+				list = rows();
+				next = list.indexOf(focused!) + step;
+			}
+			next = Math.max(0, Math.min(list.length - 1, next));
+		}
+		focusRow(list[next]);
+	}
+
+	function focusRow(row: HTMLElement | undefined) {
+		if (!row) return;
+		focusId = row.dataset.messageId ?? null;
+		row.focus({ preventScroll: true });
+		row.scrollIntoView({ block: 'nearest' });
+	}
+
+	function focusNewest() {
+		const list = rows();
+		const row = list[list.length - 1];
+		if (!row) return;
+		focusId = row.dataset.messageId ?? null;
+		row.focus({ preventScroll: true });
+	}
+
+	/** Clicking or tabbing into a row makes it the one Tab reaches. */
+	function onfocusin(event: FocusEvent) {
+		const row = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-message-id]');
+		if (row?.dataset.messageId) focusId = row.dataset.messageId;
+	}
 </script>
 
-<div class="reader">
+<svelte:window {onkeydown} />
+
+<div class="reader" style:--reader-header-height="{headerHeight}px">
 	<header class="reader-header" use:stickyHeader bind:offsetHeight={headerHeight}>
 		<a href="/browse" class="back-link"><Icon name="arrow-left" size={14} /> Channels</a>
 		{#if channel}
@@ -260,7 +534,7 @@
 		</div>
 	</header>
 
-	<!-- The jump rail (#61) goes beside the feed, as a sticky pane in this row. -->
+	<!-- The feed, and the jump rail beside it as a sticky pane in this row. -->
 	<div
 		class="reader-body"
 		role="tabpanel"
@@ -280,14 +554,21 @@
 					<EmptyState icon="inbox" title="No messages archived in this channel." />
 				</div>
 			{:else}
-				<div class="feed">
+				<div class="feed" bind:this={feedEl} {onfocusin}>
 					{#if hasOlder}
 						<LoadMore loading={loadingOlder} onclick={loadOlder}>Load older messages</LoadMore>
 					{:else}
 						<div class="end-marker mono">Beginning of the channel</div>
 					{/if}
 
-					<TimelineFeed {messages} highlight={anchor} />
+					<MessageFeed
+						{messages}
+						highlight={anchor}
+						flash={flashId}
+						{focusable}
+						busy={loadingOlder || loadingNewer}
+						onreference={followReference}
+					/>
 
 					{#if error}
 						<div class="state"><Alert tone="danger" title="Messages could not be loaded">{error}</Alert></div>
@@ -297,13 +578,22 @@
 						<div bind:this={newerEdge}>
 							<LoadMore loading={loadingNewer} onclick={loadNewer}>Load newer messages</LoadMore>
 						</div>
-						<a class="newest-pill" href={channelHref(channelId)}>
+						<a class="newest-pill" href={channelHref(channelId)} onclick={onNewestPill}>
 							<Icon name="arrow-down" size={14} /> Newest messages
 						</a>
 					{/if}
 				</div>
+				{#if spacer > 0}
+					<div class="spacer" style:height="{spacer}px" aria-hidden="true"></div>
+				{/if}
 			{/if}
 		</div>
+
+		{#if months === null || months.length > 0}
+			<aside class="rail-pane">
+				<JumpRail buckets={months} current={currentMonth} onjump={jumpTo} />
+			</aside>
+		{/if}
 	</div>
 
 	{#if visited.media}
@@ -444,9 +734,11 @@
 		padding: var(--space-1) 0;
 	}
 
+	/* The rail is sticky beside the feed, so the row does not stretch it. */
 	.reader-body {
 		flex: 1;
 		display: flex;
+		align-items: flex-start;
 	}
 
 	.reader-body[hidden],
@@ -495,6 +787,7 @@
 	/* The feed sits at the bottom while it is shorter than the area, as a chat does. */
 	.feed-area {
 		flex: 1;
+		align-self: stretch;
 		min-width: 0;
 		padding: var(--space-6);
 		display: flex;
@@ -505,6 +798,10 @@
 		width: 100%;
 		max-width: var(--size-reader-max);
 		margin: auto auto 0;
+	}
+
+	.spacer {
+		flex-shrink: 0;
 	}
 
 	.state {
@@ -525,6 +822,7 @@
 	.newest-pill {
 		position: sticky;
 		bottom: var(--space-4);
+		z-index: 1;
 		display: flex;
 		align-items: center;
 		gap: var(--space-1);
@@ -545,6 +843,18 @@
 		color: var(--text-primary);
 	}
 
+	/* The jump rail stays in view below the header and scrolls its own list. */
+	.rail-pane {
+		position: sticky;
+		top: var(--reader-header-height);
+		width: 192px;
+		flex-shrink: 0;
+		height: calc(var(--shell-viewport-height) - var(--reader-header-height));
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		border-left: 1px solid var(--border-subtle);
+	}
+
 	@media (max-width: 767px) {
 		.back-link {
 			display: inline-flex;
@@ -560,6 +870,10 @@
 
 		.title-row {
 			flex-wrap: wrap;
+		}
+
+		.rail-pane {
+			display: none;
 		}
 	}
 </style>

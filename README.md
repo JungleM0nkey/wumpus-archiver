@@ -132,7 +132,8 @@ All endpoints are under `/api/`:
 | `GET /guilds/{id}/users` | Users in a guild |
 | `GET /guilds/{id}/gallery` | Image gallery for a guild |
 | `GET /guilds/{id}/gallery/timeline` | The gallery timeline behind the Media screen: attachments grouped by month, filtered by `content_type` (image, gif, video, media), `channel_id` and `author_id` |
-| `GET /channels/{id}/messages` | Paginated messages, newest first (`before`, `after`, `around` cursors); `pinned=true` lists only the pinned ones |
+| `GET /channels/{id}/messages` | Paginated messages, newest first (`before`, `after`, `around` cursors); `pinned=true` lists only the pinned ones; a reply carries `reference`, the author and a snippet of the message it answers |
+| `GET /channels/{id}/activity` | A channel's messages per month (`period=week` for weeks), each period with its first message, behind Browse's jump rail |
 | `GET /channels/{id}/gallery` | Channel image gallery |
 | `GET /search` | Message search: every term of `q` (a quoted phrase is one term), filtered by `guild_id`, `channel_id`, `author_id`, `has` (file, image, video, link) and `after`/`before` days in UTC (`after` inclusive, `before` exclusive), sorted `newest` or `oldest`, paged with `cursor`; results carry an escaped `highlight` snippet, and `facets=true` adds counts per channel, author and month |
 | `GET /users/{id}/profile` | User profile with stats |
@@ -153,7 +154,7 @@ first guild when absent), and every page shows that guild.
 |---|---|---|
 | `/` | Overview | Guild stats |
 | `/browse` | Browse | Opens the guild's most active channel (`/channels` and `/timeline` redirect here) |
-| `/browse/[channel]` | Browse | A channel's messages beside the channel pane; `?message=<id>` opens it on one message (`/channel/[id]` and `/timeline?channel=` redirect here); `?tab=media` and `?tab=pinned` show the channel's media and pinned messages |
+| `/browse/[channel]` | Browse | A channel's messages beside the channel pane, grouped by author under sticky date pills, with a jump rail of the channel's months; `?message=<id>` opens it on one message (`/channel/[id]` and `/timeline?channel=` redirect here); `?tab=media` and `?tab=pinned` show the channel's media and pinned messages. `J`/`K` move between messages, `G` then `L` goes to the newest |
 | `/media` | Media | Images, GIFs and videos in justified rows under month headers, filtered by type, channel and sort in the URL (`/gallery` and `/channel/[id]/gallery` redirect here) |
 | `/search` | Search | Messages holding every term, narrowed by filter chips typed into the query (`in:`, `from:`, `has:`, `after:`, `before:`); highlighted snippets open in context in Browse, a refine rail counts channels, people and months and adds their chips, and the query and sort live in the URL |
 | `/people` | People | Authors as a table, sortable by messages, name or recent activity, searchable by name (`/users` redirects here) |
