@@ -14,6 +14,7 @@
 	// reply's link scrolls to the message it answers when it is loaded. On the Messages
 	// tab, J and K move the keyboard focus from message to message, and G then L goes to
 	// the newest; these keys are the reader's own and do nothing while typing in a field.
+	// They go through the shell's key registry (keyboard.svelte.ts), so `?` lists them.
 	import { onMount, tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -30,6 +31,7 @@
 		scrollToBottom
 	} from '#lib/reader.ts';
 	import { channelHref } from '#lib/routes.ts';
+	import { useViewKeys } from '#lib/keyboard.svelte.ts';
 	import { guildHolding, shell, stickyHeader } from '#lib/shell.svelte.ts';
 	import type { Channel, ChannelActivityBucket, Message, MessageReference } from '#lib/types.ts';
 	import JumpRail from '#lib/components/JumpRail.svelte';
@@ -51,8 +53,6 @@
 
 	const browse = getBrowseGuild();
 	const limit = 50;
-	/** How long after G an L still completes "G then L". */
-	const CHORD_MS = 1500;
 
 	let channel: Channel | null = $state(null);
 	let messages: Message[] = $state([]);
@@ -78,6 +78,8 @@
 	/** Room below the feed, so a month's first message can reach the top of the view. */
 	let spacer = $state(0);
 	let jumping = false;
+	/** Whether the jump rail is open below 768px, where it folds away behind its toggle. */
+	let railOpen = $state(false);
 
 	/** The message a reply's link was just followed to. */
 	let flashId: string | null = $state(null);
@@ -413,33 +415,25 @@
 
 	// ── Keys ────────────────────────────────────────────────────────────────────
 
-	let chord: ReturnType<typeof setTimeout> | undefined;
-
-	function isTyping(target: EventTarget | null): boolean {
-		if (!(target instanceof HTMLElement)) return false;
-		return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
-	}
-
-	function onkeydown(event: KeyboardEvent) {
-		if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
-		if (isTyping(event.target) || loading || tab !== 'messages') return;
-		const key = event.key.toLowerCase();
-		if (chord !== undefined) {
-			clearTimeout(chord);
-			chord = undefined;
-			if (key === 'l') {
-				event.preventDefault();
-				void toNewest().then(focusNewest);
-				return;
+	// The reader's keys go through the shell's one key registry, so `?` lists them too.
+	useViewKeys({
+		heading: 'Browse',
+		bindings: [
+			{ keys: ['J'], press: ['j'], does: 'Next message', run: () => void move(1), when: readerKeys },
+			{ keys: ['K'], press: ['k'], does: 'Previous message', run: () => void move(-1), when: readerKeys },
+			{
+				keys: ['G', 'L'],
+				press: ['g', 'l'],
+				does: 'Newest messages (G then L)',
+				run: () => void toNewest().then(focusNewest),
+				when: readerKeys
 			}
-		}
-		if (event.shiftKey) return;
-		if (key === 'g') {
-			chord = setTimeout(() => (chord = undefined), CHORD_MS);
-		} else if (key === 'j' || key === 'k') {
-			event.preventDefault();
-			void move(key === 'j' ? 1 : -1);
-		}
+		]
+	});
+
+	/** The reader's keys work on the Messages tab once it has loaded. */
+	function readerKeys(): boolean {
+		return !loading && tab === 'messages';
 	}
 
 	function rows(): HTMLElement[] {
@@ -506,7 +500,6 @@
 	}
 </script>
 
-<svelte:window {onkeydown} />
 
 <div class="reader" style:--reader-header-height="{headerHeight}px">
 	<header class="reader-header" use:stickyHeader bind:offsetHeight={headerHeight}>
@@ -519,6 +512,19 @@
 				</h1>
 				<div class="facts">
 					<Badge mono title="Messages archived">{channel.message_count.toLocaleString()} messages</Badge>
+					{#if tab === 'messages' && (months === null || months.length > 0)}
+						<!-- Below 768px the jump rail folds away behind this. -->
+						<button
+							type="button"
+							class="rail-toggle"
+							aria-label="Jump to a month"
+							aria-expanded={railOpen}
+							aria-controls="jump-rail"
+							onclick={() => (railOpen = !railOpen)}
+						>
+							<Icon name="history" size={14} /> Jump to
+						</button>
+					{/if}
 				</div>
 			</div>
 			{#if channel.topic}
@@ -590,8 +596,15 @@
 		</div>
 
 		{#if months === null || months.length > 0}
-			<aside class="rail-pane">
-				<JumpRail buckets={months} current={currentMonth} onjump={jumpTo} />
+			<aside class="rail-pane" id="jump-rail" class:open={railOpen}>
+				<JumpRail
+					buckets={months}
+					current={currentMonth}
+					onjump={(bucket) => {
+						railOpen = false;
+						void jumpTo(bucket);
+					}}
+				/>
 			</aside>
 		{/if}
 	</div>
@@ -689,6 +702,23 @@
 	}
 
 	.back-link:hover {
+		color: var(--text-primary);
+	}
+
+	.rail-toggle {
+		display: none;
+		align-items: center;
+		gap: var(--space-1);
+		height: 24px;
+		padding: 0 var(--space-2);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-full);
+		font: var(--type-label-sm);
+		color: var(--text-secondary);
+	}
+
+	.rail-toggle[aria-expanded='true'] {
+		background: var(--bg-active);
 		color: var(--text-primary);
 	}
 
@@ -872,8 +902,31 @@
 			flex-wrap: wrap;
 		}
 
+		/* The jump rail folds away behind its toggle, and opens over the tab bar's edge. */
+		.rail-toggle {
+			display: inline-flex;
+		}
+
 		.rail-pane {
 			display: none;
+		}
+
+		.rail-pane.open {
+			display: block;
+			position: fixed;
+			left: 0;
+			right: 0;
+			top: auto;
+			bottom: calc(var(--size-tabbar) + env(safe-area-inset-bottom, 0px));
+			z-index: 20;
+			width: auto;
+			height: auto;
+			max-height: 60dvh;
+			border-left: none;
+			border-top: 1px solid var(--border-default);
+			background: var(--bg-overlay);
+			box-shadow: var(--shadow-floating);
+			animation: enter var(--duration-medium) var(--ease-out-quint);
 		}
 	}
 </style>

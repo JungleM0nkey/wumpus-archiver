@@ -183,6 +183,7 @@
 			type="text"
 			role="combobox"
 			class="query-input"
+			data-view-search
 			placeholder={chips.length ? 'Add words or filters' : 'Search messages, or filter with in: from: has: after: before:'}
 			aria-label="Search query"
 			aria-autocomplete="list"

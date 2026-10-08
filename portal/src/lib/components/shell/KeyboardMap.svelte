@@ -1,6 +1,6 @@
-<!-- The keyboard map `?` shows: every shortcut in KEYMAP (keyboard.svelte.ts), by where it works. -->
+<!-- The keyboard map `?` shows: the shell's keys and the screen's own (keyboard.svelte.ts), by where it works. -->
 <script lang="ts">
-	import { KEYMAP, overlays } from '#lib/keyboard.svelte.ts';
+	import { overlays, shortcuts } from '#lib/keyboard.svelte.ts';
 	import Dialog from '../ui/Dialog.svelte';
 	import IconButton from '../ui/IconButton.svelte';
 	import Shortcut from '../ui/Shortcut.svelte';
@@ -13,7 +13,7 @@
 			<IconButton icon="x" label="Close" onclick={() => (overlays.keymap = false)} />
 		</header>
 		<div class="sections">
-			{#each KEYMAP as section (section.heading)}
+			{#each shortcuts.sections as section (section.heading)}
 				<section>
 					<h3>{section.heading}</h3>
 					<dl>

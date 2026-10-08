@@ -2,12 +2,17 @@
 //
 // Everywhere: ⌘K (Ctrl+K off Apple) opens the command palette, ⌘1–5 go to the five
 // destinations, ⌘\ collapses the sidebar, `/` focuses the current view's search field
-// (or opens Search), Esc closes what is open or clears the field, and `?` shows the
-// map. Keys without a modifier never fire while the reader is typing in a field.
+// (the first `type="search"` field in <main>, or one marked `data-view-search`) or else
+// opens Search, Esc closes what is open or clears the field, and `?` shows the map. Keys without a modifier never fire while the reader is typing in a field.
 //
 // `overlays` is which of the shell's dialogs is open: the palette, the map, the mobile
-// sheet. A screen that adds its own keys lists them in KEYMAP under its own heading, so
-// `?` shows them.
+// sheet.
+//
+// A screen's own keys go through this registry too: `useViewKeys` registers them while
+// the screen is mounted, the shell's one keydown handler runs them (never while typing,
+// with a modifier, or while a dialog is open), and `?` lists them under the screen's
+// heading. Browse's reader registers J, K and "G then L" this way.
+import { untrack } from 'svelte';
 import { goto } from '$app/navigation';
 import { APPLE, DESTINATIONS, withGuild } from './shell.svelte';
 
@@ -70,8 +75,8 @@ export interface KeymapSection {
 	bindings: KeyBinding[];
 }
 
-/** The map `?` shows. */
-export const KEYMAP: KeymapSection[] = [
+/** The shell's own keys, which work on every screen. */
+const SHELL_KEYS: KeymapSection[] = [
 	{
 		heading: 'Everywhere',
 		bindings: [
@@ -98,6 +103,78 @@ export const KEYMAP: KeymapSection[] = [
 		]
 	}
 ];
+
+/** A key of a screen's own, or a chord of two pressed one after the other. */
+export interface ViewBinding extends KeyBinding {
+	/** The keys pressed, as lowercase `KeyboardEvent.key`s: two for a chord ("G then L"). */
+	press: [string] | [string, string];
+	run: () => void;
+	/** Whether the key applies right now, such as only on one tab. */
+	when?: () => boolean;
+}
+
+export interface ViewKeys {
+	/** Where they work, as `?` heads them: "Browse", say. */
+	heading: string;
+	bindings: ViewBinding[];
+}
+
+/** How long after a chord's first key its second still completes it. */
+export const CHORD_MS = 1500;
+
+let viewKeys = $state.raw<ViewKeys[]>([]);
+
+/** Every key `?` lists: the shell's, then those of the screen on show. */
+export const shortcuts = {
+	get sections(): KeymapSection[] {
+		return [...SHELL_KEYS, ...viewKeys];
+	}
+};
+
+/**
+ * Register a screen's own keys while it is mounted; call it during the component's
+ * initialisation. The shell runs them, and `?` lists them.
+ */
+export function useViewKeys(keys: ViewKeys): void {
+	$effect(() => {
+		untrack(() => (viewKeys = [...viewKeys, keys]));
+		return () => {
+			viewKeys = untrack(() => viewKeys.filter((k) => k !== keys));
+		};
+	});
+}
+
+/** A chord's first key, while its second may still follow. */
+let chordStart: { key: string; at: number } | null = null;
+
+/**
+ * Run the screen's key that `event` presses, if one applies. The shell calls it only for
+ * a key without a modifier (Shift aside), outside a field, with no dialog open.
+ */
+export function runViewKey(event: KeyboardEvent): boolean {
+	const key = event.key.toLowerCase();
+	const bindings = viewKeys.flatMap((k) => k.bindings).filter((b) => b.when?.() ?? true);
+	const first = chordStart && performance.now() - chordStart.at < CHORD_MS ? chordStart.key : null;
+	chordStart = null;
+	if (first) {
+		const chord = bindings.find((b) => b.press.length === 2 && b.press[0] === first && b.press[1] === key);
+		if (chord) {
+			event.preventDefault();
+			chord.run();
+			return true;
+		}
+	}
+	if (event.shiftKey) return false;
+	if (bindings.some((b) => b.press.length === 2 && b.press[0] === key)) {
+		chordStart = { key, at: performance.now() };
+		return true;
+	}
+	const single = bindings.find((b) => b.press.length === 1 && b.press[0] === key);
+	if (!single) return false;
+	event.preventDefault();
+	single.run();
+	return true;
+}
 
 /** Whether `target` takes typed text, so a key without a modifier belongs to it. */
 export function isTyping(target: EventTarget | null): boolean {

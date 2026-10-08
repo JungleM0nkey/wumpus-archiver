@@ -30,6 +30,7 @@
 		isPaletteShortcut,
 		isTyping,
 		overlays,
+		runViewKey,
 		searchInView
 	} from '#lib/keyboard.svelte.ts';
 	import {
@@ -219,6 +220,8 @@
 		} else if (event.key === '/') {
 			event.preventDefault();
 			void searchInView();
+		} else {
+			runViewKey(event);
 		}
 	}
 </script>
