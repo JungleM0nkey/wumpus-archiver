@@ -257,6 +257,32 @@ test('back and forward restore each screen’s scroll position', async ({ page }
 	await expect.poll(scrollTop).toBe(profileTop);
 });
 
+test('back pressed while a link’s cross-fade is starting shows the screen the URL names', async ({ page }) => {
+	// A slow machine: the browser takes 300 ms to capture the old screen for a cross-fade.
+	await page.addInitScript(() => {
+		const w = window as unknown as { capturing: number };
+		w.capturing = 0;
+		const start = document.startViewTransition.bind(document);
+		document.startViewTransition = ((update: ViewTransitionUpdateCallback) => {
+			w.capturing++;
+			return start(async () => {
+				await new Promise((resolve) => setTimeout(resolve, 300));
+				w.capturing--;
+				await update();
+			});
+		}) as typeof document.startViewTransition;
+	});
+	await page.goto('/people/900000000000000100', { waitUntil: 'networkidle' });
+	const main = page.locator('main');
+	await page.getByRole('navigation', { name: 'Destinations' }).getByRole('link', { name: 'Overview' }).click();
+	await expect(page).toHaveURL('/');
+	await page.goBack();
+	await expect(page).toHaveURL('/people/900000000000000100');
+	await expect.poll(() => page.evaluate(() => (window as unknown as { capturing: number }).capturing)).toBe(0);
+	await expect(main.getByText('Recent messages')).toBeVisible();
+	await expect(main.getByRole('heading', { name: 'Smoke Test Guild' })).toHaveCount(0);
+});
+
 test('back and forward keep the restored position while the screen finishes loading', async ({ page }) => {
 	await page.setViewportSize({ width: 1280, height: 600 });
 	await page.goto('/people/900000000000000100', { waitUntil: 'networkidle' });

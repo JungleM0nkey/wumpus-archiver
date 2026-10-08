@@ -43,12 +43,29 @@
 		);
 	}
 
+	/**
+	 * The navigation whose screen is waiting on its cross-fade to swap in: the browser
+	 * captures the old screen first, a frame or more later.
+	 */
+	let unswapped: OnNavigate | null = null;
+
 	// Cross-fade the content between screens; the sidebar stays put.
+	//
+	// A screen waiting on its cross-fade still swaps in when the cross-fade gets there,
+	// even if a newer navigation has begun since (back pressed right after a link, say).
+	// So a navigation that starts meanwhile swaps in only after that one has: the screen
+	// left showing is then the one the URL names.
 	onNavigate((navigation: OnNavigate) => {
-		if (!document.startViewTransition) return;
-		if (!changesScreen(navigation.from?.url, navigation.to?.url)) return;
+		const waiting = unswapped;
+		const after = waiting ? waiting.complete.catch(() => {}) : undefined;
+		if (!document.startViewTransition || !changesScreen(navigation.from?.url, navigation.to?.url)) {
+			return after;
+		}
+		unswapped = navigation;
 		return new Promise<void>((resolve) => {
 			const transition = document.startViewTransition(async () => {
+				await after;
+				if (unswapped === navigation) unswapped = null;
 				resolve();
 				await navigation.complete.catch(() => {});
 			});
