@@ -58,7 +58,7 @@ Which part of the archive a read covers: an optional guild, channel and author, 
 _Avoid_: filter, selection
 
 **Cursor**:
-A message id used to page through messages. "Before" means the page adjacent to it on the older side, "after" the page adjacent on the newer side.
+A message id used to page through messages. "Before" means the page adjacent to it on the older side, "after" the page adjacent on the newer side, and "around" the page that holds the message itself with its neighbours on both sides.
 _Avoid_: offset (a different paging style), position
 
 **Total**:

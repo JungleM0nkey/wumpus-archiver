@@ -87,3 +87,35 @@ async def test_the_page_does_not_load_the_channel(
     assert response.status_code == 200
     assert statements
     assert not any("channels" in statement for statement in statements)
+
+
+async def test_around_opens_on_a_message_with_its_neighbours(client: AsyncClient) -> None:
+    """A message link opens the reader on that message, newest first like any page."""
+    page = await _page(client, limit=3, around=2)
+    assert _ids(page) == ["3", "2", "1"]
+    assert (page["has_more"], page["has_newer"]) == (False, False)
+    assert (page["before_id"], page["after_id"]) == ("1", "3")
+
+
+async def test_around_says_what_remains_on_either_side(client: AsyncClient) -> None:
+    middle = await _page(client, limit=1, around=2)
+    assert (_ids(middle), middle["has_more"], middle["has_newer"]) == (["2"], True, True)
+    assert middle["total"] == 3
+    newest = await _page(client, limit=2, around=3)
+    assert (_ids(newest), newest["has_more"], newest["has_newer"]) == (["3", "2"], True, False)
+
+
+async def test_around_an_unknown_message_opens_at_the_newest(client: AsyncClient) -> None:
+    page = await _page(client, limit=2, around=999)
+    assert _ids(page) == ["3", "2"]
+    assert (page["has_more"], page["has_newer"]) == (True, False)
+
+
+async def test_has_newer_is_only_set_around_a_message(client: AsyncClient) -> None:
+    assert (await _page(client, limit=1))["has_newer"] is None
+
+
+@pytest.mark.parametrize("cursor", ["before", "after"])
+async def test_around_does_not_combine_with_a_cursor(client: AsyncClient, cursor: str) -> None:
+    response = await client.get("/api/channels/10/messages", params={"around": 2, cursor: 1})
+    assert response.status_code == 400

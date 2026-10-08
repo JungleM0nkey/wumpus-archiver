@@ -15,6 +15,7 @@ Today's route compares raw ids against an oldest-first list, so `before=<id>` re
 - An unknown cursor id falls back to the first page rather than erroring.
 - Every ORDER BY in the module ends in a tie-break that makes the order total: the primary key, or for a grouped read (such as `reactions`, grouped by emoji name) the group key, so pages are stable when timestamps or counts collide.
 - `has_more` points away from the cursor: after `before` it says whether older messages remain, after `after` whether newer ones do, and on a first page whether more follow in the requested order. With both cursors it says whether older messages remain that are still newer than `after`.
+- `around=<id>` is a third, anchored cursor for opening the reader on one message (#60): the page holds that message with the messages on either side, `has_more` says whether older ones remain and `has_newer` whether newer ones do, and the reader pages on from it with `before` and `after`. It takes no other cursor.
 
 ## Status
 

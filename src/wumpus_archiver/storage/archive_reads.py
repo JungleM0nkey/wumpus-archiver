@@ -119,6 +119,16 @@ class Page[T]:
 
 
 @dataclass(frozen=True)
+class AroundPage(Page[Message]):
+    """A page of messages around an anchor message, with what remains on either side.
+
+    ``has_more`` says whether older messages remain, ``has_newer`` whether newer ones do.
+    """
+
+    has_newer: bool = False
+
+
+@dataclass(frozen=True)
 class AttachmentRow:
     """An attachment with the message context the gallery shows beside it."""
 
@@ -390,6 +400,73 @@ async def messages(
         has_more=has_more,
         oldest_id=ids[0] if ids else None,
         newest_id=ids[-1] if ids else None,
+    )
+
+
+async def messages_around(
+    session: AsyncSession,
+    scope: Scope,
+    *,
+    order: Order,
+    limit: int,
+    around: int,
+) -> AroundPage:
+    """The page of messages in scope around the message ``around``, in ``order``.
+
+    The page holds the anchor, up to ``limit // 2`` newer messages and older ones for
+    the rest; near either end of the scope the other side fills the page. A reader
+    opened on a message pages away from it both ways with ``before`` and ``after``. An
+    unknown anchor falls back to the first page in ``order``, as an unknown cursor does
+    in ``messages``.
+    """
+    anchor = await _anchor(session, around)
+    if anchor is None:
+        first = await messages(session, scope, order=order, limit=limit)
+        newest_first = order is Order.NEWEST_FIRST
+        return AroundPage(
+            rows=first.rows,
+            total=first.total,
+            has_more=first.has_more and newest_first,
+            has_newer=first.has_more and not newest_first,
+            oldest_id=first.oldest_id,
+            newest_id=first.newest_id,
+        )
+
+    at, at_id = anchor
+    where = _message_scope(scope)
+    rows = select(Message).options(
+        selectinload(Message.author),
+        selectinload(Message.attachments),
+        selectinload(Message.reactions),
+    )
+    # Read up to a whole page of newer messages first, so the older side can fill the
+    # page when the anchor is near the newest, and the newer side when it is near the oldest.
+    newer_side = rows.order_by(Message.created_at.asc(), Message.id.asc()).where(
+        *where, or_(Message.created_at > at, and_(Message.created_at == at, Message.id > at_id))
+    )
+    newer = list((await session.execute(newer_side.limit(limit + 1))).scalars().all())
+    older_side = rows.order_by(Message.created_at.desc(), Message.id.desc())
+    at_or_older = or_(Message.created_at < at, and_(Message.created_at == at, Message.id <= at_id))
+    older, total, has_older = await _page(
+        session,
+        older_side,
+        where,
+        Message,
+        limit=limit - min(len(newer), limit // 2),
+        paging=[at_or_older],
+    )
+    newer_kept = limit - len(older)
+    has_newer = len(newer) > newer_kept
+
+    oldest_first: list[Message] = [row[0] for row in reversed(older)] + newer[:newer_kept]
+    page = oldest_first[::-1] if order is Order.NEWEST_FIRST else oldest_first
+    return AroundPage(
+        rows=page,
+        total=total,
+        has_more=has_older,
+        has_newer=has_newer,
+        oldest_id=oldest_first[0].id if oldest_first else None,
+        newest_id=oldest_first[-1].id if oldest_first else None,
     )
 
 

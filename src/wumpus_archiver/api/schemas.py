@@ -119,6 +119,8 @@ class MessageListResponse(BaseModel):
     has_more: bool
     before_id: OptionalSnowflake = None
     after_id: OptionalSnowflake = None
+    # Whether newer messages remain: set on a page read ``around`` a message, else null.
+    has_newer: bool | None = None
 
 
 class ChannelListResponse(BaseModel):

@@ -23,7 +23,14 @@ from httpx import AsyncClient
         (
             "/api/channels/1/messages",
             200,
-            {"messages": [], "total": 0, "has_more": False, "before_id": None, "after_id": None},
+            {
+                "messages": [],
+                "total": 0,
+                "has_more": False,
+                "before_id": None,
+                "after_id": None,
+                "has_newer": None,
+            },
         ),
         (
             "/api/channels/1/gallery",

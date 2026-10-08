@@ -380,6 +380,68 @@ class TestMessagesCursors:
 
 
 @in_module_loop
+class TestMessagesAround:
+    # Message 6 ties 5 on time and is newer by id, so 5 is on its older side.
+    @pytest.mark.parametrize(
+        ("order", "expected"), [(OLDEST, [5, 6, 7, 9]), (NEWEST, [9, 7, 6, 5])]
+    )
+    async def test_the_page_holds_the_anchor_and_both_sides(
+        self, reads: AsyncSession, order: Order, expected: list[int]
+    ) -> None:
+        page = await archive_reads.messages_around(
+            reads, IN_CHANNEL, order=order, limit=4, around=6
+        )
+        assert _ids(page) == expected
+        assert (page.has_more, page.has_newer) == (True, True)
+        assert (page.oldest_id, page.newest_id, page.total) == (5, 9, len(CHANNEL_ORDER))
+
+    async def test_near_either_end_the_other_side_fills_the_page(self, reads: AsyncSession) -> None:
+        first = await archive_reads.messages_around(
+            reads, IN_CHANNEL, order=OLDEST, limit=4, around=1
+        )
+        assert (_ids(first), first.has_more, first.has_newer) == ([1, 2, 3, 4], False, True)
+        last = await archive_reads.messages_around(
+            reads, IN_CHANNEL, order=OLDEST, limit=4, around=8
+        )
+        assert (_ids(last), last.has_more, last.has_newer) == ([6, 7, 9, 8], True, False)
+
+    async def test_paging_away_from_the_anchor_walks_the_whole_channel(
+        self, reads: AsyncSession
+    ) -> None:
+        page = await archive_reads.messages_around(
+            reads, IN_CHANNEL, order=OLDEST, limit=2, around=5
+        )
+        seen = _ids(page)
+        older: Page[Message] = page
+        while older.has_more:
+            older = await archive_reads.messages(
+                reads, IN_CHANNEL, order=OLDEST, limit=2, before=older.oldest_id
+            )
+            seen = _ids(older) + seen
+        newer: Page[Message] = page
+        more_newer = page.has_newer
+        while more_newer:
+            newer = await archive_reads.messages(
+                reads, IN_CHANNEL, order=OLDEST, limit=2, after=newer.newest_id
+            )
+            seen += _ids(newer)
+            more_newer = newer.has_more
+        assert seen == CHANNEL_ORDER
+
+    @pytest.mark.parametrize("order", [OLDEST, NEWEST])
+    async def test_an_unknown_anchor_falls_back_to_the_first_page(
+        self, reads: AsyncSession, order: Order
+    ) -> None:
+        first = await archive_reads.messages(reads, IN_CHANNEL, order=order, limit=3)
+        page = await archive_reads.messages_around(
+            reads, IN_CHANNEL, order=order, limit=3, around=999_999
+        )
+        assert _ids(page) == _ids(first)
+        newest_first = order is NEWEST
+        assert (page.has_more, page.has_newer) == (newest_first, not newest_first)
+
+
+@in_module_loop
 class TestMessagesTotals:
     @pytest.mark.parametrize("kwargs", [{}, {"before": 6}, {"after": 5}, {"before": 8, "after": 1}])
     async def test_total_ignores_paging(self, reads: AsyncSession, kwargs: dict[str, int]) -> None:
@@ -972,6 +1034,7 @@ async def test_every_read_compiles_for_sqlite_and_postgresql(reads: AsyncSession
             until=T0 + timedelta(days=1),
         )
         await archive_reads.messages(reads, scope, order=OLDEST, limit=1, has=Has.LINK)
+        await archive_reads.messages_around(reads, scope, order=NEWEST, limit=2, around=5)
         await archive_reads.attachments(reads, scope, kind=MediaKind.IMAGE, limit=1)
         await archive_reads.authors(reads, scope, sort=AuthorSort.RECENT, limit=1, name="a")
         await archive_reads.guilds(reads)
