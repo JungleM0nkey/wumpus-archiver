@@ -198,6 +198,11 @@ select {
 	letter-spacing: 0;
 }
 
+/* Icons (Icon.svelte) keep their size in a flex row. */
+svg.icon {
+	flex-shrink: 0;
+}
+
 .truncate {
 	overflow: hidden;
 	text-overflow: ellipsis;
