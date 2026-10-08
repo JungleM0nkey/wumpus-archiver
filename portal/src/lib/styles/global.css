@@ -43,6 +43,14 @@
 	/* Text on an accent fill. */
 	--on-accent: var(--bg-canvas);
 
+	/* An activity heatmap's ramp, from no messages (0) to the busiest (4): the accent
+	   mixed into the inset surface in quarters. */
+	--heat-0: var(--bg-inset);
+	--heat-1: color-mix(in srgb, var(--accent) 25%, var(--bg-inset));
+	--heat-2: color-mix(in srgb, var(--accent) 50%, var(--bg-inset));
+	--heat-3: color-mix(in srgb, var(--accent) 75%, var(--bg-inset));
+	--heat-4: var(--accent);
+
 	/* Shadows exist only for floating elements (lightbox, popovers). */
 	--shadow-floating: 0 12px 40px rgba(0, 0, 0, 0.55);
 

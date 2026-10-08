@@ -261,6 +261,14 @@ export interface UserProfile {
 	monthly_activity: UserMonthlyActivity[];
 	top_reactions_received: { emoji: string; count: number }[];
 	top_words: { word: string; count: number }[];
+	/** The 52 weeks ending with the week of the last message in scope, oldest first, empty weeks included. */
+	weekly_activity: UserWeeklyActivity[];
+}
+
+/** Messages in one ISO week; `week` is its Monday, as YYYY-MM-DD. */
+export interface UserWeeklyActivity {
+	week: string;
+	count: number;
 }
 
 // --- Download stats types ---
