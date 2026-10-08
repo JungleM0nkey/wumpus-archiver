@@ -4,6 +4,8 @@ The portal suite only sees the archive through a browser; these tests pin the se
 itself through the API, so a change to it fails here first and says why.
 """
 
+import itertools
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,7 @@ from tests.smoke_archive import (
     GENERAL_ID,
     GUILD_ID,
     HANGOUT_ID,
+    LOBBY_ID,
     LURKERS,
     NIGHT_GUILD_ID,
     NIGHT_SCRAPE_ADDED,
@@ -228,3 +231,30 @@ async def test_general_has_two_pinned_messages_and_random_one(client: AsyncClien
     assert await pinned(GENERAL_ID) == (general, 2)
     assert await pinned(RANDOM_ID) == (["Agreed."], 1)
     assert await pinned(ART_ID) == ([], 0)
+
+
+# ── #61 Browse's grouped feed ────────────────────────────────────────────────
+
+
+async def test_lobby_has_an_author_two_minutes_apart_and_one_ten_minutes_apart(
+    client: AsyncClient,
+) -> None:
+    """Browse's smoke tests see Zara's messages as one group and aaron's as two."""
+    page = await client.get(f"/api/channels/{LOBBY_ID}/messages", params={"limit": 5})
+    times: dict[str, list[datetime]] = {}
+    for message in reversed(page.json()["messages"]):
+        name = message["author"]["display_name"]
+        times.setdefault(name, []).append(datetime.fromisoformat(message["created_at"]))
+    gaps = {name: [b - a for a, b in itertools.pairwise(at)] for name, at in times.items()}
+    assert gaps == {"Zara": [timedelta(minutes=2)] * 2, "aaron": [timedelta(minutes=10)]}
+
+
+async def test_a_reply_in_general_names_the_message_it_answers(client: AsyncClient) -> None:
+    """Browse's smoke tests follow "Thanks, glad to be here." to Alice's welcome."""
+    messages = (await client.get(f"/api/channels/{GENERAL_ID}/messages")).json()["messages"]
+    thanks = next(m for m in messages if m["content"] == "Thanks, glad to be here.")
+    reference = thanks["reference"]
+    assert (reference["author"]["display_name"], reference["snippet"]) == (
+        "Alice",
+        "Welcome to the smoke test guild!",
+    )

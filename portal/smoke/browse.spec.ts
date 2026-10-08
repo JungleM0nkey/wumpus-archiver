@@ -4,7 +4,7 @@
 // pages loadable around it.
 import type { Locator, Page } from '@playwright/test';
 import { ROUTE_ANNOTATION, expect, test } from './fixtures.ts';
-import { narrowPages, topOf } from './reader.ts';
+import { narrowPages, said, topOf } from './reader.ts';
 
 // Ids and text from tests/smoke_archive.py.
 const GENERAL_ID = '900000000000000020';
@@ -133,7 +133,7 @@ test('a message link opens the feed on that message, marked, with newer ones loa
 	expect(requests).toEqual([`?limit=50&around=${anchor}`]);
 
 	// Reaching the bottom loads the newer messages, page by page, up to the newest.
-	const newest = main.getByText(LOBBY_NEWEST, { exact: true });
+	const newest = said(main, LOBBY_NEWEST);
 	await expect(async () => {
 		await main.evaluate((m) => (m.scrollTop = m.scrollHeight));
 		await expect(newest).toBeAttached({ timeout: 500 });
@@ -167,14 +167,14 @@ test('a message link pages both ways one page at a time', { annotation }, async 
 	const main = page.locator('main');
 	await expect(card(page, GAME_ID)).toBeInViewport();
 	await expect(card(page, GAME_ID)).toHaveAttribute('aria-current', 'true');
-	await expect(main.getByText('Count me in.', { exact: true })).toBeAttached();
+	await expect(said(main, 'Count me in.')).toBeAttached();
 
 	await main.getByRole('button', { name: 'Load older messages' }).click();
-	await expect(main.getByText('Welcome to the smoke test guild!', { exact: true })).toBeAttached();
+	await expect(said(main, 'Welcome to the smoke test guild!')).toBeAttached();
 	await expect(main.getByRole('button', { name: 'Load older messages' })).toHaveCount(0);
 
 	// The bottom of this short feed is in view, so the newer pages load on their own.
-	await expect(main.getByText('The hello world of June.', { exact: true })).toBeAttached();
+	await expect(said(main, 'The hello world of June.')).toBeAttached();
 	await expect(main.getByRole('button', { name: 'Load newer messages' })).toHaveCount(0);
 	expect(await topOf(page, 'Welcome to the smoke test guild!')).toBeLessThan(
 		await topOf(page, 'The hello world of June.')
@@ -185,14 +185,14 @@ test('Newest messages leaves the message link for the newest page', { annotation
 	await page.goto(`/browse/${LOBBY_ID}?message=${lurkerMessage(20)}`, { waitUntil: 'networkidle' });
 	await page.locator('main').getByRole('link', { name: 'Newest messages' }).click();
 	await expect(page).toHaveURL(`/browse/${LOBBY_ID}`);
-	await expect(page.locator('main').getByText(LOBBY_NEWEST, { exact: true })).toBeInViewport();
+	await expect(said(page.locator('main'), LOBBY_NEWEST)).toBeInViewport();
 	await expect(page.locator('main [aria-current="true"]')).toHaveCount(0);
 });
 
 test('a link to a message the channel does not hold opens at the newest', { annotation }, async ({ page }) => {
 	await page.goto(`/browse/${GENERAL_ID}?message=1`, { waitUntil: 'networkidle' });
 	const main = page.locator('main');
-	await expect(main.getByText('The hello world of June.', { exact: true })).toBeInViewport();
+	await expect(said(main, 'The hello world of June.')).toBeInViewport();
 	await expect(main.locator('[aria-current="true"]')).toHaveCount(0);
 	await expect(main.getByRole('button', { name: 'Load newer messages' })).toHaveCount(0);
 });
@@ -246,7 +246,7 @@ test('on a phone, /browse is the channel list and a channel opens the reader alo
 	await expect(page).toHaveURL(`/browse/${GENERAL_ID}`);
 	await expect(pane(page)).toBeHidden();
 	const main = page.locator('main');
-	await expect(main.getByText('The hello world of June.', { exact: true })).toBeInViewport();
+	await expect(said(main, 'The hello world of June.')).toBeInViewport();
 	const mainBox = (await main.boundingBox())!;
 	expect(await main.evaluate((m) => m.scrollWidth <= m.clientWidth)).toBe(true);
 	expect(mainBox.width).toBeLessThanOrEqual(390);

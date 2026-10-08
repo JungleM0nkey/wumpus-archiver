@@ -31,7 +31,7 @@ test('an Overview top channel opens that channel', async ({ page }) => {
 	await page.getByRole('link', { name: '#general' }).click();
 
 	await expect(page).toHaveURL(`/browse/${GENERAL_ID}`);
-	await expect(page.locator('main').getByText('Anyone up for a game tonight?')).toBeVisible();
+	await expect(page.locator('main').getByText('Anyone up for a game tonight?').first()).toBeVisible();
 });
 
 test('a top contributor opens their profile', async ({ page }) => {

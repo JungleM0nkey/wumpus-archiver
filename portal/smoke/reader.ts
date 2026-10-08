@@ -1,5 +1,5 @@
 // Helpers for the smoke tests of Browse's reader (reader.spec.ts, browse.spec.ts).
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect } from './fixtures.ts';
 
 /** Answer every channel messages request with at most `limit` messages. */
@@ -14,9 +14,17 @@ export async function narrowPages(page: Page, limit: number): Promise<void> {
 	);
 }
 
+/**
+ * The text of the message in `scope` that says `text`: its own content, not a reply's
+ * snippet of it (#61).
+ */
+export function said(scope: Page | Locator, text: string): Locator {
+	return scope.locator('[data-message-id] .content').getByText(text, { exact: true });
+}
+
 /** The top of the message whose text is `text`, in viewport pixels. */
 export async function topOf(page: Page, text: string): Promise<number> {
-	const box = await page.locator('main').getByText(text, { exact: true }).boundingBox();
+	const box = await said(page.locator('main'), text).boundingBox();
 	expect(box, `${text} is laid out`).not.toBeNull();
 	return box!.y;
 }

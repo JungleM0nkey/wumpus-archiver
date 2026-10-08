@@ -103,24 +103,25 @@ test('the sidebar and message cards draw their icons as SVG, not glyphs or emoji
 	await expect(page.locator('.sidebar .brand svg')).toHaveCount(1);
 	expect(await page.locator('.sidebar').innerText()).not.toMatch(GLYPH);
 
-	const cards = page.locator('main .message-card');
+	// Browse's message rows (#61).
+	const cards = page.locator('main [data-message-id]');
 	await expect(cards).toHaveCount(3);
-	// A reply's badge and a file attachment each carry an icon.
-	await expect(page.locator('main .message-card .card-footer svg')).toHaveCount(1);
-	await expect(page.locator('main .message-card .attachment-file svg')).toHaveCount(1);
-	// What the card itself prints, without what people wrote or reacted with.
+	// A file attachment and each row's actions carry icons.
+	await expect(page.locator('main [data-message-id] .attachment-file svg')).toHaveCount(1);
+	await expect(page.locator('main [data-message-id] [role="toolbar"] svg')).toHaveCount(6);
+	// What the row itself prints, without what people wrote or reacted with.
 	const chrome = await cards.evaluateAll((elements) =>
 		elements.map((card) => {
 			const copy = card.cloneNode(true) as HTMLElement;
 			copy
-				.querySelectorAll('.content, .reactions, .embeds, .author-name, .file-name')
+				.querySelectorAll('.content, .reactions, .embeds, .author, .file-name, .reply-author, .reply-snippet')
 				.forEach((el) => el.remove());
 			return copy.textContent ?? '';
 		})
 	);
 	for (const text of chrome) expect(text).not.toMatch(GLYPH);
 	// Reactions keep their emoji.
-	await expect(page.locator('main .message-card .reaction-emoji').first()).toHaveText('🔥');
+	await expect(page.locator('main [data-message-id] .reaction-emoji').first()).toHaveText('🔥');
 });
 
 /** Every animation on the page that moves something, by name. */

@@ -382,9 +382,19 @@ async def seed_smoke_archive(database: Database) -> None:
             )
 
 
+# ── #61 Browse's grouped feed ────────────────────────────────────────────────
+# The feed groups one author's consecutive messages under one header while they follow
+# it within 5 minutes. Zara's three messages are 2 minutes apart, so they read as one
+# group; aaron's two are 10 minutes apart, so each has its own header. Each author's
+# first message follows the previous author's last by a minute.
+GROUPING_GAP_MINUTES = {SORTED_APART[0][0]: 2, SORTED_APART[1][0]: 10}
+"""User id -> minutes between that author's consecutive messages in #lobby."""
+
+
 def _add_sorted_apart(session: AsyncSession, *, scraped_at: datetime) -> None:
     """Add the #65 authors whose order by name is not their order by messages."""
     message_id = _FIRST_SORTED_APART_MESSAGE_ID
+    at = START + timedelta(minutes=_SORTED_APART_FROM)
     for user_id, username, global_name, messages in SORTED_APART:
         session.add(User(id=user_id, username=username, global_name=global_name))
         for n in range(messages):
@@ -396,13 +406,13 @@ def _add_sorted_apart(session: AsyncSession, *, scraped_at: datetime) -> None:
                     author_id=user_id,
                     content=content,
                     clean_content=content,
-                    created_at=START
-                    + timedelta(minutes=_SORTED_APART_FROM)
-                    + timedelta(minutes=message_id - _FIRST_SORTED_APART_MESSAGE_ID),
+                    created_at=at,
                     scraped_at=scraped_at,
                 )
             )
             message_id += 1
+            last = n == messages - 1
+            at += timedelta(minutes=1 if last else GROUPING_GAP_MINUTES[user_id])
 
 
 def _add_night_guild(session: AsyncSession) -> None:
