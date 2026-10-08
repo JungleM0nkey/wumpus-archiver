@@ -157,9 +157,9 @@ schemas (attachment URL rewriting, display names, page-local timeline grouping).
 
 ### 5. Web Portal (`portal/`)
 
-SvelteKit 2 with adapter-static — builds to `portal/build/` as a pure SPA.
+SvelteKit 3 with adapter-static — builds to `portal/build/` as a pure SPA. The kit options live in `vite.config.ts`, and `#lib/*` is a `package.json` subpath import.
 
-**Key libraries**: Svelte 5, TypeScript, Vite 7
+**Key libraries**: Svelte 5, TypeScript 6, Vite 8 (Node.js 22.17+)
 
 **Architecture**:
 - `lib/api.ts` — typed fetch wrapper with all API functions

@@ -1,6 +1,6 @@
 # Wumpus Archiver — Makefile
 # Convenience targets for development and production workflows.
-# Requires: Python 3.12+, Node.js 18+, npm
+# Requires: Python 3.12+, Node.js 22.17+, npm
 
 .PHONY: help install dev serve build lint test clean
 
