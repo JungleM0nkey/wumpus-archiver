@@ -33,7 +33,7 @@ class ServeConfig:
 
     bot_token: SecretStr | None
     api_auth_token: SecretStr | None
-    cors_origins: list[str]
+    cors_origins: tuple[str, ...]
 
 
 def serve_config() -> ServeConfig:
@@ -51,7 +51,7 @@ def serve_config() -> ServeConfig:
     return ServeConfig(
         bot_token=settings.discord_bot_token,
         api_auth_token=settings.api_auth_token,
-        cors_origins=list(settings.cors_origins),
+        cors_origins=tuple(settings.cors_origins),
     )
 
 

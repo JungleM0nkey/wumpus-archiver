@@ -176,21 +176,22 @@ def serve(
     from wumpus_archiver.api.app import create_app
     from wumpus_archiver.compose import portal_build_dir, scrape_control, serve_config
 
-    if build_portal:
-        _build_portal_static()
-
     # serve is the composition root: it resolves every path, the bot token, the API
     # token and the CORS origins once, and hands the factory values it never has to
-    # look for itself.
-    db_path = database.resolve()
-    db = Database(f"sqlite+aiosqlite:///{db_path}")  # unconnected: the app's lifespan owns it
-    att_path = attachments_dir.resolve() if attachments_dir.is_dir() else None
-    portal = portal_build_dir()
+    # look for itself. Settings come first, so bad config fails before a portal build.
     try:
         config = serve_config()
     except ValidationError as e:
         click.echo(f"Error: Failed to load settings: {e}", err=True)
         sys.exit(1)
+
+    if build_portal:
+        _build_portal_static()
+
+    db_path = database.resolve()
+    db = Database(f"sqlite+aiosqlite:///{db_path}")  # unconnected: the app's lifespan owns it
+    att_path = attachments_dir.resolve() if attachments_dir.is_dir() else None
+    portal = portal_build_dir()
     scrape = scrape_control(db, config.bot_token)
     app = create_app(
         db,

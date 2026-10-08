@@ -94,7 +94,7 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         return ServeConfig(
             bot_token=SecretStr("bot-token-from-settings"),
             api_auth_token=SecretStr("api-token-from-settings"),
-            cors_origins=["https://origin-from-settings.example"],
+            cors_origins=("https://origin-from-settings.example",),
         )
 
     def fake_scrape_control(database: Any, bot_token: SecretStr | None) -> str:
@@ -173,7 +173,7 @@ class TestNormalPaths:
             f"scrape-for:sqlite+aiosqlite:///{NORMAL_DB}:bot-token-from-settings"
         )
         assert captured["api_auth_token"].get_secret_value() == "api-token-from-settings"
-        assert captured["cors_origins"] == ["https://origin-from-settings.example"]
+        assert captured["cors_origins"] == ("https://origin-from-settings.example",)
 
     def test_no_attachments_dir(self, dev_module_path: Path, captured: dict[str, Any]) -> None:
         """Without an attachments directory no attachments_dir argument is generated."""
