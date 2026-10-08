@@ -139,3 +139,24 @@ async def test_total_users_counts_authors_without_a_users_row(
     payload = (await client.get("/api/guilds/1/stats")).json()
     assert (payload["total_messages"], payload["total_users"]) == (6, 3)
     assert [user["id"] for user in payload["top_users"]] == ["100", "101"]
+
+
+async def test_top_channels_are_text_channels_only(client: AsyncClient, database: Database) -> None:
+    """Categories, voice channels and threads are never among the most active channels."""
+    async with database.session() as session:
+        session.add_all(
+            [
+                Channel(id=13, guild_id=1, name="Text Channels", type=4, message_count=0),
+                Channel(id=14, guild_id=1, name="Voice", type=2, message_count=50),
+                Channel(id=15, guild_id=1, name="a thread", type=11, message_count=40),
+                Channel(id=16, guild_id=1, name="announcements", type=5, message_count=2),
+            ]
+        )
+    payload = (await client.get("/api/guilds/1/stats")).json()
+    assert [channel["name"] for channel in payload["top_channels"]] == [
+        "general",
+        "announcements",
+        "random",
+        "news",
+    ]
+    assert payload["total_channels"] == 7

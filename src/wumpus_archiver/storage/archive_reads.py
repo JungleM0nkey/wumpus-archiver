@@ -77,6 +77,14 @@ class GuildCounts:
     messages: int = 0
 
 
+TEXT_CHANNEL_TYPES = (0, 5)
+"""The Discord channel types that are text channels: text (0) and announcement (5).
+
+Categories hold channels rather than messages, and voice and stage channels and
+threads are not text channels, so ``top_channels`` ranks only these.
+"""
+
+
 @dataclass(frozen=True)
 class Page[T]:
     """One page of a paged read.
@@ -646,14 +654,15 @@ async def activity(
 
 
 async def top_channels(session: AsyncSession, guild_id: int, *, limit: int) -> list[TopChannel]:
-    """A guild's busiest channels, ties by id.
+    """A guild's busiest text channels (``TEXT_CHANNEL_TYPES``), ties by id.
 
-    Ranked by ``Channel.message_count``, the counter the ingest maintains, not by a
-    live count of messages: whether that counter survives is a separate decision.
+    Categories, voice channels and threads are never listed. Ranked by
+    ``Channel.message_count``, the counter the ingest maintains, not by a live count
+    of messages: whether that counter survives is a separate decision.
     """
     result = await session.execute(
         select(Channel.id, Channel.name, Channel.message_count)
-        .where(Channel.guild_id == guild_id)
+        .where(Channel.guild_id == guild_id, Channel.type.in_(TEXT_CHANNEL_TYPES))
         .order_by(Channel.message_count.desc(), Channel.id.asc())
         .limit(limit)
     )
