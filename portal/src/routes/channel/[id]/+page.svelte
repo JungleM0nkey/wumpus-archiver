@@ -4,7 +4,13 @@
 	import { getGuilds, getGuild } from '#lib/api.ts';
 	import { keepingPosition, newestPage, olderPage, scrollToBottom } from '#lib/reader.ts';
 	import type { Message, Channel } from '#lib/types.ts';
+	import LoadMore from '#lib/components/LoadMore.svelte';
+	import MessageSkeleton from '#lib/components/MessageSkeleton.svelte';
 	import TimelineFeed from '#lib/components/TimelineFeed.svelte';
+	import Alert from '#lib/components/ui/Alert.svelte';
+	import EmptyState from '#lib/components/ui/EmptyState.svelte';
+	import Icon from '#lib/components/ui/Icon.svelte';
+	import Skeleton from '#lib/components/ui/Skeleton.svelte';
 
 	let { params }: PageProps = $props();
 	const channelId = $derived(params.id);
@@ -65,55 +71,41 @@
 
 <div class="channel-detail">
 	<header class="channel-header">
-		<a href="/channels" class="back-link mono">← Channels</a>
+		<a href="/channels" class="back-link"><Icon name="arrow-left" size={14} /> Channels</a>
 		{#if channel}
 			<div class="channel-title-row">
-				<span class="hash">#</span>
+				<Icon name="hash" size={20} />
 				<h1>{channel.name}</h1>
 			</div>
 			{#if channel.topic}
 				<p class="channel-topic">{channel.topic}</p>
 			{/if}
-			<div class="channel-meta mono">
-				<span>{messages.length.toLocaleString()} messages loaded</span>
+			<div class="channel-meta">
+				<span class="mono">{messages.length.toLocaleString()} messages loaded</span>
+				<a href="/channel/{channelId}/gallery" class="gallery-link">
+					<Icon name="images" size={14} /> View Gallery
+				</a>
 			</div>
-			<a href="/channel/{channelId}/gallery" class="gallery-link">🖼 View Gallery</a>
 		{:else if loading}
-			<div class="channel-title-row">
-				<h1 class="mono" style="color: var(--text-tertiary);">Loading...</h1>
+			<div class="title-skeleton" aria-hidden="true">
+				<Skeleton width="180px" height="24px" />
 			</div>
 		{/if}
 	</header>
 
 	<div class="message-area" bind:this={scroller}>
 		{#if loading}
-			<div class="center-state">
-				<div class="spinner"></div>
-				<span class="mono">Loading messages...</span>
-			</div>
+			<div class="feed-container"><MessageSkeleton /></div>
 		{:else if error}
-			<div class="center-state error">⚠ {error}</div>
+			<div class="state"><Alert tone="danger" title="Messages could not be loaded">{error}</Alert></div>
 		{:else if messages.length === 0}
-			<div class="center-state">
-				<div class="empty-icon">∅</div>
-				<span>No messages archived in this channel.</span>
-			</div>
+			<div class="state"><EmptyState icon="inbox" title="No messages archived in this channel." /></div>
 		{:else}
 			<div class="feed-container">
 				{#if hasMore}
-					<div class="load-more">
-						<button class="load-more-btn" onclick={loadOlder} disabled={loadingMore}>
-							{#if loadingMore}
-								<span class="spinner small"></span> Loading...
-							{:else}
-								Load older messages
-							{/if}
-						</button>
-					</div>
+					<LoadMore loading={loadingMore} onclick={loadOlder}>Load older messages</LoadMore>
 				{:else}
-					<div class="end-marker mono">
-						— Beginning of archive —
-					</div>
+					<div class="end-marker mono">Beginning of archive</div>
 				{/if}
 
 				<TimelineFeed {messages} />
@@ -133,70 +125,60 @@
 	.channel-header {
 		background: var(--bg-surface);
 		border-bottom: 1px solid var(--border-subtle);
-		padding: var(--space-5) var(--space-6) var(--space-4);
+		padding: var(--space-4) var(--space-6);
 		flex-shrink: 0;
 	}
 
 	.back-link {
-		display: inline-block;
-		font-size: 12px;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		font: var(--type-label-sm);
 		color: var(--text-tertiary);
-		text-decoration: none;
-		margin-bottom: var(--space-3);
-		transition: color var(--duration-micro);
+		margin-bottom: var(--space-2);
 	}
 
 	.back-link:hover {
-		color: var(--accent);
+		color: var(--text-primary);
 	}
 
 	.channel-title-row {
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		gap: var(--space-2);
-	}
-
-	.hash {
-		font-size: 28px;
-		font-weight: 700;
 		color: var(--text-tertiary);
 	}
 
 	.channel-title-row h1 {
-		font-size: 24px;
-		font-weight: 700;
-		letter-spacing: -0.02em;
+		font: var(--type-heading-lg);
+		color: var(--text-primary);
+	}
+
+	.title-skeleton {
+		padding: var(--space-1) 0;
 	}
 
 	.channel-topic {
-		font-size: 14px;
+		font: var(--type-body-md);
 		color: var(--text-secondary);
-		margin-top: var(--space-2);
-		line-height: 1.5;
+		margin-top: var(--space-1);
 	}
 
 	.channel-meta {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
-		font-size: 12px;
+		gap: var(--space-4);
+		margin-top: var(--space-2);
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
-		margin-top: var(--space-3);
 	}
-
-	.sep { color: var(--text-tertiary); }
 
 	.gallery-link {
-		display: inline-block;
-		margin-top: var(--space-3);
-		font-size: 13px;
-		color: var(--accent);
-		text-decoration: none;
-		font-weight: 500;
-		transition: opacity var(--duration-micro);
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		font: var(--type-label-sm);
 	}
-
-	.gallery-link:hover { opacity: 0.8; }
 
 	/* The feed sits at the bottom while it is shorter than the area, as a chat does. */
 	.message-area {
@@ -213,71 +195,16 @@
 		margin: auto auto 0;
 	}
 
-	.load-more {
-		display: flex;
-		justify-content: center;
-		padding: var(--space-6) 0;
-	}
-
-	.load-more-btn {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		font-family: var(--font-mono);
-		font-size: 13px;
-		color: var(--text-secondary);
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
-		padding: var(--space-2) var(--space-5);
-		cursor: pointer;
-		transition: all var(--duration-micro) var(--ease-out-quint);
-	}
-
-	.load-more-btn:hover:not(:disabled) {
-		border-color: var(--accent);
-		color: var(--accent);
-	}
-
-	.load-more-btn:disabled {
-		opacity: 0.6;
-		cursor: default;
+	.state {
+		width: 100%;
+		max-width: var(--size-reader-max);
+		margin: auto;
 	}
 
 	.end-marker {
 		text-align: center;
-		font-size: 12px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 		padding: var(--space-8) 0;
 	}
-
-	.center-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-16) 0;
-		color: var(--text-secondary);
-	}
-
-	.center-state.error { color: var(--danger); }
-
-	.empty-icon {
-		font-size: 48px;
-		color: var(--text-tertiary);
-	}
-
-	.spinner {
-		width: 20px; height: 20px;
-		border: 2px solid var(--border-subtle);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	.spinner.small {
-		width: 14px; height: 14px;
-	}
-
-	@keyframes spin { to { transform: rotate(360deg); } }
 </style>

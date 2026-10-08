@@ -4,6 +4,9 @@
 	import { getGallery, getGuilds, getGuild } from '#lib/api.ts';
 	import type { GalleryAttachment, Channel } from '#lib/types.ts';
 	import GalleryGrid from '#lib/components/GalleryGrid.svelte';
+	import Alert from '#lib/components/ui/Alert.svelte';
+	import Icon from '#lib/components/ui/Icon.svelte';
+	import Skeleton from '#lib/components/ui/Skeleton.svelte';
 
 	let { params }: PageProps = $props();
 	const channelId = $derived(params.id);
@@ -66,15 +69,15 @@
 
 <div class="gallery-page">
 	<header class="gallery-header">
-		<a href="/channel/{channelId}" class="back-link mono">← #{channel?.name ?? 'channel'}</a>
-		{#if channel}
-			<div class="header-title-row">
-				<h1>Gallery</h1>
-				<span class="channel-label">#{channel.name}</span>
-			</div>
-		{:else}
+		<a href="/channel/{channelId}" class="back-link">
+			<Icon name="arrow-left" size={14} /> #{channel?.name ?? 'channel'}
+		</a>
+		<div class="header-title-row">
 			<h1>Gallery</h1>
-		{/if}
+			{#if channel}
+				<span class="channel-label">#{channel.name}</span>
+			{/if}
+		</div>
 		<div class="header-meta mono">
 			{#if total > 0}
 				<span>{total.toLocaleString()} image{total !== 1 ? 's' : ''}</span>
@@ -86,12 +89,14 @@
 
 	<div class="gallery-body">
 		{#if loading}
-			<div class="center-state">
-				<div class="spinner"></div>
-				<span class="mono">Loading gallery...</span>
+			<div class="thumb-skeletons" aria-busy="true">
+				<span class="sr-only" role="status">Loading gallery…</span>
+				{#each Array.from({ length: 12 }, (_, i) => i) as i (i)}
+					<Skeleton aspect="1" radius="sm" />
+				{/each}
 			</div>
 		{:else if error}
-			<div class="center-state error">⚠ {error}</div>
+			<Alert tone="danger" title="The gallery could not be loaded">{error}</Alert>
 		{:else}
 			<GalleryGrid
 				{attachments}
@@ -114,20 +119,22 @@
 	.gallery-header {
 		background: var(--bg-surface);
 		border-bottom: 1px solid var(--border-subtle);
-		padding: var(--space-5) var(--space-6) var(--space-4);
+		padding: var(--space-4) var(--space-6);
 		flex-shrink: 0;
 	}
 
 	.back-link {
-		display: inline-block;
-		font-size: 12px;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		font: var(--type-label-sm);
 		color: var(--text-tertiary);
-		text-decoration: none;
-		margin-bottom: var(--space-3);
-		transition: color var(--duration-micro);
+		margin-bottom: var(--space-2);
 	}
 
-	.back-link:hover { color: var(--accent); }
+	.back-link:hover {
+		color: var(--text-primary);
+	}
 
 	.header-title-row {
 		display: flex;
@@ -136,28 +143,22 @@
 	}
 
 	.header-title-row h1 {
-		font-size: 28px;
-		font-weight: 700;
-		letter-spacing: -0.03em;
+		font: var(--type-heading-lg);
 	}
 
-
 	.channel-label {
-		font-size: 14px;
-		color: var(--text-tertiary);
-		font-weight: 500;
+		font: var(--type-label-md);
+		color: var(--text-secondary);
 	}
 
 	.header-meta {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		font-size: 12px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 		margin-top: var(--space-2);
 	}
-
-	.sep { color: var(--text-tertiary); }
 
 	.gallery-body {
 		flex: 1;
@@ -165,24 +166,9 @@
 		padding: var(--space-5) var(--space-6);
 	}
 
-	.center-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-16) 0;
-		color: var(--text-secondary);
+	.thumb-skeletons {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+		gap: var(--space-2);
 	}
-
-	.center-state.error { color: var(--danger); }
-
-	.spinner {
-		width: 20px; height: 20px;
-		border: 2px solid var(--border-subtle);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin { to { transform: rotate(360deg); } }
 </style>

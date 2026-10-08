@@ -3,10 +3,16 @@
 	import { page } from '$app/state';
 	import { getGuilds } from '#lib/api.ts';
 	import { keepingPosition, newestPage, olderPage, scrollToBottom } from '#lib/reader.ts';
-	import type { Guild, GuildDetail, Channel, Message } from '#lib/types.ts';
+	import type { GuildDetail, Channel, Message } from '#lib/types.ts';
 	import { getGuild } from '#lib/api.ts';
-	import MessageCard from '#lib/components/MessageCard.svelte';
+	import LoadMore from '#lib/components/LoadMore.svelte';
+	import MessageSkeleton from '#lib/components/MessageSkeleton.svelte';
 	import TimelineFeed from '#lib/components/TimelineFeed.svelte';
+	import Alert from '#lib/components/ui/Alert.svelte';
+	import Badge from '#lib/components/ui/Badge.svelte';
+	import EmptyState from '#lib/components/ui/EmptyState.svelte';
+	import Icon from '#lib/components/ui/Icon.svelte';
+	import type { IconName } from '#lib/components/ui/icons.ts';
 	import { ChannelType } from '#lib/types.ts';
 
 	let guild: GuildDetail | null = $state(null);
@@ -21,7 +27,6 @@
 
 	// Filters
 	let selectedChannel: string | null = $state(null);
-	let sortOrder: 'newest' | 'oldest' = $state('newest');
 
 	// Derive channel param from URL
 	let urlChannel = $derived(page.url.searchParams.get('channel'));
@@ -87,12 +92,12 @@
 		await loadMessages();
 	}
 
-	function getChannelIcon(type: number): string {
+	function channelIcon(type: number): IconName {
 		switch (type) {
-			case ChannelType.GUILD_VOICE: return '🔊';
-			case ChannelType.GUILD_STAGE_VOICE: return '🎭';
-			case ChannelType.GUILD_FORUM: return '💬';
-			default: return '#';
+			case ChannelType.GUILD_VOICE: return 'voice';
+			case ChannelType.GUILD_STAGE_VOICE: return 'stage';
+			case ChannelType.GUILD_FORUM: return 'forum';
+			default: return 'hash';
 		}
 	}
 </script>
@@ -101,8 +106,8 @@
 	<!-- Channel filter sidebar -->
 	<aside class="filter-sidebar">
 		<div class="sidebar-header">
-			<h3 class="sidebar-title">Channels</h3>
-			<span class="badge">{channels.length}</span>
+			<h2 class="sidebar-title">Channels</h2>
+			<Badge mono>{channels.length}</Badge>
 		</div>
 
 		<div class="channel-list">
@@ -110,9 +115,10 @@
 				<button
 					class="channel-item"
 					class:active={selectedChannel === ch.id}
+					aria-pressed={selectedChannel === ch.id}
 					onclick={() => selectChannel(ch.id)}
 				>
-					<span class="channel-icon">{getChannelIcon(ch.type)}</span>
+					<Icon name={channelIcon(ch.type)} />
 					<span class="channel-name truncate">{ch.name}</span>
 					<span class="channel-count mono">{ch.message_count.toLocaleString()}</span>
 				</button>
@@ -128,7 +134,7 @@
 				<div class="header-info">
 					<h1 class="header-title">
 						{#if ch}
-							<span class="header-hash">{getChannelIcon(ch.type)}</span>
+							<Icon name={channelIcon(ch.type)} size={18} />
 							{ch.name}
 						{/if}
 					</h1>
@@ -137,36 +143,22 @@
 					{/if}
 				</div>
 				<div class="header-meta">
-					<span class="badge">{messages.length.toLocaleString()} loaded</span>
+					<Badge mono>{messages.length.toLocaleString()} loaded</Badge>
 				</div>
 			</header>
 		{/if}
 
 		<div class="timeline-content" bind:this={scroller}>
 			{#if loading && messages.length === 0}
-				<div class="center-state">
-					<div class="spinner"></div>
-					<span class="mono">Loading messages...</span>
-				</div>
+				<div class="feed"><MessageSkeleton /></div>
 			{:else if error}
-				<div class="center-state error">⚠ {error}</div>
+				<div class="state"><Alert tone="danger" title="Messages could not be loaded">{error}</Alert></div>
 			{:else if messages.length === 0}
-				<div class="center-state">
-					<span class="mono">No messages in this channel.</span>
-				</div>
+				<div class="state"><EmptyState icon="inbox" title="No messages in this channel." /></div>
 			{:else}
 				<div class="feed">
 					{#if hasMore}
-						<div class="load-more">
-							<button class="load-more-btn" onclick={loadOlderMessages} disabled={loadingMore}>
-								{#if loadingMore}
-									<div class="spinner-sm"></div>
-									Loading...
-								{:else}
-									Load older messages
-								{/if}
-							</button>
-						</div>
+						<LoadMore loading={loadingMore} onclick={loadOlderMessages}>Load older messages</LoadMore>
 					{/if}
 
 					<TimelineFeed {messages} />
@@ -198,15 +190,14 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--space-4) var(--space-4);
+		padding: var(--space-4);
 		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.sidebar-title {
-		font-size: 13px;
-		font-weight: 600;
+		font: var(--type-caption);
+		letter-spacing: var(--tracking-caption);
 		text-transform: uppercase;
-		letter-spacing: 0.05em;
 		color: var(--text-secondary);
 	}
 
@@ -221,12 +212,19 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
+		height: 32px;
+		padding: 0 var(--space-2);
 		border-radius: var(--radius-sm);
-		font-size: 14px;
+		font: var(--type-label-md);
 		color: var(--text-secondary);
-		transition: all var(--duration-micro) var(--ease-out-quint);
 		text-align: left;
+		transition:
+			background-color var(--duration-micro) var(--ease-out-quint),
+			color var(--duration-micro) var(--ease-out-quint);
+	}
+
+	.channel-item :global(.icon) {
+		color: var(--text-tertiary);
 	}
 
 	.channel-item:hover {
@@ -235,13 +233,21 @@
 	}
 
 	.channel-item.active {
-		background: var(--accent-muted);
+		background: var(--bg-active);
+		color: var(--text-primary);
+	}
+
+	.channel-item.active :global(.icon) {
 		color: var(--accent);
 	}
 
-	.channel-icon { flex-shrink: 0; font-size: 13px; opacity: 0.7; }
 	.channel-name { flex: 1; min-width: 0; }
-	.channel-count { font-size: 11px; color: var(--text-tertiary); flex-shrink: 0; }
+
+	.channel-count {
+		font: var(--type-mono-sm);
+		color: var(--text-tertiary);
+		flex-shrink: 0;
+	}
 
 	/* Main */
 	.timeline-main {
@@ -256,26 +262,29 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--space-4) var(--space-6);
+		gap: var(--space-4);
+		min-height: var(--size-topbar);
+		padding: var(--space-3) var(--space-6);
 		border-bottom: 1px solid var(--border-subtle);
 		background: var(--bg-surface);
 		flex-shrink: 0;
 	}
 
 	.header-title {
-		font-size: 18px;
-		font-weight: 600;
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+		font: var(--type-heading-md);
 	}
 
-	.header-hash { color: var(--text-tertiary); font-size: 16px; }
+	.header-title :global(.icon) {
+		color: var(--text-tertiary);
+	}
 
 	.header-topic {
-		font-size: 13px;
-		color: var(--text-tertiary);
-		margin-top: var(--space-1);
+		font: var(--type-body-sm);
+		color: var(--text-secondary);
+		margin-top: 2px;
 	}
 
 	/* The feed sits at the bottom while it is shorter than the area, as a chat does. */
@@ -294,61 +303,7 @@
 		margin-top: auto;
 	}
 
-	.center-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-16) 0;
-		color: var(--text-tertiary);
+	.state {
+		margin: auto 0;
 	}
-
-	.center-state.error { color: var(--danger); }
-
-	.load-more {
-		display: flex;
-		justify-content: center;
-		padding: var(--space-6) 0;
-	}
-
-	.load-more-btn {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-5);
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
-		font-size: 14px;
-		color: var(--text-secondary);
-		transition: all var(--duration-micro) var(--ease-out-quint);
-	}
-
-	.load-more-btn:hover:not(:disabled) {
-		border-color: var(--border-default);
-		color: var(--text-primary);
-	}
-
-	.load-more-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.spinner {
-		width: 20px; height: 20px;
-		border: 2px solid var(--border-subtle);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	.spinner-sm {
-		width: 14px; height: 14px;
-		border: 2px solid var(--border-subtle);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin { to { transform: rotate(360deg); } }
 </style>

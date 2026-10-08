@@ -5,6 +5,13 @@
 	import { ChannelType } from '#lib/types.ts';
 	import GalleryGrid from '#lib/components/GalleryGrid.svelte';
 	import Lightbox from '#lib/components/Lightbox.svelte';
+	import LoadMore from '#lib/components/LoadMore.svelte';
+	import Alert from '#lib/components/ui/Alert.svelte';
+	import Badge from '#lib/components/ui/Badge.svelte';
+	import Chip from '#lib/components/ui/Chip.svelte';
+	import EmptyState from '#lib/components/ui/EmptyState.svelte';
+	import Icon from '#lib/components/ui/Icon.svelte';
+	import Skeleton from '#lib/components/ui/Skeleton.svelte';
 
 	type ViewMode = 'grid' | 'timeline';
 	type GroupBy = 'week' | 'month' | 'year';
@@ -169,41 +176,32 @@
 		lightboxOpen = true;
 	}
 
-	function formatFileSize(bytes: number): string {
-		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-	}
 
 	let totalCount = $derived(viewMode === 'grid' ? gridTotal : timelineTotal);
 </script>
 
 <div class="gallery-page">
 	<aside class="sidebar">
-		<!-- View mode tabs -->
+		<!-- View mode -->
 		<div class="sidebar-section">
-			<h3 class="sidebar-label">View</h3>
-			<div class="tab-group">
-				<button class="tab" class:active={viewMode === 'grid'} onclick={() => switchView('grid')}>
-					<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
-					Grid
-				</button>
-				<button class="tab" class:active={viewMode === 'timeline'} onclick={() => switchView('timeline')}>
-					<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="1" y="6" width="14" height="3" rx="1"/><rect x="1" y="11" width="14" height="3" rx="1"/></svg>
+			<h2 class="sidebar-label">View</h2>
+			<div class="chip-row">
+				<Chip icon="grid" selected={viewMode === 'grid'} onclick={() => switchView('grid')}>Grid</Chip>
+				<Chip icon="rows" selected={viewMode === 'timeline'} onclick={() => switchView('timeline')}>
 					Timeline
-				</button>
+				</Chip>
 			</div>
 		</div>
 
 		<!-- Group by (timeline only) -->
 		{#if viewMode === 'timeline'}
 			<div class="sidebar-section">
-				<h3 class="sidebar-label">Group by</h3>
-				<div class="pill-group">
-					{#each (['week', 'month', 'year'] as const) as g}
-						<button class="pill" class:active={groupBy === g} onclick={() => switchGroupBy(g)}>
-							{g}
-						</button>
+				<h2 class="sidebar-label">Group by</h2>
+				<div class="chip-row">
+					{#each (['week', 'month', 'year'] as const) as g (g)}
+						<Chip selected={groupBy === g} onclick={() => switchGroupBy(g)}>
+							<span class="capitalize">{g}</span>
+						</Chip>
 					{/each}
 				</div>
 			</div>
@@ -211,23 +209,25 @@
 
 		<!-- Channel filter -->
 		<div class="sidebar-section sidebar-section--grow">
-			<h3 class="sidebar-label">Channels</h3>
+			<h2 class="sidebar-label">Channels</h2>
 			<div class="channel-list">
 				<button
 					class="channel-item"
 					class:active={selectedChannel === null}
+					aria-pressed={selectedChannel === null}
 					onclick={() => filterChannel(null)}
 				>
-					<span class="channel-icon">*</span>
+					<Icon name="layers" />
 					<span class="channel-name">All channels</span>
 				</button>
 				{#each channels as ch (ch.id)}
 					<button
 						class="channel-item"
 						class:active={selectedChannel === ch.id}
+						aria-pressed={selectedChannel === ch.id}
 						onclick={() => filterChannel(ch.id)}
 					>
-						<span class="channel-icon">#</span>
+						<Icon name="hash" />
 						<span class="channel-name">{ch.name}</span>
 					</button>
 				{/each}
@@ -242,7 +242,7 @@
 				{#if selectedChannel}
 					{@const ch = channels.find(c => c.id === selectedChannel)}
 					{#if ch}
-						<span class="channel-badge">#{ch.name}</span>
+						<Badge tone="accent" icon="hash">{ch.name}</Badge>
 					{/if}
 				{/if}
 			</div>
@@ -258,20 +258,18 @@
 
 		<div class="gallery-body">
 			{#if loading}
-				<div class="center-state">
-					<div class="spinner"></div>
-					<span class="mono">Loading gallery...</span>
+				<div class="thumb-skeletons" aria-busy="true">
+					<span class="sr-only" role="status">Loading gallery…</span>
+					{#each Array.from({ length: 12 }, (_, i) => i) as i (i)}
+						<Skeleton aspect="1" radius="sm" />
+					{/each}
 				</div>
 			{:else if error}
-				<div class="center-state error-state">
-					<span>&#x26A0; {error}</span>
-				</div>
+				<Alert tone="danger" title="The gallery could not be loaded">{error}</Alert>
 			{:else if viewMode === 'grid'}
 				<!-- Grid view -->
 				{#if gridAttachments.length === 0}
-					<div class="center-state muted">
-						<span>No images found{selectedChannel ? ' in this channel' : ''}.</span>
-					</div>
+					<EmptyState icon="image-off" title="No images found{selectedChannel ? ' in this channel' : ''}." />
 				{:else}
 					<GalleryGrid
 						attachments={gridAttachments}
@@ -283,9 +281,7 @@
 			{:else}
 				<!-- Timeline view -->
 				{#if timelineGroups.length === 0}
-					<div class="center-state muted">
-						<span>No images found{selectedChannel ? ' in this channel' : ''}.</span>
-					</div>
+					<EmptyState icon="image-off" title="No images found{selectedChannel ? ' in this channel' : ''}." />
 				{:else}
 					<div class="timeline">
 						{#each timelineGroups as group, gi (group.period)}
@@ -298,12 +294,11 @@
 									{#each group.attachments as att, ai (att.id)}
 										<button
 											class="timeline-thumb"
+											aria-label="View {att.filename}"
 											onclick={() => openLightbox(gi, ai)}
 										>
 											{#if att.content_type?.startsWith('video/')}
-												<div class="thumb-video-badge">
-													<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l6 4-6 4V4z"/></svg>
-												</div>
+												<span class="thumb-video-badge"><Icon name="play" size={14} label="Video" /></span>
 											{/if}
 											<img
 												src={att.proxy_url || att.url}
@@ -323,16 +318,7 @@
 						{/each}
 
 						{#if timelineHasMore}
-							<div class="load-more-row">
-								<button class="load-more-btn" onclick={loadMoreTimeline} disabled={timelineLoading}>
-									{#if timelineLoading}
-										<div class="spinner small"></div>
-										Loading...
-									{:else}
-										Load more
-									{/if}
-								</button>
-							</div>
+							<LoadMore loading={timelineLoading} onclick={loadMoreTimeline}>Load more</LoadMore>
 						{/if}
 					</div>
 				{/if}
@@ -384,64 +370,22 @@
 	}
 
 	.sidebar-label {
-		font-size: 10px;
+		font: var(--type-caption);
+		letter-spacing: var(--tracking-caption);
 		text-transform: uppercase;
-		letter-spacing: 0.1em;
 		color: var(--text-tertiary);
-		font-weight: 600;
 		margin-bottom: var(--space-2);
 	}
 
-	/* Tab buttons */
-	.tab-group {
+	.chip-row {
 		display: flex;
-		gap: 2px;
-		background: var(--bg-canvas);
-		border-radius: var(--radius-xs);
-		padding: 2px;
+		flex-wrap: wrap;
+		gap: var(--space-1);
 	}
 
-	.tab {
-		flex: 1;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 5px;
-		padding: 6px 8px;
-		border-radius: var(--radius-xs);
-		font-size: 12px;
-		font-weight: 500;
-		color: var(--text-secondary);
-		background: none;
-		border: none;
-		cursor: pointer;
-		transition: all var(--duration-micro);
-	}
-
-	.tab:hover { color: var(--text-primary); }
-	.tab.active { background: var(--bg-hover); color: var(--accent); }
-
-	/* Pill group */
-	.pill-group {
-		display: flex;
-		gap: 4px;
-	}
-
-	.pill {
-		padding: 4px 10px;
-		border-radius: 999px;
-		font-size: 11px;
-		font-weight: 500;
+	.capitalize {
 		text-transform: capitalize;
-		color: var(--text-secondary);
-		background: var(--bg-canvas);
-		border: 1px solid var(--border-subtle);
-		cursor: pointer;
-		transition: all var(--duration-micro);
 	}
-
-	.pill:hover { color: var(--text-primary); border-color: var(--text-tertiary); }
-	.pill.active { background: var(--accent); color: var(--bg-canvas); border-color: var(--accent); }
 
 	/* Channel list */
 	.channel-list {
@@ -455,27 +399,33 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		padding: 5px var(--space-3);
-		border-radius: var(--radius-xs);
-		font-size: 12px;
+		height: 30px;
+		padding: 0 var(--space-2);
+		border-radius: var(--radius-sm);
+		font: var(--type-label-sm);
 		color: var(--text-secondary);
 		text-align: left;
-		cursor: pointer;
-		transition: all var(--duration-micro);
-		background: none;
-		border: none;
+		transition:
+			background-color var(--duration-micro) var(--ease-out-quint),
+			color var(--duration-micro) var(--ease-out-quint);
 	}
 
-	.channel-item:hover { background: var(--bg-hover); color: var(--text-primary); }
-	.channel-item.active { background: var(--bg-hover); color: var(--accent); }
-
-	.channel-icon {
+	.channel-item :global(.icon) {
 		color: var(--text-tertiary);
-		font-weight: 700;
-		flex-shrink: 0;
-		font-size: 13px;
-		width: 14px;
-		text-align: center;
+	}
+
+	.channel-item:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.channel-item.active {
+		background: var(--bg-active);
+		color: var(--text-primary);
+	}
+
+	.channel-item.active :global(.icon) {
+		color: var(--accent);
 	}
 
 	.channel-name {
@@ -490,41 +440,30 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+		min-width: 0;
 	}
 
 	.gallery-header {
 		background: var(--bg-surface);
 		border-bottom: 1px solid var(--border-subtle);
-		padding: var(--space-5) var(--space-6) var(--space-4);
+		padding: var(--space-4) var(--space-6);
 		flex-shrink: 0;
 	}
 
 	.header-row {
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		gap: var(--space-3);
 	}
 
 	.header-row h1 {
-		font-size: 28px;
-		font-weight: 700;
-		letter-spacing: -0.03em;
-	}
-
-
-	.channel-badge {
-		font-size: 13px;
-		color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 12%, transparent);
-		padding: 2px 8px;
-		border-radius: 999px;
-		font-weight: 500;
+		font: var(--type-heading-lg);
 	}
 
 	.header-meta {
-		font-size: 12px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
-		margin-top: var(--space-2);
+		margin-top: var(--space-1);
 	}
 
 	.gallery-body {
@@ -533,35 +472,11 @@
 		padding: var(--space-5) var(--space-6);
 	}
 
-	/* ── Center states ── */
-	.center-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-16) 0;
-		color: var(--text-secondary);
+	.thumb-skeletons {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+		gap: var(--space-2);
 	}
-
-	.error-state { color: var(--danger); }
-	.muted { color: var(--text-tertiary); }
-
-	.spinner {
-		width: 20px;
-		height: 20px;
-		border: 2px solid var(--border-subtle);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	.spinner.small {
-		width: 14px;
-		height: 14px;
-		border-width: 1.5px;
-	}
-
-	@keyframes spin { to { transform: rotate(360deg); } }
 
 	/* ── Timeline view ── */
 	.timeline {
@@ -569,8 +484,6 @@
 		flex-direction: column;
 		gap: var(--space-8);
 	}
-
-	.timeline-group {}
 
 	.timeline-header {
 		display: flex;
@@ -582,14 +495,12 @@
 	}
 
 	.timeline-label {
-		font-size: 18px;
-		font-weight: 600;
-		letter-spacing: -0.02em;
+		font: var(--type-heading-md);
 		color: var(--text-primary);
 	}
 
 	.timeline-count {
-		font-size: 12px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 	}
 
@@ -602,17 +513,19 @@
 	.timeline-thumb {
 		position: relative;
 		aspect-ratio: 1;
-		border-radius: var(--radius-xs);
+		border-radius: var(--radius-sm);
 		overflow: hidden;
-		background: var(--bg-canvas);
+		background: var(--bg-raised);
 		border: 1px solid var(--border-subtle);
 		cursor: pointer;
 		padding: 0;
-		transition: border-color var(--duration-micro), transform var(--duration-micro);
+		transition:
+			border-color var(--duration-micro) var(--ease-out-quint),
+			transform var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.timeline-thumb:hover {
-		border-color: var(--accent);
+		border-color: var(--border-strong);
 		transform: scale(1.02);
 		z-index: 1;
 	}
@@ -628,14 +541,14 @@
 		position: absolute;
 		top: 6px;
 		right: 6px;
-		background: rgba(0, 0, 0, 0.7);
-		border-radius: 50%;
 		width: 28px;
 		height: 28px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		color: white;
+		border-radius: var(--radius-full);
+		background: rgba(0, 0, 0, 0.7);
+		color: var(--text-primary);
 		z-index: 2;
 	}
 
@@ -644,59 +557,26 @@
 		bottom: 0;
 		left: 0;
 		right: 0;
-		padding: 20px 8px 6px;
+		padding: var(--space-5) var(--space-2) 6px;
 		background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
 		gap: 1px;
 		opacity: 0;
-		transition: opacity var(--duration-micro);
+		transition: opacity var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.timeline-thumb:hover .thumb-overlay { opacity: 1; }
 
 	.thumb-meta {
-		font-size: 11px;
-		color: #fff;
-		font-weight: 500;
+		font: var(--type-label-xs);
+		color: var(--text-primary);
 	}
 
 	.thumb-channel {
-		font-size: 10px;
-		color: rgba(255, 255, 255, 0.6);
-	}
-
-	/* Load more */
-	.load-more-row {
-		display: flex;
-		justify-content: center;
-		padding: var(--space-4) 0 var(--space-8);
-	}
-
-	.load-more-btn {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: 8px 24px;
-		border-radius: var(--radius-xs);
-		font-size: 13px;
-		font-weight: 500;
+		font: var(--type-label-xs);
 		color: var(--text-secondary);
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
-		cursor: pointer;
-		transition: all var(--duration-micro);
-	}
-
-	.load-more-btn:hover:not(:disabled) {
-		border-color: var(--accent);
-		color: var(--accent);
-	}
-
-	.load-more-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
 	}
 
 	/* ── Responsive ── */

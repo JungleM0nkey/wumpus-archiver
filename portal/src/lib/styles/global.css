@@ -209,26 +209,6 @@ svg.icon {
 	white-space: nowrap;
 }
 
-/* Transient: replaced by the Badge component. */
-.badge {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-1);
-	padding: 2px 8px;
-	font: var(--type-label-xs);
-	border-radius: var(--radius-xs);
-	background: var(--bg-overlay);
-	color: var(--text-secondary);
-	border: 1px solid var(--border-subtle);
-	white-space: nowrap;
-}
-
-.badge.accent {
-	background: var(--accent-muted);
-	color: var(--accent);
-	border-color: var(--accent-glow);
-}
-
 .sr-only {
 	position: absolute;
 	width: 1px;
@@ -254,7 +234,7 @@ svg.icon {
 	}
 }
 
-/* Floating elements (lightbox, palette) entering: scale 0.98 → 1 with a fade. */
+/* Floating elements (lightbox, palette) entering: scale 0.98 to 1 with a fade. */
 @keyframes scale-in {
 	from {
 		opacity: 0;

@@ -5,6 +5,12 @@
 	import type { Guild, UserProfile, Message } from '#lib/types.ts';
 	import StatCard from '#lib/components/StatCard.svelte';
 	import MessageCard from '#lib/components/MessageCard.svelte';
+	import Alert from '#lib/components/ui/Alert.svelte';
+	import Badge from '#lib/components/ui/Badge.svelte';
+	import Button from '#lib/components/ui/Button.svelte';
+	import EmptyState from '#lib/components/ui/EmptyState.svelte';
+	import Icon from '#lib/components/ui/Icon.svelte';
+	import Skeleton from '#lib/components/ui/Skeleton.svelte';
 
 	let guild: Guild | null = $state(null);
 	let profile: UserProfile | null = $state(null);
@@ -83,16 +89,27 @@
 
 <div class="profile-page">
 	{#if loading}
-		<div class="center-state">
-			<div class="spinner"></div>
-			<span class="mono">Loading profile...</span>
+		<div class="profile-skeleton" aria-busy="true">
+			<span class="sr-only" role="status">Loading profile…</span>
+			<div class="hero-row">
+				<Skeleton width="80px" height="80px" radius="full" />
+				<div class="hero-info skeleton-lines">
+					<Skeleton width="220px" height="32px" />
+					<Skeleton width="160px" height="12px" />
+				</div>
+			</div>
+			<div class="stats-grid">
+				{#each [0, 1, 2, 3] as i (i)}
+					<Skeleton height="96px" radius="md" />
+				{/each}
+			</div>
 		</div>
 	{:else if error}
-		<div class="center-state error">⚠ {error}</div>
+		<Alert tone="danger" title="The profile could not be loaded">{error}</Alert>
 	{:else if profile}
 		<!-- Hero header -->
 		<header class="profile-hero enter">
-			<a href="/users" class="back-link mono">← All Users</a>
+			<a href="/users" class="back-link"><Icon name="arrow-left" size={14} /> All Users</a>
 			<div class="hero-row">
 				{#if profile.avatar_url}
 					<img
@@ -115,30 +132,30 @@
 							<span class="mono">#{profile.discriminator}</span>
 						{/if}
 						{#if profile.bot}
-							<span class="badge accent">BOT</span>
+							<Badge tone="accent">BOT</Badge>
 						{/if}
-						<span class="mono id-badge">{profile.id}</span>
+						<Badge mono>{profile.id}</Badge>
 					</div>
 				</div>
 			</div>
 		</header>
 
 		<!-- Key stats -->
-		<section class="section enter">
+		<section class="section">
 			<h2 class="section-title">
-				<span class="section-icon">◈</span>
+				<Icon name="dashboard" />
 				Overview
 			</h2>
 			<div class="stats-grid">
-				<StatCard label="Messages" value={profile.total_messages} icon="message" />
-				<StatCard label="Attachments" value={profile.total_attachments} icon="paperclip" />
-				<StatCard label="Reactions Received" value={profile.total_reactions_received} icon="heart" />
-				<StatCard label="Active Channels" value={profile.active_channels} icon="hash" />
+				<StatCard label="Messages" value={profile.total_messages} icon="message" index={0} />
+				<StatCard label="Attachments" value={profile.total_attachments} icon="paperclip" index={1} />
+				<StatCard label="Reactions Received" value={profile.total_reactions_received} icon="heart" index={2} />
+				<StatCard label="Active Channels" value={profile.active_channels} icon="hash" index={3} />
 			</div>
 		</section>
 
 		<!-- Timeline line -->
-		<section class="section enter">
+		<section class="section enter" style:--i={4}>
 			<div class="timeline-summary">
 				<div class="timeline-item">
 					<span class="timeline-label">First Message</span>
@@ -154,16 +171,16 @@
 					<span class="timeline-value mono">{formatDate(profile.last_message_at)}</span>
 				</div>
 				<div class="timeline-extra">
-					<span class="mono">Avg. message length: <strong>{profile.avg_message_length}</strong> chars</span>
+					Avg. message length: <strong class="mono">{profile.avg_message_length}</strong> chars
 				</div>
 			</div>
 		</section>
 
 		<!-- Activity chart -->
 		{#if profile.monthly_activity.length > 0}
-			<section class="section enter">
+			<section class="section">
 				<h2 class="section-title">
-					<span class="section-icon">▤</span>
+					<Icon name="chart" />
 					Monthly Activity
 				</h2>
 				<div class="activity-chart">
@@ -182,15 +199,15 @@
 
 		<!-- Top channels -->
 		{#if profile.top_channels.length > 0}
-			<section class="section enter">
+			<section class="section">
 				<h2 class="section-title">
-					<span class="section-icon">≡</span>
+					<Icon name="hash" />
 					Top Channels
 				</h2>
 				<div class="bar-chart">
-					{#each profile.top_channels as ch, i}
+					{#each profile.top_channels as ch, i (ch.channel_id)}
 						{@const maxCount = profile.top_channels[0].message_count}
-						<a href="/channel/{ch.channel_id}" class="bar-row" style="--i: {i}">
+						<a href="/channel/{ch.channel_id}" class="bar-row enter" style:--i={i}>
 							<span class="bar-label truncate">#{ch.channel_name}</span>
 							<div class="bar-track">
 								<div
@@ -207,9 +224,9 @@
 
 		<!-- Top reactions received -->
 		{#if profile.top_reactions_received.length > 0}
-			<section class="section enter">
+			<section class="section">
 				<h2 class="section-title">
-					<span class="section-icon">♥</span>
+					<Icon name="heart" />
 					Top Reactions Received
 				</h2>
 				<div class="reactions-grid">
@@ -224,23 +241,19 @@
 		{/if}
 
 		<!-- Recent messages toggle -->
-		<section class="section enter">
+		<section class="section">
 			<h2 class="section-title">
-				<span class="section-icon">✉</span>
+				<Icon name="message" />
 				Recent Messages
-				<button class="toggle-btn" onclick={loadRecentMessages}>
-					{#if loadingMessages}
-						<div class="spinner small"></div>
-					{:else if showMessages}
-						Loaded
-					{:else}
-						Load Messages
-					{/if}
-				</button>
+				<span class="toggle">
+					<Button size="sm" loading={loadingMessages} onclick={loadRecentMessages}>
+						{showMessages ? 'Loaded' : 'Load Messages'}
+					</Button>
+				</span>
 			</h2>
 
 			{#if messagesError}
-				<p class="mono" style="color: var(--danger); font-size: 13px;">⚠ {messagesError}</p>
+				<Alert tone="danger" title="Recent messages could not be loaded">{messagesError}</Alert>
 			{/if}
 			{#if showMessages && recentMessages.length > 0}
 				<div class="messages-list">
@@ -249,9 +262,7 @@
 					{/each}
 				</div>
 			{:else if showMessages}
-				<p class="mono" style="color: var(--text-tertiary); font-size: 13px;">
-					No recent messages found.
-				</p>
+				<EmptyState icon="inbox" title="No recent messages found." compact />
 			{/if}
 		</section>
 	{/if}
@@ -261,7 +272,7 @@
 	.profile-page {
 		max-width: var(--size-reader-max);
 		margin: 0 auto;
-		padding: var(--space-8) var(--space-6);
+		padding: var(--space-10) var(--space-6);
 	}
 
 	/* Hero */
@@ -270,15 +281,16 @@
 	}
 
 	.back-link {
-		display: inline-block;
-		font-size: 13px;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		font: var(--type-label-sm);
 		color: var(--text-tertiary);
 		margin-bottom: var(--space-4);
-		transition: color var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.back-link:hover {
-		color: var(--accent);
+		color: var(--text-primary);
 	}
 
 	.hero-row {
@@ -290,9 +302,9 @@
 	.hero-avatar {
 		width: 80px;
 		height: 80px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		object-fit: cover;
-		border: 3px solid var(--border-default);
+		border: 1px solid var(--border-default);
 		flex-shrink: 0;
 	}
 
@@ -302,8 +314,7 @@
 		justify-content: center;
 		background: var(--bg-overlay);
 		color: var(--text-secondary);
-		font-weight: 700;
-		font-size: 32px;
+		font: var(--type-display-lg);
 	}
 
 	.hero-info {
@@ -311,30 +322,31 @@
 	}
 
 	.hero-name {
-		font-size: 36px;
-		font-weight: 700;
-		letter-spacing: -0.04em;
-		line-height: 1.1;
+		font: var(--type-display-lg);
+		letter-spacing: var(--tracking-display-lg);
 		margin-bottom: var(--space-2);
 		color: var(--text-primary);
 	}
-
 
 	.hero-meta {
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
-		font-size: 14px;
+		font: var(--type-mono-md);
 		color: var(--text-secondary);
 		flex-wrap: wrap;
 	}
 
-	.id-badge {
-		font-size: 11px;
-		color: var(--text-tertiary);
-		padding: 1px 6px;
-		background: var(--bg-raised);
-		border-radius: var(--radius-xs);
+	.profile-skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-10);
+	}
+
+	.skeleton-lines {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
 	}
 
 	/* Sections */
@@ -345,19 +357,20 @@
 	.section-title {
 		display: flex;
 		align-items: center;
-		gap: var(--space-3);
-		font-size: 16px;
-		font-weight: 600;
+		gap: var(--space-2);
+		font: var(--type-heading-md);
 		color: var(--text-primary);
-		margin-bottom: var(--space-5);
+		margin-bottom: var(--space-4);
 	}
 
-	.section-icon { color: var(--accent); font-size: 14px; }
+	.section-title :global(.icon) {
+		color: var(--text-secondary);
+	}
 
 	.stats-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-		gap: var(--space-4);
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: var(--space-3);
 	}
 
 	/* Timeline summary */
@@ -379,14 +392,14 @@
 	}
 
 	.timeline-label {
-		font-size: 11px;
-		color: var(--text-tertiary);
+		font: var(--type-caption);
+		letter-spacing: var(--tracking-caption);
 		text-transform: uppercase;
-		letter-spacing: 0.05em;
+		color: var(--text-tertiary);
 	}
 
 	.timeline-value {
-		font-size: 14px;
+		font: var(--type-mono-md);
 		color: var(--text-primary);
 	}
 
@@ -405,18 +418,23 @@
 	}
 
 	.timeline-days {
-		font-size: 12px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 		white-space: nowrap;
 	}
 
 	.timeline-extra {
 		width: 100%;
-		padding-top: var(--space-2);
-		margin-top: var(--space-2);
+		padding-top: var(--space-3);
+		margin-top: var(--space-1);
 		border-top: 1px solid var(--border-subtle);
-		font-size: 13px;
-		color: var(--text-tertiary);
+		font: var(--type-body-sm);
+		color: var(--text-secondary);
+	}
+
+	.timeline-extra strong {
+		color: var(--text-primary);
+		font-weight: 500;
 	}
 
 	/* Activity chart */
@@ -448,15 +466,14 @@
 	.chart-bar {
 		width: 100%;
 		max-width: 32px;
-		background: linear-gradient(180deg, var(--accent), var(--accent-strong));
-		border-radius: 3px 3px 0 0;
-		transition: height var(--duration-large) var(--ease-out-quint);
+		background: var(--accent);
+		border-radius: var(--radius-xs) var(--radius-xs) 0 0;
 		min-height: 2px;
+		transition: background-color var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.chart-col:hover .chart-bar {
-		background: var(--accent);
-		filter: brightness(1.2);
+		background: var(--accent-strong);
 	}
 
 	.chart-label {
@@ -464,7 +481,7 @@
 		color: var(--text-tertiary);
 		margin-top: var(--space-1);
 		writing-mode: vertical-lr;
-		transform: rotate(180deg);
+		rotate: 180deg;
 		white-space: nowrap;
 	}
 
@@ -472,7 +489,7 @@
 	.bar-chart {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: var(--space-1);
 	}
 
 	.bar-row {
@@ -482,32 +499,38 @@
 		gap: var(--space-3);
 		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius-sm);
-		transition: background var(--duration-micro) var(--ease-out-quint);
-		animation: enter var(--duration-medium) var(--ease-out-quint) both;
-		animation-delay: calc(min(var(--i, 0), var(--stagger-max)) * var(--stagger));
-		text-decoration: none;
+		color: inherit;
+		transition: background-color var(--duration-micro) var(--ease-out-quint);
+	}
+
+	.bar-row:hover {
+		background: var(--bg-hover);
 		color: inherit;
 	}
 
-	.bar-row:hover { background: var(--bg-hover); text-decoration: none; }
-
-	.bar-label { font-size: 14px; color: var(--text-secondary); }
+	.bar-label {
+		font: var(--type-body-md);
+		color: var(--text-secondary);
+	}
 
 	.bar-track {
-		height: 8px;
+		height: 6px;
 		background: var(--bg-raised);
-		border-radius: 4px;
+		border-radius: var(--radius-full);
 		overflow: hidden;
 	}
 
 	.bar-fill {
 		height: 100%;
-		background: linear-gradient(90deg, var(--accent-strong), var(--accent));
-		border-radius: 4px;
-		transition: width var(--duration-large) var(--ease-out-quint);
+		background: var(--accent);
+		border-radius: var(--radius-full);
 	}
 
-	.bar-value { font-size: 13px; color: var(--text-tertiary); text-align: right; }
+	.bar-value {
+		font: var(--type-mono-md);
+		color: var(--text-secondary);
+		text-align: right;
+	}
 
 	/* Reactions */
 	.reactions-grid {
@@ -523,80 +546,28 @@
 		padding: var(--space-2) var(--space-3);
 		background: var(--bg-surface);
 		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
-		transition: border-color var(--duration-micro) var(--ease-out-quint);
-	}
-
-	.reaction-chip:hover {
-		border-color: var(--border-default);
+		border-radius: var(--radius-full);
 	}
 
 	.reaction-emoji {
-		font-size: 20px;
+		font-size: 18px;
+		line-height: 1;
 	}
 
 	.reaction-count {
-		font-size: 13px;
+		font: var(--type-mono-md);
 		color: var(--text-secondary);
 	}
 
 	/* Messages */
-	.toggle-btn {
+	.toggle {
 		margin-left: auto;
-		padding: var(--space-1) var(--space-3);
-		font-size: 12px;
-		font-weight: 500;
-		color: var(--accent);
-		background: var(--accent-muted);
-		border: 1px solid var(--accent-glow);
-		border-radius: var(--radius-xs);
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		transition: all var(--duration-micro) var(--ease-out-quint);
-	}
-
-	.toggle-btn:hover {
-		background: var(--accent);
-		color: var(--bg-canvas);
 	}
 
 	.messages-list {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
-	}
-
-	/* States */
-	.center-state {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-		justify-content: center;
-		padding: var(--space-16) 0;
-		color: var(--text-tertiary);
-	}
-
-	.center-state.error {
-		color: var(--danger);
-	}
-
-	.spinner {
-		width: 20px;
-		height: 20px;
-		border: 2px solid var(--border-subtle);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	.spinner.small {
-		width: 14px;
-		height: 14px;
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
 	}
 
 	@media (max-width: 768px) {
@@ -610,8 +581,8 @@
 			height: 64px;
 		}
 
-		.hero-name {
-			font-size: 28px;
+		.stats-grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
 
 		.timeline-summary {

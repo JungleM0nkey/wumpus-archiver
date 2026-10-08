@@ -2,7 +2,13 @@
 	import { onMount } from 'svelte';
 	import { getGuilds, getGuildUsers } from '#lib/api.ts';
 	import type { Guild, UserListItem } from '#lib/types.ts';
+	import LoadMore from '#lib/components/LoadMore.svelte';
 	import SearchBar from '#lib/components/SearchBar.svelte';
+	import Alert from '#lib/components/ui/Alert.svelte';
+	import Badge from '#lib/components/ui/Badge.svelte';
+	import Chip from '#lib/components/ui/Chip.svelte';
+	import EmptyState from '#lib/components/ui/EmptyState.svelte';
+	import Skeleton from '#lib/components/ui/Skeleton.svelte';
 
 	let guild: Guild | null = $state(null);
 	let users: UserListItem[] = $state([]);
@@ -91,71 +97,61 @@
 
 <div class="users-page">
 	<header class="page-header">
-		<div class="header-top">
-			<div>
-				<h1>Users</h1>
-				<p class="header-sub">
-					{#if guild}
-						{total.toLocaleString()} contributors in <strong>{guild.name}</strong>
-					{:else}
-						Loading...
-					{/if}
-				</p>
-			</div>
-		</div>
+		<h1>Users</h1>
+		<p class="header-sub">
+			{#if guild}
+				<span class="mono">{total.toLocaleString()}</span> contributors in <strong>{guild.name}</strong>
+			{:else}
+				Loading...
+			{/if}
+		</p>
 
 		<div class="controls">
 			<div class="search-wrap">
 				<SearchBar
 					bind:value={searchQuery}
 					placeholder="Search users..."
+					label="Search users"
 					onsubmit={handleSearch}
 				/>
 			</div>
 
-			<div class="sort-group">
-				<button
-					class="sort-btn"
-					class:active={sortBy === 'messages'}
-					onclick={() => handleSort('messages')}
-				>
-					Most Active
-				</button>
-				<button
-					class="sort-btn"
-					class:active={sortBy === 'recent'}
-					onclick={() => handleSort('recent')}
-				>
-					Recent
-				</button>
-				<button
-					class="sort-btn"
-					class:active={sortBy === 'name'}
-					onclick={() => handleSort('name')}
-				>
-					A–Z
-				</button>
+			<div class="sort-group" role="group" aria-label="Sort by">
+				<Chip selected={sortBy === 'messages'} onclick={() => handleSort('messages')}>Most Active</Chip>
+				<Chip selected={sortBy === 'recent'} onclick={() => handleSort('recent')}>Recent</Chip>
+				<Chip selected={sortBy === 'name'} onclick={() => handleSort('name')}>A–Z</Chip>
 			</div>
 		</div>
 	</header>
 
 	{#if loading}
-		<div class="center-state">
-			<div class="spinner"></div>
-			<span class="mono">Loading users...</span>
+		<div class="user-list" aria-busy="true">
+			<span class="sr-only" role="status">Loading users…</span>
+			{#each Array.from({ length: 8 }, (_, i) => i) as i (i)}
+				<div class="user-row skeleton-row">
+					<div class="user-identity">
+						<Skeleton width="28px" height="12px" />
+						<Skeleton width="36px" height="36px" radius="full" />
+						<Skeleton width="140px" height="14px" />
+					</div>
+					<Skeleton height="6px" radius="full" />
+					<div class="user-meta"><Skeleton width="64px" height="14px" /></div>
+				</div>
+			{/each}
 		</div>
 	{:else if error}
-		<div class="center-state error">⚠ {error}</div>
+		<Alert tone="danger" title="The users could not be loaded">{error}</Alert>
 	{:else if users.length === 0}
-		<div class="center-state">No users found.</div>
+		<EmptyState icon="users" title="No users found." />
 	{:else}
 		<div class="user-list">
 			{#each users as user, i (user.id)}
 				{@const pct = (user.message_count / getMaxCount()) * 100}
 				<a
-					class="user-row enter"
+					class="user-row"
+					class:enter={i < PAGE_SIZE}
 					href="/users/{user.id}"
-					style="--i: {i}"
+					style:--i={i}
 				>
 					<div class="user-identity">
 						<span class="user-rank mono">#{i + 1}</span>
@@ -177,7 +173,7 @@
 								<span class="user-handle mono">@{user.username}</span>
 							{/if}
 							{#if user.bot}
-								<span class="badge accent">BOT</span>
+								<Badge tone="accent">BOT</Badge>
 							{/if}
 						</div>
 					</div>
@@ -199,16 +195,9 @@
 		</div>
 
 		{#if hasMore}
-			<div class="load-more">
-				<button class="load-more-btn" onclick={loadMore} disabled={loadingMore}>
-					{#if loadingMore}
-						<div class="spinner small"></div>
-						Loading...
-					{:else}
-						Load more ({total - users.length} remaining)
-					{/if}
-				</button>
-			</div>
+			<LoadMore loading={loadingMore} onclick={loadMore}>
+				Load more ({total - users.length} remaining)
+			</LoadMore>
 		{/if}
 	{/if}
 </div>
@@ -217,33 +206,29 @@
 	.users-page {
 		max-width: var(--size-reader-max);
 		margin: 0 auto;
-		padding: var(--space-8) var(--space-6);
+		padding: var(--space-10) var(--space-6);
 	}
 
 	.page-header {
-		margin-bottom: var(--space-8);
-	}
-
-	.header-top {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		margin-bottom: var(--space-5);
+		margin-bottom: var(--space-6);
 	}
 
 	h1 {
-		font-size: 36px;
-		font-weight: 700;
-		letter-spacing: -0.04em;
-		line-height: 1;
-		margin-bottom: var(--space-2);
+		font: var(--type-display-lg);
+		letter-spacing: var(--tracking-display-lg);
 		color: var(--text-primary);
+		margin-bottom: var(--space-2);
 	}
 
-
 	.header-sub {
-		font-size: 15px;
+		font: var(--type-body-md);
 		color: var(--text-secondary);
+		margin-bottom: var(--space-5);
+	}
+
+	.header-sub strong {
+		color: var(--text-primary);
+		font-weight: 600;
 	}
 
 	.controls {
@@ -262,29 +247,6 @@
 	.sort-group {
 		display: flex;
 		gap: var(--space-1);
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
-		padding: 3px;
-	}
-
-	.sort-btn {
-		padding: var(--space-1) var(--space-3);
-		font-size: 13px;
-		font-weight: 500;
-		color: var(--text-tertiary);
-		border-radius: var(--radius-xs);
-		transition: all var(--duration-micro) var(--ease-out-quint);
-	}
-
-	.sort-btn:hover {
-		color: var(--text-secondary);
-		background: var(--bg-hover);
-	}
-
-	.sort-btn.active {
-		color: var(--accent);
-		background: var(--accent-muted);
 	}
 
 	.user-list {
@@ -295,19 +257,22 @@
 
 	.user-row {
 		display: grid;
-		grid-template-columns: 1fr 200px 160px;
+		grid-template-columns: 1fr 180px 160px;
 		align-items: center;
 		gap: var(--space-4);
-		padding: var(--space-3) var(--space-4);
+		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius-sm);
-		text-decoration: none;
 		color: inherit;
-		transition: background var(--duration-micro) var(--ease-out-quint);
+		transition: background-color var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.user-row:hover {
 		background: var(--bg-hover);
-		text-decoration: none;
+		color: inherit;
+	}
+
+	.skeleton-row:hover {
+		background: none;
 	}
 
 	.user-identity {
@@ -320,7 +285,7 @@
 	.user-rank {
 		width: 36px;
 		text-align: center;
-		font-size: 12px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 		flex-shrink: 0;
 	}
@@ -328,7 +293,7 @@
 	.user-avatar {
 		width: 36px;
 		height: 36px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		object-fit: cover;
 		flex-shrink: 0;
 	}
@@ -338,9 +303,8 @@
 		align-items: center;
 		justify-content: center;
 		background: var(--bg-overlay);
-		color: var(--text-tertiary);
-		font-weight: 600;
-		font-size: 14px;
+		color: var(--text-secondary);
+		font: var(--type-label-md);
 	}
 
 	.user-names {
@@ -351,8 +315,7 @@
 	}
 
 	.user-display {
-		font-size: 14px;
-		font-weight: 500;
+		font: var(--type-label-md);
 		color: var(--text-primary);
 		white-space: nowrap;
 		overflow: hidden;
@@ -360,7 +323,7 @@
 	}
 
 	.user-handle {
-		font-size: 12px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 		white-space: nowrap;
 	}
@@ -374,15 +337,14 @@
 		width: 100%;
 		height: 6px;
 		background: var(--bg-raised);
-		border-radius: 3px;
+		border-radius: var(--radius-full);
 		overflow: hidden;
 	}
 
 	.stat-bar-fill {
 		height: 100%;
-		background: linear-gradient(90deg, var(--accent-strong), var(--accent));
-		border-radius: 3px;
-		transition: width var(--duration-large) var(--ease-out-quint);
+		background: var(--accent);
+		border-radius: var(--radius-full);
 	}
 
 	.user-meta {
@@ -393,76 +355,15 @@
 	}
 
 	.user-count {
-		font-size: 14px;
-		font-weight: 600;
+		font: var(--type-mono-md);
+		font-weight: 500;
 		color: var(--text-primary);
 	}
 
 	.user-dates {
-		font-size: 11px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 		white-space: nowrap;
-	}
-
-	.load-more {
-		display: flex;
-		justify-content: center;
-		padding: var(--space-8) 0;
-	}
-
-	.load-more-btn {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-6);
-		font-size: 14px;
-		font-weight: 500;
-		color: var(--accent);
-		background: var(--accent-muted);
-		border: 1px solid var(--accent-glow);
-		border-radius: var(--radius-sm);
-		transition: all var(--duration-micro) var(--ease-out-quint);
-	}
-
-	.load-more-btn:hover:not(:disabled) {
-		background: var(--accent);
-		color: var(--bg-canvas);
-	}
-
-	.load-more-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.center-state {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-		justify-content: center;
-		padding: var(--space-16) 0;
-		color: var(--text-tertiary);
-	}
-
-	.center-state.error {
-		color: var(--danger);
-	}
-
-	.spinner {
-		width: 20px;
-		height: 20px;
-		border: 2px solid var(--border-subtle);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	.spinner.small {
-		width: 14px;
-		height: 14px;
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
 	}
 
 	@media (max-width: 768px) {

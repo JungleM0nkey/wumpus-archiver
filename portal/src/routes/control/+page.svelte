@@ -11,6 +11,13 @@
 		setApiToken,
 		ApiError
 	} from '#lib/api.ts';
+	import Alert from '#lib/components/ui/Alert.svelte';
+	import Badge from '#lib/components/ui/Badge.svelte';
+	import Button from '#lib/components/ui/Button.svelte';
+	import EmptyState from '#lib/components/ui/EmptyState.svelte';
+	import Icon from '#lib/components/ui/Icon.svelte';
+	import Skeleton from '#lib/components/ui/Skeleton.svelte';
+	import type { IconName } from '#lib/components/ui/icons.ts';
 	import type { Guild, ScrapeJob, ScrapeStatusResponse, ScrapeHistoryResponse, DownloadStatsResponse } from '#lib/types.ts';
 
 	let guilds: Guild[] = $state([]);
@@ -144,26 +151,28 @@
 		});
 	}
 
-	function statusColor(s: string): string {
+	type Tone = 'neutral' | 'accent' | 'success' | 'danger' | 'warning';
+
+	function statusTone(s: string): Tone {
 		switch (s) {
-			case 'completed': return 'var(--success)';
-			case 'failed': return 'var(--danger)';
-			case 'cancelled': return 'var(--warning)';
+			case 'completed': return 'success';
+			case 'failed': return 'danger';
+			case 'cancelled': return 'warning';
 			case 'scraping':
-			case 'connecting': return 'var(--accent)';
-			default: return 'var(--text-tertiary)';
+			case 'connecting': return 'accent';
+			default: return 'neutral';
 		}
 	}
 
-	function statusIcon(s: string): string {
+	function statusIcon(s: string): IconName {
 		switch (s) {
-			case 'completed': return '✓';
-			case 'failed': return '✗';
-			case 'cancelled': return '⊘';
-			case 'scraping': return '◉';
-			case 'connecting': return '◌';
-			case 'pending': return '◌';
-			default: return '·';
+			case 'completed': return 'circle-check';
+			case 'failed': return 'circle-x';
+			case 'cancelled': return 'ban';
+			case 'scraping': return 'circle-dot';
+			case 'connecting':
+			case 'pending': return 'circle-dashed';
+			default: return 'circle';
 		}
 	}
 
@@ -183,49 +192,45 @@
 
 <div class="control-panel">
 	<header class="panel-header">
-		<h1 class="panel-title">
-			Control
-		</h1>
+		<h1 class="panel-title">Control</h1>
 		<p class="panel-sub">Run and monitor Discord server scrapes from here.</p>
 	</header>
 
 	{#if loading}
-		<div class="loading-state">
-			<div class="spinner"></div>
-			<span class="mono">Loading...</span>
+		<div class="panel-grid" aria-busy="true">
+			<span class="sr-only" role="status">Loading…</span>
+			{#each [0, 1] as i (i)}
+				<div class="card skeleton-card">
+					<Skeleton width="40%" height="16px" />
+					<Skeleton height="36px" radius="sm" />
+					<Skeleton height="36px" radius="sm" />
+					<Skeleton width="30%" height="36px" radius="sm" />
+				</div>
+			{/each}
 		</div>
 	{:else if error}
-		<div class="error-state">
-			<p>⚠ {error}</p>
-		</div>
+		<Alert tone="danger" title="Scrape control could not be loaded">{error}</Alert>
 	{:else}
-		<!-- Token Warning -->
-		{#if !hasToken}
-			<div class="alert alert-warning enter">
-				<span class="alert-icon">⚠</span>
-				<div>
-					<strong>No Discord bot token configured.</strong>
-					<p>Set <code>DISCORD_BOT_TOKEN</code> in your <code>.env</code> file and restart the server to enable scraping.</p>
-				</div>
-			</div>
-		{/if}
+		<div class="alerts">
+			{#if !hasToken}
+				<Alert tone="warning" title="No Discord bot token configured.">
+					Set <code>DISCORD_BOT_TOKEN</code> in your <code>.env</code> file and restart the server to enable scraping.
+				</Alert>
+			{/if}
 
-		{#if !controlEnabled}
-			<div class="alert alert-warning enter">
-				<span class="alert-icon">⚠</span>
-				<div>
-					<strong>Scrape control is disabled.</strong>
-					<p>Set <code>API_AUTH_TOKEN</code> in your <code>.env</code> file and restart the server, then enter it below to start or cancel scrapes.</p>
-				</div>
-			</div>
-		{/if}
+			{#if !controlEnabled}
+				<Alert tone="warning" title="Scrape control is disabled.">
+					Set <code>API_AUTH_TOKEN</code> in your <code>.env</code> file and restart the server, then enter it below to start or cancel scrapes.
+				</Alert>
+			{/if}
+		</div>
 
 		<div class="panel-grid">
 			<!-- Start Scrape Card -->
-			<section class="card start-card enter">
+			<section class="card enter">
 				<div class="card-header">
 					<h2 class="card-title">
-						<span class="card-icon">▶</span>
+						<Icon name="play" />
 						Start Scrape
 					</h2>
 				</div>
@@ -239,7 +244,7 @@
 								bind:value={selectedGuildId}
 								disabled={isBusy || !hasToken}
 							>
-								{#each guilds as guild}
+								{#each guilds as guild (guild.id)}
 									<option value={guild.id}>{guild.name} ({guild.id})</option>
 								{/each}
 							</select>
@@ -249,7 +254,7 @@
 						<label class="form-label" for="guild-id-input">Or enter Guild ID</label>
 						<input
 							id="guild-id-input"
-							class="form-input"
+							class="form-input mono"
 							type="text"
 							placeholder="e.g. 165682173540696064"
 							bind:value={customGuildId}
@@ -261,7 +266,7 @@
 						<label class="form-label" for="api-token-input">API token</label>
 						<input
 							id="api-token-input"
-							class="form-input"
+							class="form-input mono"
 							type="password"
 							autocomplete="off"
 							placeholder="API_AUTH_TOKEN"
@@ -272,41 +277,39 @@
 					</div>
 
 					{#if actionError}
-						<div class="inline-error">{actionError}</div>
+						<Alert tone="danger">{actionError}</Alert>
 					{/if}
 
 					<div class="card-actions">
 						{#if isBusy}
-							<button class="btn btn-danger" onclick={handleCancel}>
-								⊘ Cancel Scrape
-							</button>
+							<Button variant="danger" icon="ban" onclick={handleCancel}>Cancel Scrape</Button>
 						{:else}
-							<button class="btn btn-primary" onclick={handleStart} disabled={!hasToken || !controlEnabled}>
-								▶ Start Scrape
-							</button>
+							<Button
+								variant="primary"
+								icon="play"
+								onclick={handleStart}
+								disabled={!hasToken || !controlEnabled}
+							>
+								Start Scrape
+							</Button>
 						{/if}
 					</div>
 				</div>
 			</section>
 
 			<!-- Live Status Card -->
-			<section class="card status-card enter">
+			<section class="card enter" style:--i={1}>
 				<div class="card-header">
 					<h2 class="card-title">
-						<span class="card-icon">◉</span>
+						<Icon name="activity" />
 						Live Status
 					</h2>
 					{#if currentJob}
-						<span
-							class="status-badge"
-							style="color: {statusColor(currentJob.status)}"
-						>
-							{statusIcon(currentJob.status)} {currentJob.status}
-						</span>
+						<Badge tone={statusTone(currentJob.status)} icon={statusIcon(currentJob.status)}>
+							{currentJob.status}
+						</Badge>
 					{:else}
-						<span class="status-badge" style="color: var(--text-tertiary)">
-							· idle
-						</span>
+						<Badge icon="circle">idle</Badge>
 					{/if}
 				</div>
 				<div class="card-body">
@@ -332,29 +335,27 @@
 
 						<div class="progress-stats">
 							<div class="progress-stat">
-								<div class="progress-number">{currentJob.progress.channels_done.toLocaleString()}</div>
+								<div class="progress-number mono">{currentJob.progress.channels_done.toLocaleString()}</div>
 								<div class="progress-label">channels</div>
 							</div>
 							<div class="progress-stat">
-								<div class="progress-number">{currentJob.progress.messages_scraped.toLocaleString()}</div>
+								<div class="progress-number mono">{currentJob.progress.messages_scraped.toLocaleString()}</div>
 								<div class="progress-label">messages</div>
 							</div>
 							<div class="progress-stat">
-								<div class="progress-number">{currentJob.progress.attachments_found.toLocaleString()}</div>
+								<div class="progress-number mono">{currentJob.progress.attachments_found.toLocaleString()}</div>
 								<div class="progress-label">attachments</div>
 							</div>
 						</div>
 
 						{#if isBusy}
-							<div class="pulse-bar">
+							<div class="pulse-bar" role="progressbar" aria-label="Scraping">
 								<div class="pulse-fill"></div>
 							</div>
 						{/if}
 
 						{#if currentJob.error_message}
-							<div class="inline-error" style="margin-top: var(--space-3)">
-								{currentJob.error_message}
-							</div>
+							<Alert tone="danger">{currentJob.error_message}</Alert>
 						{/if}
 
 						{#if currentJob.progress.errors.length > 0}
@@ -368,10 +369,12 @@
 							</details>
 						{/if}
 					{:else}
-						<div class="empty-status">
-							<span class="empty-icon">◌</span>
-							<p>No active scrape job. Start one from the left panel.</p>
-						</div>
+						<EmptyState
+							icon="circle-dashed"
+							title="No active scrape job."
+							description="Start one from the left panel."
+							compact
+						/>
 					{/if}
 				</div>
 			</section>
@@ -379,28 +382,28 @@
 
 		<!-- Download Stats -->
 		{#if dlStats}
-			<section class="downloads-section enter">
+			<section class="downloads-section enter" style:--i={2}>
 				<h2 class="section-title">
-					<span class="section-icon">⬇</span>
+					<Icon name="download" />
 					Downloaded Images
 				</h2>
 
 				<div class="dl-overview">
 					<div class="dl-summary-grid">
 						<div class="dl-stat">
-							<div class="dl-stat-number">{dlStats.downloaded.toLocaleString()}</div>
+							<div class="dl-stat-number mono">{dlStats.downloaded.toLocaleString()}</div>
 							<div class="dl-stat-label">downloaded</div>
 						</div>
 						<div class="dl-stat">
-							<div class="dl-stat-number">{dlStats.total_images.toLocaleString()}</div>
+							<div class="dl-stat-number mono">{dlStats.total_images.toLocaleString()}</div>
 							<div class="dl-stat-label">total images</div>
 						</div>
 						<div class="dl-stat">
-							<div class="dl-stat-number">{formatBytes(dlStats.downloaded_bytes)}</div>
+							<div class="dl-stat-number mono">{formatBytes(dlStats.downloaded_bytes)}</div>
 							<div class="dl-stat-label">on disk</div>
 						</div>
 						<div class="dl-stat">
-							<div class="dl-stat-number">{dlPercent(dlStats)}%</div>
+							<div class="dl-stat-number mono">{dlPercent(dlStats)}%</div>
 							<div class="dl-stat-label">complete</div>
 						</div>
 					</div>
@@ -415,16 +418,16 @@
 
 					<div class="dl-breakdown">
 						{#if dlStats.pending > 0}
-							<span class="dl-tag dl-tag-pending">{dlStats.pending.toLocaleString()} pending</span>
+							<Badge tone="warning" mono>{dlStats.pending.toLocaleString()} pending</Badge>
 						{/if}
 						{#if dlStats.failed > 0}
-							<span class="dl-tag dl-tag-failed">{dlStats.failed.toLocaleString()} failed</span>
+							<Badge tone="danger" mono>{dlStats.failed.toLocaleString()} failed</Badge>
 						{/if}
 						{#if dlStats.skipped > 0}
-							<span class="dl-tag dl-tag-skipped">{dlStats.skipped.toLocaleString()} skipped</span>
+							<Badge mono>{dlStats.skipped.toLocaleString()} skipped</Badge>
 						{/if}
 						{#if dlStats.attachments_dir}
-							<span class="dl-tag dl-tag-path mono" title={dlStats.attachments_dir}>📁 {dlStats.attachments_dir}</span>
+							<Badge icon="folder" mono title={dlStats.attachments_dir}>{dlStats.attachments_dir}</Badge>
 						{/if}
 					</div>
 				</div>
@@ -458,7 +461,7 @@
 											<td>
 												<div class="dl-cell-bar">
 													<div class="dl-cell-fill" style="width: {pct}%"></div>
-													<span class="dl-cell-pct">{pct}%</span>
+													<span class="dl-cell-pct mono">{pct}%</span>
 												</div>
 											</td>
 										</tr>
@@ -472,14 +475,14 @@
 		{/if}
 
 		<!-- History -->
-		<section class="history-section enter">
+		<section class="history-section enter" style:--i={3}>
 			<h2 class="section-title">
-				<span class="section-icon">▤</span>
+				<Icon name="history" />
 				Scrape History
 			</h2>
 			{#if history.length === 0}
-				<div class="empty-history">
-					<p class="mono" style="color: var(--text-tertiary)">No completed jobs yet.</p>
+				<div class="history-table-wrap">
+					<EmptyState icon="history" title="No completed jobs yet." compact />
 				</div>
 			{:else}
 				<div class="history-table-wrap">
@@ -497,20 +500,18 @@
 							</tr>
 						</thead>
 						<tbody>
-							{#each history as job}
+							{#each history as job (job.id)}
 								<tr>
 									<td>
-										<span class="table-status" style="color: {statusColor(job.status)}">
-											{statusIcon(job.status)} {job.status}
-										</span>
+										<Badge tone={statusTone(job.status)} icon={statusIcon(job.status)}>{job.status}</Badge>
 									</td>
 									<td class="mono">{job.id}</td>
 									<td class="mono">{job.guild_id}</td>
-									<td>{job.progress.channels_done}</td>
-									<td>{job.progress.messages_scraped.toLocaleString()}</td>
-									<td>{job.progress.attachments_found.toLocaleString()}</td>
+									<td class="mono">{job.progress.channels_done}</td>
+									<td class="mono">{job.progress.messages_scraped.toLocaleString()}</td>
+									<td class="mono">{job.progress.attachments_found.toLocaleString()}</td>
 									<td class="mono">{formatDuration(job.duration_seconds)}</td>
-									<td>{formatDate(job.started_at)}</td>
+									<td class="mono">{formatDate(job.started_at)}</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -525,7 +526,7 @@
 	.control-panel {
 		max-width: 1200px;
 		margin: 0 auto;
-		padding: var(--space-8) var(--space-6);
+		padding: var(--space-10) var(--space-6);
 	}
 
 	/* Header */
@@ -534,61 +535,32 @@
 	}
 
 	.panel-title {
-		font-size: 36px;
-		font-weight: 700;
-		letter-spacing: -0.03em;
-		line-height: 1.1;
+		font: var(--type-display-lg);
+		letter-spacing: var(--tracking-display-lg);
 	}
-
 
 	.panel-sub {
 		margin-top: var(--space-2);
+		font: var(--type-body-md);
 		color: var(--text-secondary);
-		font-size: 15px;
 	}
 
-	/* Alert */
-	.alert {
+	.alerts {
 		display: flex;
-		align-items: flex-start;
+		flex-direction: column;
 		gap: var(--space-3);
-		padding: var(--space-4) var(--space-5);
-		border-radius: var(--radius-md);
 		margin-bottom: var(--space-6);
-		font-size: 14px;
-		line-height: 1.5;
 	}
 
-	.alert-warning {
-		background: rgba(251, 191, 36, 0.08);
-		border: 1px solid rgba(251, 191, 36, 0.2);
-		color: var(--warning);
-	}
-
-	.alert-icon {
-		font-size: 18px;
-		flex-shrink: 0;
-		margin-top: 1px;
-	}
-
-	.alert p {
-		margin-top: var(--space-1);
-		color: var(--text-secondary);
-	}
-
-	.alert code {
-		font-family: var(--font-mono);
-		font-size: 13px;
-		padding: 1px 5px;
-		background: var(--bg-overlay);
-		border-radius: var(--radius-xs);
+	.alerts:empty {
+		display: none;
 	}
 
 	/* Grid */
 	.panel-grid {
 		display: grid;
 		grid-template-columns: 1fr 1.4fr;
-		gap: var(--space-6);
+		gap: var(--space-4);
 		margin-bottom: var(--space-8);
 	}
 
@@ -606,63 +578,78 @@
 		overflow: hidden;
 	}
 
+	.skeleton-card {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+		padding: var(--space-5);
+	}
+
 	.card-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--space-4) var(--space-5);
+		gap: var(--space-3);
+		padding: var(--space-3) var(--space-5);
+		min-height: 52px;
 		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.card-title {
-		font-size: 15px;
-		font-weight: 600;
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+		font: var(--type-heading-sm);
 	}
 
-	.card-icon {
-		color: var(--accent);
-		font-size: 14px;
+	.card-title :global(.icon),
+	.section-title :global(.icon) {
+		color: var(--text-secondary);
 	}
 
 	.card-body {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
 		padding: var(--space-5);
 	}
 
 	/* Form */
-	.form-group {
-		margin-bottom: var(--space-4);
-	}
-
 	.form-label {
 		display: block;
-		font-size: 12px;
-		font-weight: 500;
-		color: var(--text-secondary);
+		font: var(--type-caption);
+		letter-spacing: var(--tracking-caption);
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		color: var(--text-secondary);
 		margin-bottom: var(--space-1);
 	}
 
 	.form-select,
 	.form-input {
 		width: 100%;
-		padding: var(--space-2) var(--space-3);
-		font-family: var(--font-mono);
-		font-size: 14px;
+		height: 36px;
+		padding: 0 var(--space-3);
+		font-size: 13px;
 		background: var(--bg-raised);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--border-default);
 		border-radius: var(--radius-sm);
 		color: var(--text-primary);
 		transition: border-color var(--duration-micro) var(--ease-out-quint);
 	}
 
-	.form-select:focus,
-	.form-input:focus {
-		outline: none;
-		border-color: var(--accent-strong);
+	.form-select {
+		font: var(--type-label-md);
+	}
+
+	.form-select:hover:not(:disabled),
+	.form-input:hover:not(:disabled) {
+		border-color: var(--border-strong);
+	}
+
+	.form-select:focus-visible,
+	.form-input:focus-visible {
+		border-color: var(--accent-glow);
+		outline-offset: 0;
 	}
 
 	.form-select:disabled,
@@ -676,99 +663,45 @@
 		color: var(--text-primary);
 	}
 
-	.form-hint {
-		margin-top: var(--space-1);
-		font-size: 12px;
+	.form-input::placeholder {
 		color: var(--text-tertiary);
 	}
 
-	.inline-error {
-		font-size: 13px;
-		color: var(--danger);
-		padding: var(--space-2) var(--space-3);
-		background: rgba(248, 113, 113, 0.08);
-		border-radius: var(--radius-xs);
-		margin-bottom: var(--space-3);
+	.form-hint {
+		margin-top: var(--space-1);
+		font: var(--type-body-sm);
+		color: var(--text-tertiary);
 	}
 
 	.card-actions {
-		margin-top: var(--space-4);
 		display: flex;
 		gap: var(--space-3);
 	}
 
-	/* Buttons */
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-5);
-		font-size: 14px;
-		font-weight: 600;
-		border-radius: var(--radius-sm);
-		transition: all var(--duration-micro) var(--ease-out-quint);
-		cursor: pointer;
-	}
-
-	.btn:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
-	}
-
-	.btn-primary {
-		background: var(--accent);
-		color: var(--bg-canvas);
-	}
-
-	.btn-primary:hover:not(:disabled) {
-		background: var(--accent-strong);
-	}
-
-	.btn-danger {
-		background: rgba(248, 113, 113, 0.15);
-		color: var(--danger);
-		border: 1px solid rgba(248, 113, 113, 0.3);
-	}
-
-	.btn-danger:hover {
-		background: rgba(248, 113, 113, 0.25);
-	}
-
 	/* Status Card */
-	.status-badge {
-		font-family: var(--font-mono);
-		font-size: 12px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-	}
-
 	.status-grid {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: var(--space-3);
-		margin-bottom: var(--space-5);
 	}
 
 	.status-item {
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
+		min-width: 0;
 	}
 
 	.status-label {
-		font-size: 11px;
-		font-weight: 500;
-		color: var(--text-tertiary);
+		font: var(--type-caption);
+		letter-spacing: var(--tracking-caption);
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		color: var(--text-tertiary);
 	}
 
 	.status-value {
-		font-size: 14px;
+		font-size: 13px;
+		line-height: 18px;
 		color: var(--text-primary);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -783,34 +716,35 @@
 		padding: var(--space-4);
 		background: var(--bg-raised);
 		border-radius: var(--radius-sm);
-		margin-bottom: var(--space-4);
 	}
 
-	.progress-stat {
+	.progress-stat,
+	.dl-stat {
 		text-align: center;
 	}
 
-	.progress-number {
-		font-family: var(--font-mono);
+	.progress-number,
+	.dl-stat-number {
+		font: var(--type-mono-num-lg);
 		font-size: 22px;
-		font-weight: 700;
-		color: var(--accent);
-		line-height: 1.2;
+		line-height: 28px;
+		color: var(--text-primary);
 	}
 
-	.progress-label {
-		font-size: 11px;
-		color: var(--text-tertiary);
+	.progress-label,
+	.dl-stat-label {
+		font: var(--type-caption);
+		letter-spacing: var(--tracking-caption);
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		color: var(--text-tertiary);
 		margin-top: 2px;
 	}
 
-	/* Pulse Bar */
+	/* Indeterminate progress while a job runs */
 	.pulse-bar {
 		height: 3px;
 		background: var(--bg-raised);
-		border-radius: 2px;
+		border-radius: var(--radius-full);
 		overflow: hidden;
 	}
 
@@ -818,25 +752,20 @@
 		height: 100%;
 		width: 40%;
 		background: var(--accent);
-		border-radius: 2px;
-		animation: pulse 1.8s ease-in-out infinite;
-	}
-
-	@keyframes pulse {
-		0% { transform: translateX(-100%); }
-		100% { transform: translateX(350%); }
+		border-radius: var(--radius-full);
+		animation: sweep 1.8s var(--ease-in-out) infinite;
 	}
 
 	/* Error Details */
 	.error-details {
-		margin-top: var(--space-3);
-		font-size: 13px;
+		font: var(--type-body-sm);
 	}
 
 	.error-details summary {
 		cursor: pointer;
 		color: var(--warning);
-		padding: var(--space-2);
+		padding: var(--space-2) 0;
+		font: var(--type-mono-sm);
 	}
 
 	.error-list {
@@ -850,73 +779,16 @@
 		padding: var(--space-1) 0;
 		color: var(--text-secondary);
 		border-bottom: 1px solid var(--border-subtle);
-		font-size: 12px;
+		font: var(--type-body-sm);
 	}
 
-	/* Empty State */
-	.empty-status {
-		text-align: center;
-		padding: var(--space-8) var(--space-4);
-		color: var(--text-tertiary);
-	}
-
-	.empty-icon {
-		font-size: 36px;
-		display: block;
-		margin-bottom: var(--space-3);
-		opacity: 0.4;
-	}
-
-	/* Loading */
-	.loading-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-16) 0;
-		color: var(--text-tertiary);
-	}
-
-	.spinner {
-		width: 24px;
-		height: 24px;
-		border: 2px solid var(--border-default);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-
-	.error-state {
-		text-align: center;
-		padding: var(--space-16) 0;
-		color: var(--danger);
-	}
-
-	/* History Section */
-	.history-section {
-		margin-top: var(--space-2);
-	}
-
+	/* Sections */
 	.section-title {
-		font-size: 16px;
-		font-weight: 600;
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+		font: var(--type-heading-md);
 		margin-bottom: var(--space-4);
-	}
-
-	.section-icon {
-		color: var(--accent);
-	}
-
-	.empty-history {
-		padding: var(--space-6);
-		text-align: center;
 	}
 
 	.history-table-wrap {
@@ -929,17 +801,16 @@
 	.history-table {
 		width: 100%;
 		border-collapse: collapse;
-		font-size: 13px;
+		font: var(--type-body-sm);
 	}
 
 	.history-table th {
 		text-align: left;
 		padding: var(--space-3) var(--space-4);
-		font-size: 11px;
-		font-weight: 600;
-		color: var(--text-tertiary);
+		font: var(--type-caption);
+		letter-spacing: var(--tracking-caption);
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		color: var(--text-tertiary);
 		border-bottom: 1px solid var(--border-subtle);
 		background: var(--bg-raised);
 		white-space: nowrap;
@@ -951,21 +822,16 @@
 		white-space: nowrap;
 	}
 
+	.history-table td.mono {
+		font-size: 12px;
+	}
+
 	.history-table tr:last-child td {
 		border-bottom: none;
 	}
 
-	.history-table tr:hover td {
+	.history-table tbody tr:hover td {
 		background: var(--bg-hover);
-	}
-
-	.table-status {
-		font-family: var(--font-mono);
-		font-size: 12px;
-		font-weight: 600;
-		display: flex;
-		align-items: center;
-		gap: 4px;
 	}
 
 	/* Downloads Section */
@@ -974,6 +840,9 @@
 	}
 
 	.dl-overview {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
 		background: var(--bg-surface);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-md);
@@ -988,7 +857,6 @@
 		padding: var(--space-4);
 		background: var(--bg-raised);
 		border-radius: var(--radius-sm);
-		margin-bottom: var(--space-4);
 	}
 
 	@media (max-width: 600px) {
@@ -997,39 +865,17 @@
 		}
 	}
 
-	.dl-stat {
-		text-align: center;
-	}
-
-	.dl-stat-number {
-		font-family: var(--font-mono);
-		font-size: 22px;
-		font-weight: 700;
-		color: var(--accent);
-		line-height: 1.2;
-	}
-
-	.dl-stat-label {
-		font-size: 11px;
-		color: var(--text-tertiary);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		margin-top: 2px;
-	}
-
 	.dl-progress-bar {
 		height: 6px;
 		background: var(--bg-raised);
-		border-radius: 3px;
+		border-radius: var(--radius-full);
 		overflow: hidden;
-		margin-bottom: var(--space-3);
 	}
 
 	.dl-progress-fill {
 		height: 100%;
 		background: var(--accent);
-		border-radius: 3px;
-		transition: width var(--duration-large) var(--ease-out-quint);
+		border-radius: var(--radius-full);
 		min-width: 2px;
 	}
 
@@ -1037,53 +883,14 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2);
-	}
-
-	.dl-tag {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		padding: 2px 10px;
-		font-size: 12px;
-		border-radius: var(--radius-xs);
-		font-weight: 500;
-	}
-
-	.dl-tag-pending {
-		background: rgba(251, 191, 36, 0.1);
-		color: var(--warning);
-	}
-
-	.dl-tag-failed {
-		background: rgba(248, 113, 113, 0.1);
-		color: var(--danger);
-	}
-
-	.dl-tag-skipped {
-		background: rgba(148, 163, 184, 0.1);
-		color: var(--text-secondary);
-	}
-
-	.dl-tag-path {
-		background: var(--bg-raised);
-		color: var(--text-secondary);
-		max-width: 400px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: 11px;
-	}
-
-	.dl-channels-details {
-		margin-top: var(--space-2);
-		font-size: 13px;
+		min-width: 0;
 	}
 
 	.dl-channels-details summary {
 		cursor: pointer;
 		color: var(--text-secondary);
 		padding: var(--space-2) 0;
-		font-size: 13px;
+		font: var(--type-mono-sm);
 		user-select: none;
 	}
 
@@ -1093,12 +900,11 @@
 
 	.dl-channels-table-wrap {
 		margin-top: var(--space-3);
-		overflow-x: auto;
+		overflow: auto;
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-md);
 		background: var(--bg-surface);
 		max-height: 400px;
-		overflow-y: auto;
 	}
 
 	.dl-cell-bar {
@@ -1111,14 +917,13 @@
 	.dl-cell-bar .dl-cell-fill {
 		height: 4px;
 		background: var(--accent);
-		border-radius: 2px;
+		border-radius: var(--radius-full);
 		flex: 1;
 		max-width: 60px;
 	}
 
 	.dl-cell-pct {
-		font-family: var(--font-mono);
-		font-size: 11px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 		min-width: 32px;
 		text-align: right;

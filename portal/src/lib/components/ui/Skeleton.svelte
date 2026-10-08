@@ -7,10 +7,13 @@
 	let {
 		width = '100%',
 		height = '14px',
+		aspect,
 		radius = 'xs'
 	}: {
 		width?: string;
 		height?: string;
+		/** An aspect ratio such as '1', for a placeholder sized by its width. */
+		aspect?: string;
 		radius?: 'xs' | 'sm' | 'md' | 'lg' | 'full';
 	} = $props();
 </script>
@@ -18,7 +21,8 @@
 <span
 	class="skeleton"
 	style:width
-	style:height
+	style:height={aspect ? undefined : height}
+	style:aspect-ratio={aspect}
 	style:border-radius="var(--radius-{radius})"
 	aria-hidden="true"
 ></span>

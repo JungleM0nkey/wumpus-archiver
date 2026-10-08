@@ -5,6 +5,11 @@
 	import type { Guild, Stats } from '#lib/types.ts';
 	import StatCard from '#lib/components/StatCard.svelte';
 	import SearchBar from '#lib/components/SearchBar.svelte';
+	import Alert from '#lib/components/ui/Alert.svelte';
+	import Badge from '#lib/components/ui/Badge.svelte';
+	import EmptyState from '#lib/components/ui/EmptyState.svelte';
+	import Icon from '#lib/components/ui/Icon.svelte';
+	import Skeleton from '#lib/components/ui/Skeleton.svelte';
 
 	let guilds: Guild[] = $state([]);
 	let stats: Stats | null = $state(null);
@@ -43,62 +48,75 @@
 
 <div class="dashboard">
 	<header class="hero">
-		<div class="hero-content">
-			<h1 class="hero-title">
-				Archive
-			</h1>
-			<p class="hero-sub">Browse, search, and explore your Discord server history.</p>
-			<div class="hero-search">
-				<SearchBar
-					bind:value={searchQuery}
-					placeholder="Search messages, users, channels..."
-					onsubmit={handleSearch}
-				/>
-			</div>
+		<h1 class="hero-title">Archive</h1>
+		<p class="hero-sub">Browse, search, and explore your Discord server history.</p>
+		<div class="hero-search">
+			<SearchBar
+				bind:value={searchQuery}
+				placeholder="Search messages, users, channels..."
+				label="Search the archive"
+				onsubmit={handleSearch}
+			/>
 		</div>
 	</header>
 
 	{#if loading}
-		<div class="loading-state">
-			<div class="spinner"></div>
-			<span class="mono">Loading archive data...</span>
+		<div class="loading" aria-busy="true">
+			<span class="sr-only" role="status">Loading archive data…</span>
+			<div class="stats-grid">
+				{#each [0, 1, 2, 3] as i (i)}
+					<div class="tile-skeleton">
+						<Skeleton width="72px" height="10px" />
+						<Skeleton width="96px" height="28px" />
+					</div>
+				{/each}
+			</div>
+			<div class="rows-skeleton">
+				{#each [0, 1, 2, 3, 4] as i (i)}
+					<Skeleton height="20px" />
+				{/each}
+			</div>
 		</div>
 	{:else if error}
-		<div class="error-state">
-			<p>⚠ {error}</p>
-			<p class="mono" style="font-size: 13px; color: var(--text-tertiary);">
-				Make sure the API server is running: wumpus-archiver serve archive.db
-			</p>
-		</div>
+		<Alert tone="danger" title="The archive could not be loaded">
+			<p>{error}</p>
+			<p>Make sure the API server is running: <code>wumpus-archiver serve archive.db</code></p>
+		</Alert>
+	{:else if guilds.length === 0}
+		<EmptyState
+			icon="archive"
+			title="Nothing archived yet"
+			description="Scrape a guild from the Archive screen and it will show up here."
+		/>
 	{:else}
 		{#if stats}
-			<section class="section enter">
+			<section class="section">
 				<h2 class="section-title">
-					<span class="section-icon">◈</span>
+					<Icon name="dashboard" />
 					Overview
 					{#if guilds[0]}
-						<span class="badge accent">{guilds[0].name}</span>
+						<Badge tone="accent">{guilds[0].name}</Badge>
 					{/if}
 				</h2>
 				<div class="stats-grid">
-					<StatCard label="Messages" value={stats.total_messages} icon="message" />
-					<StatCard label="Channels" value={stats.total_channels} icon="hash" />
-					<StatCard label="Users" value={stats.total_users} icon="users" />
-					<StatCard label="Attachments" value={stats.total_attachments} icon="paperclip" />
+					<StatCard label="Messages" value={stats.total_messages} icon="message" index={0} />
+					<StatCard label="Channels" value={stats.total_channels} icon="hash" index={1} />
+					<StatCard label="Users" value={stats.total_users} icon="users" index={2} />
+					<StatCard label="Attachments" value={stats.total_attachments} icon="paperclip" index={3} />
 				</div>
 			</section>
 		{/if}
 
 		{#if stats && stats.top_channels.length > 0}
-			<section class="section enter">
+			<section class="section">
 				<h2 class="section-title">
-					<span class="section-icon">▤</span>
+					<Icon name="chart" />
 					Most Active Channels
 				</h2>
 				<div class="bar-chart">
 					{#each stats.top_channels as ch, i (ch.id)}
 						{@const maxCount = stats!.top_channels[0].message_count}
-						<a href="/channel/{ch.id}" class="bar-row" style="--i: {i}">
+						<a href="/channel/{ch.id}" class="bar-row enter" style:--i={i}>
 							<span class="bar-label truncate">#{ch.name}</span>
 							<div class="bar-track">
 								<div
@@ -114,14 +132,14 @@
 		{/if}
 
 		{#if stats && stats.top_users.length > 0}
-			<section class="section enter">
+			<section class="section">
 				<h2 class="section-title">
-					<span class="section-icon">◉</span>
+					<Icon name="users" />
 					Top Contributors
 				</h2>
 				<div class="contributors-grid">
-					{#each stats.top_users as user, i}
-						<a href="/users/{user.id}" class="contributor-card">
+					{#each stats.top_users as user, i (user.id)}
+						<a href="/users/{user.id}" class="contributor-card enter" style:--i={i}>
 							<span class="contributor-rank mono">#{i + 1}</span>
 							{#if user.avatar_url}
 								<img class="contributor-avatar" src={user.avatar_url} alt={user.display_name} />
@@ -142,9 +160,9 @@
 		{/if}
 
 		{#if guilds[0]}
-			<section class="section enter">
+			<section class="section">
 				<h2 class="section-title">
-					<span class="section-icon">⟐</span>
+					<Icon name="archive" />
 					Archive Info
 				</h2>
 				<div class="meta-grid">
@@ -174,56 +192,80 @@
 	.dashboard {
 		max-width: var(--size-reader-max);
 		margin: 0 auto;
-		padding: var(--space-8) var(--space-6);
+		padding: var(--space-10) var(--space-6);
 	}
 
-	.hero { margin-bottom: var(--space-10); }
-
-	.hero-content { max-width: 640px; }
+	.hero {
+		max-width: 640px;
+		margin-bottom: var(--space-10);
+	}
 
 	.hero-title {
-		font-size: 48px;
-		font-weight: 700;
-		letter-spacing: -0.04em;
-		line-height: 1;
-		margin-bottom: var(--space-3);
+		font: var(--type-display-xl);
+		letter-spacing: var(--tracking-display-xl);
 		color: var(--text-primary);
+		margin-bottom: var(--space-2);
 	}
-
 
 	.hero-sub {
-		font-size: 16px;
+		font: var(--type-body-md);
 		color: var(--text-secondary);
 		margin-bottom: var(--space-6);
-		line-height: 1.5;
 	}
 
-	.hero-search { max-width: 560px; }
+	.hero-search {
+		max-width: 560px;
+	}
 
-	.section { margin-bottom: var(--space-10); }
+	.section {
+		margin-bottom: var(--space-10);
+	}
 
 	.section-title {
 		display: flex;
 		align-items: center;
-		gap: var(--space-3);
-		font-size: 16px;
-		font-weight: 600;
+		gap: var(--space-2);
+		font: var(--type-heading-md);
 		color: var(--text-primary);
-		margin-bottom: var(--space-5);
+		margin-bottom: var(--space-4);
 	}
 
-	.section-icon { color: var(--accent); font-size: 14px; }
+	.section-title :global(.icon) {
+		color: var(--text-secondary);
+	}
 
 	.stats-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: var(--space-3);
+	}
+
+	.loading {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-10);
+	}
+
+	.tile-skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		padding: var(--space-4) var(--space-5);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		background: var(--bg-surface);
+	}
+
+	.rows-skeleton {
+		display: flex;
+		flex-direction: column;
 		gap: var(--space-4);
 	}
 
 	.bar-chart {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: var(--space-1);
 	}
 
 	.bar-row {
@@ -233,32 +275,38 @@
 		gap: var(--space-3);
 		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius-sm);
-		transition: background var(--duration-micro) var(--ease-out-quint);
-		animation: enter var(--duration-medium) var(--ease-out-quint) both;
-		animation-delay: calc(min(var(--i, 0), var(--stagger-max)) * var(--stagger));
-		text-decoration: none;
+		color: inherit;
+		transition: background-color var(--duration-micro) var(--ease-out-quint);
+	}
+
+	.bar-row:hover {
+		background: var(--bg-hover);
 		color: inherit;
 	}
 
-	.bar-row:hover { background: var(--bg-hover); text-decoration: none; }
-
-	.bar-label { font-size: 14px; color: var(--text-secondary); }
+	.bar-label {
+		font: var(--type-body-md);
+		color: var(--text-secondary);
+	}
 
 	.bar-track {
-		height: 8px;
+		height: 6px;
 		background: var(--bg-raised);
-		border-radius: 4px;
+		border-radius: var(--radius-full);
 		overflow: hidden;
 	}
 
 	.bar-fill {
 		height: 100%;
-		background: linear-gradient(90deg, var(--accent-strong), var(--accent));
-		border-radius: 4px;
-		transition: width var(--duration-large) var(--ease-out-quint);
+		background: var(--accent);
+		border-radius: var(--radius-full);
 	}
 
-	.bar-value { font-size: 13px; color: var(--text-tertiary); text-align: right; }
+	.bar-value {
+		font: var(--type-mono-md);
+		color: var(--text-secondary);
+		text-align: right;
+	}
 
 	.contributors-grid {
 		display: flex;
@@ -270,21 +318,28 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
-		padding: var(--space-3) var(--space-4);
+		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius-sm);
-		transition: background var(--duration-micro) var(--ease-out-quint);
-		text-decoration: none;
+		color: inherit;
+		transition: background-color var(--duration-micro) var(--ease-out-quint);
+	}
+
+	.contributor-card:hover {
+		background: var(--bg-hover);
 		color: inherit;
 	}
 
-	.contributor-card:hover { background: var(--bg-hover); text-decoration: none; }
-
-	.contributor-rank { font-size: 13px; color: var(--text-tertiary); width: 28px; text-align: center; }
+	.contributor-rank {
+		width: 28px;
+		font: var(--type-mono-md);
+		color: var(--text-tertiary);
+		text-align: center;
+	}
 
 	.contributor-avatar {
 		width: 32px;
 		height: 32px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		object-fit: cover;
 		flex-shrink: 0;
 	}
@@ -294,22 +349,35 @@
 		align-items: center;
 		justify-content: center;
 		background: var(--bg-overlay);
-		color: var(--text-tertiary);
-		font-weight: 600;
-		font-size: 13px;
+		color: var(--text-secondary);
+		font: var(--type-label-md);
 	}
 
-	.contributor-info { flex: 1; display: flex; flex-direction: column; }
+	.contributor-info {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
 
-	.contributor-name { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+	.contributor-name {
+		font: var(--type-label-md);
+		color: var(--text-primary);
+	}
 
-	.contributor-handle { font-size: 12px; color: var(--text-tertiary); }
+	.contributor-handle {
+		font: var(--type-mono-sm);
+		color: var(--text-tertiary);
+	}
 
-	.contributor-count { font-size: 13px; color: var(--text-secondary); }
+	.contributor-count {
+		font: var(--type-mono-md);
+		color: var(--text-secondary);
+	}
 
 	.meta-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
 		gap: var(--space-3);
 	}
 
@@ -317,41 +385,31 @@
 		padding: var(--space-4);
 		background: var(--bg-surface);
 		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
 	}
 
 	.meta-label {
-		font-size: 12px; color: var(--text-tertiary);
-		text-transform: uppercase; letter-spacing: 0.05em;
-	}
-
-	.meta-value { font-size: 14px; color: var(--text-primary); }
-
-	.loading-state {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-		justify-content: center;
-		padding: var(--space-16) 0;
+		font: var(--type-caption);
+		letter-spacing: var(--tracking-caption);
+		text-transform: uppercase;
 		color: var(--text-tertiary);
 	}
 
-	.spinner {
-		width: 20px; height: 20px;
-		border: 2px solid var(--border-subtle);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
+	.meta-value {
+		font: var(--type-mono-md);
+		color: var(--text-primary);
 	}
 
-	@keyframes spin { to { transform: rotate(360deg); } }
+	@media (max-width: 700px) {
+		.stats-grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
 
-	.error-state {
-		text-align: center;
-		padding: var(--space-16) 0;
-		color: var(--danger);
+		.bar-row {
+			grid-template-columns: 110px 1fr 56px;
+		}
 	}
 </style>

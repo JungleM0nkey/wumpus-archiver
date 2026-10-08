@@ -2,6 +2,11 @@
 	import { onMount } from 'svelte';
 	import { getGuilds, getGuild, getStats } from '#lib/api.ts';
 	import { ChannelType, type Guild, type Channel, type Stats } from '#lib/types.ts';
+	import Alert from '#lib/components/ui/Alert.svelte';
+	import Badge from '#lib/components/ui/Badge.svelte';
+	import EmptyState from '#lib/components/ui/EmptyState.svelte';
+	import Icon from '#lib/components/ui/Icon.svelte';
+	import Skeleton from '#lib/components/ui/Skeleton.svelte';
 
 	let guild: Guild | null = $state(null);
 	let channels: Channel[] = $state([]);
@@ -63,25 +68,31 @@
 	</header>
 
 	{#if loading}
-		<div class="center-state">
-			<div class="spinner"></div>
-			<span class="mono">Loading channels...</span>
+		<div class="channels-grid" aria-busy="true">
+			<span class="sr-only" role="status">Loading channels…</span>
+			{#each [0, 1, 2, 3] as i (i)}
+				<div class="channel-card skeleton-card">
+					<Skeleton width="45%" height="16px" />
+					<Skeleton width="80%" height="12px" />
+					<Skeleton height="4px" radius="full" />
+				</div>
+			{/each}
 		</div>
 	{:else if error}
-		<div class="center-state error">⚠ {error}</div>
+		<Alert tone="danger" title="The channels could not be loaded">{error}</Alert>
 	{:else if channels.length === 0}
-		<div class="center-state">No channels found in archive.</div>
+		<EmptyState icon="hash" title="No channels found in archive." />
 	{:else}
 		<div class="channels-grid">
-			{#each sortedChannels() as ch (ch.id)}
+			{#each sortedChannels() as ch, i (ch.id)}
 				{@const count = getMessageCount(ch)}
 				{@const pct = (count / getMaxCount()) * 100}
-				<a class="channel-card" href="/channel/{ch.id}">
+				<a class="channel-card enter" style:--i={i} href="/channel/{ch.id}">
 					<div class="channel-header">
-						<span class="channel-hash">#</span>
+						<Icon name="hash" size={18} />
 						<span class="channel-name">{ch.name}</span>
 						{#if ch.type === ChannelType.GUILD_CATEGORY}
-							<span class="badge">Category</span>
+							<Badge>Category</Badge>
 						{/if}
 					</div>
 
@@ -97,9 +108,9 @@
 							<span class="mono stat-count">
 								{count.toLocaleString()} messages
 							</span>
-						{#if ch.last_scraped_at}
-							<span class="mono stat-date">
-								last scraped {formatDate(ch.last_scraped_at)}
+							{#if ch.last_scraped_at}
+								<span class="mono stat-date">
+									last scraped {formatDate(ch.last_scraped_at)}
 								</span>
 							{/if}
 						</div>
@@ -112,7 +123,7 @@
 
 <style>
 	.channels-page {
-		padding: var(--space-8) var(--space-6);
+		padding: var(--space-10) var(--space-6);
 		max-width: var(--size-reader-max);
 		margin: 0 auto;
 	}
@@ -122,39 +133,48 @@
 	}
 
 	.page-header h1 {
-		font-size: 32px;
-		font-weight: 700;
-		letter-spacing: -0.03em;
+		font: var(--type-display-lg);
+		letter-spacing: var(--tracking-display-lg);
 		margin-bottom: var(--space-2);
 	}
 
-
 	.header-sub {
-		font-size: 14px;
+		font: var(--type-body-md);
 		color: var(--text-secondary);
+	}
+
+	.header-sub strong {
+		color: var(--text-primary);
+		font-weight: 600;
 	}
 
 	.channels-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-		gap: var(--space-4);
+		grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+		gap: var(--space-3);
 	}
 
 	.channel-card {
-		display: block;
+		display: flex;
+		flex-direction: column;
 		background: var(--bg-surface);
 		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
-		padding: var(--space-5);
-		text-decoration: none;
+		border-radius: var(--radius-md);
+		padding: var(--space-4) var(--space-5);
 		color: inherit;
-		transition: all var(--duration-micro) var(--ease-out-quint);
+		transition:
+			background-color var(--duration-micro) var(--ease-out-quint),
+			border-color var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.channel-card:hover {
-		border-color: var(--accent);
-		transform: translateY(-2px);
-		box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+		background: var(--bg-raised);
+		border-color: var(--border-default);
+		color: inherit;
+	}
+
+	.skeleton-card {
+		gap: var(--space-3);
 	}
 
 	.channel-header {
@@ -162,27 +182,21 @@
 		align-items: center;
 		gap: var(--space-2);
 		margin-bottom: var(--space-3);
-	}
-
-	.channel-hash {
-		font-size: 22px;
-		font-weight: 700;
 		color: var(--text-tertiary);
 	}
 
 	.channel-name {
-		font-size: 16px;
-		font-weight: 600;
+		font: var(--type-heading-sm);
 		color: var(--text-primary);
 	}
 
 	.channel-topic {
-		font-size: 13px;
-		color: var(--text-tertiary);
+		font: var(--type-body-sm);
+		color: var(--text-secondary);
 		margin-bottom: var(--space-4);
-		line-height: 1.5;
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
+		line-clamp: 2;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
 	}
@@ -193,8 +207,8 @@
 
 	.stat-bar-bg {
 		height: 4px;
-		background: var(--bg-hover);
-		border-radius: 2px;
+		background: var(--bg-raised);
+		border-radius: var(--radius-full);
 		overflow: hidden;
 		margin-bottom: var(--space-2);
 	}
@@ -202,45 +216,24 @@
 	.stat-bar-fill {
 		height: 100%;
 		background: var(--accent);
-		border-radius: 2px;
+		border-radius: var(--radius-full);
 		min-width: 2px;
-		transition: width var(--duration-medium) var(--ease-out-quint);
 	}
 
 	.stat-row {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
+		gap: var(--space-2);
 	}
 
 	.stat-count {
-		font-size: 12px;
+		font: var(--type-mono-sm);
 		color: var(--text-secondary);
 	}
 
 	.stat-date {
-		font-size: 11px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 	}
-
-	.center-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-16) 0;
-		color: var(--text-secondary);
-	}
-
-	.center-state.error { color: var(--danger); }
-
-	.spinner {
-		width: 20px; height: 20px;
-		border: 2px solid var(--border-subtle);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin { to { transform: rotate(360deg); } }
 </style>
