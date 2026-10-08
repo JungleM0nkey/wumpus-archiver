@@ -283,6 +283,26 @@ test('back pressed while a link’s cross-fade is starting shows the screen the 
 	await expect(main.getByRole('heading', { name: 'Smoke Test Guild' })).toHaveCount(0);
 });
 
+test('the search field keeps focus and keys while the screen a link opened arrives', async ({ page }) => {
+	await page.goto('/', { waitUntil: 'networkidle' });
+	// People's code arrives only once the reader is typing in the sidebar's search field.
+	let release = () => {};
+	const held = new Promise<void>((resolve) => (release = resolve));
+	await page.route('**/_app/immutable/nodes/**', async (route) => {
+		await held;
+		await route.continue();
+	});
+	await page.getByRole('navigation', { name: 'Destinations' }).getByRole('link', { name: 'People' }).click();
+	const search = page.getByRole('searchbox', { name: 'Search messages' });
+	await search.fill('hel');
+	release();
+	await expect(page.locator('main').getByRole('heading', { name: 'People', level: 1 })).toBeVisible();
+	await expect(search).toBeFocused();
+	await page.keyboard.type('lo');
+	await page.keyboard.press('Enter');
+	await expect(page).toHaveURL('/search?q=hello');
+});
+
 test('back and forward keep the restored position while the screen finishes loading', async ({ page }) => {
 	await page.setViewportSize({ width: 1280, height: 600 });
 	await page.goto('/people/900000000000000100', { waitUntil: 'networkidle' });

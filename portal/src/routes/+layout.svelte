@@ -34,6 +34,28 @@
 
 	beforeNavigate(carryGuild);
 
+	// Where focus was when the current navigation began.
+	let focusAtStart: Element | null = null;
+	beforeNavigate(() => {
+		focusAtStart = document.activeElement;
+	});
+
+	/**
+	 * Keep focus the reader moved into the shell while the navigation loaded. The router
+	 * blurs whatever is focused as it swaps the screen, then moves focus to the page, as
+	 * is right for the link that started the navigation. But a reader who has gone on to,
+	 * say, the sidebar's search field is typing there: blurring it would drop their keys.
+	 * The swap runs in this task, so its blur is undone before any key arrives.
+	 */
+	function keepShellFocus() {
+		const focused = document.activeElement;
+		if (!(focused instanceof HTMLElement) || focused === document.body) return;
+		if (focused === focusAtStart || scroller?.contains(focused)) return;
+		const refocus = () => focused.focus({ preventScroll: true });
+		focused.addEventListener('blur', refocus, { once: true });
+		setTimeout(() => focused.removeEventListener('blur', refocus));
+	}
+
 	/** Whether `navigation` changes the screen, not only its own search params. */
 	function changesScreen(from: URL | undefined, to: URL | undefined): boolean {
 		if (!from || !to) return true;
@@ -59,13 +81,18 @@
 		const waiting = unswapped;
 		const after = waiting ? waiting.complete.catch(() => {}) : undefined;
 		if (!document.startViewTransition || !changesScreen(navigation.from?.url, navigation.to?.url)) {
-			return after;
+			if (!after) {
+				keepShellFocus();
+				return;
+			}
+			return after.then(keepShellFocus);
 		}
 		unswapped = navigation;
 		return new Promise<void>((resolve) => {
 			const transition = document.startViewTransition(async () => {
 				await after;
 				if (unswapped === navigation) unswapped = null;
+				keepShellFocus();
 				resolve();
 				await navigation.complete.catch(() => {});
 			});
