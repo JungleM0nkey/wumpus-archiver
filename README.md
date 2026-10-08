@@ -160,7 +160,7 @@ first guild when absent), and every page shows that guild.
 | `/search` | Search | Full-text search with filters |
 | `/people` | People | Authors as a table, sortable by messages, name or recent activity, searchable by name (`/users` redirects here) |
 | `/people/[id]` | People | A profile: stat tiles, a 52-week activity heatmap, top channels, reactions received, recent messages (`/users/[id]` redirects here) |
-| `/control` | Archive screen (sidebar footer) | Scrape control |
+| `/archive` | Archive screen (sidebar footer) | Scrape control: run a scrape, the live scrape job, attachments on disk, job history (`/control` redirects here) |
 
 ## Environment Variables
 
@@ -182,7 +182,7 @@ See `.env.example` for all options. Key variables:
 | `LOG_LEVEL` | `INFO` | Logging level |
 
 **Behaviour change:** starting or cancelling a scrape (`POST /api/scrape/start` and
-`/api/scrape/cancel`, including from the portal's control panel) now requires `API_AUTH_TOKEN`,
+`/api/scrape/cancel`, including from the portal's Archive screen) now requires `API_AUTH_TOKEN`,
 sent as `Authorization: Bearer <token>`. If it is not set, those endpoints return `403` rather
 than being open. Read-only endpoints are unchanged, and CORS no longer allows credentials,
 arbitrary methods or arbitrary headers.

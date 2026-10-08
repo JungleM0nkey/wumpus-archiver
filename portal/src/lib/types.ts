@@ -177,12 +177,21 @@ export interface TimelineGalleryResponse {
 
 // --- Scrape Control Panel types ---
 
+/** One channel a scrape job has reached: the messages written so far, and whether it is done. */
+export interface ScrapeChannelProgress {
+	name: string;
+	messages: number;
+	done: boolean;
+}
+
 export interface ScrapeProgress {
 	current_channel: string;
 	channels_done: number;
 	messages_scraped: number;
 	attachments_found: number;
 	errors: string[];
+	/** The channels the job has reached, in order; the last one not done is the current one. */
+	channels: ScrapeChannelProgress[];
 }
 
 export interface ScrapeJob {

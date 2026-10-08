@@ -71,6 +71,17 @@ async def test_cancel_ends_the_job_and_history_lists_it(
     assert jobs[0]["progress"]["channels"] == [{"name": "general", "messages": 12, "done": False}]
 
 
+async def test_a_guild_id_sent_as_a_string_keeps_every_digit(
+    client: AsyncClient, fake: FakeScrapeControl
+) -> None:
+    """The portal sends a snowflake as a string: as a JS number it would lose digits."""
+    started = await client.post(
+        "/api/scrape/start", json={"guild_id": "165682173540696064"}, headers=AUTH
+    )
+    assert started.status_code == 202
+    assert fake.started == [165682173540696064]
+
+
 async def test_a_finished_job_has_every_channel_done(
     client: AsyncClient, fake: FakeScrapeControl
 ) -> None:

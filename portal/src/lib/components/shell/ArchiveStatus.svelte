@@ -48,7 +48,7 @@
 		return phase === 'unknown' ? 'Open the Archive screen' : '';
 	});
 	const summary = $derived(`${title}${detail ? ` · ${detail}` : ''}`);
-	const here = $derived(page.url.pathname.startsWith('/control'));
+	const here = $derived(page.url.pathname.startsWith('/archive'));
 
 	function formatDate(iso: string): string {
 		return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -56,7 +56,7 @@
 </script>
 
 <a
-	href={withGuild('/control')}
+	href={withGuild('/archive')}
 	class="status-card"
 	class:here
 	data-state={phase}

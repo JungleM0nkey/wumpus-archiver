@@ -158,7 +158,12 @@ export async function getScrapeStatus(): Promise<ScrapeStatusResponse> {
 	return fetchJSON<ScrapeStatusResponse>('/scrape/status');
 }
 
-export async function startScrape(guildId: number): Promise<{ job: ScrapeJob }> {
+/**
+ * Start a scrape job for guild `guildId`, a snowflake as a string of digits. It is sent
+ * as that string, which the API reads as the integer: a guild id is past the integers
+ * a JS number holds exactly.
+ */
+export async function startScrape(guildId: string): Promise<{ job: ScrapeJob }> {
 	return fetchJSON<{ job: ScrapeJob }>('/scrape/start', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', ...authHeaders() },
