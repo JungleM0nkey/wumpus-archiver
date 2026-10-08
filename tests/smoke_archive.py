@@ -1,9 +1,10 @@
 """The small archive the portal smoke suite browses, and the command that writes it.
 
-Two guilds. The first, "Smoke Test Guild", has two categories, four text channels, two
-regular authors and a dozen messages spread over two months, including a reply,
-reactions and local attachments (three images and a text file on #art; on #random a GIF, a
-video and images of other shapes for the Media screen). Beside them, enough
+Two guilds. The first, "Smoke Test Guild", has two categories, four text channels, a
+voice channel that Browse leaves out (#60), two regular authors and a dozen messages
+spread over two months, including a reply, reactions and local attachments (three
+images and a text file on #art; on #random a GIF, a video and images of other shapes
+for the Media screen). Beside them, enough
 one-message authors ("lurkers", all in #lobby) that the People screen fills three
 pages, and two more in #lobby whose order by name is not their order by messages
 (#65). The second, "Night Owls", is smaller and shares nothing with the first: its own
@@ -56,7 +57,11 @@ CAROL_ID = 900000000000000110
 DAVE_ID = 900000000000000111
 
 GUILD_TEXT = 0
+GUILD_VOICE = 2
 GUILD_CATEGORY = 4
+
+# #60 (Browse): a voice channel under "Text Channels", which the channel pane leaves out.
+HANGOUT_ID = 900000000000000024
 
 START = datetime(2024, 5, 20, 12, 0)
 """The first message's time; later messages follow at increasing offsets."""
@@ -295,6 +300,16 @@ async def seed_smoke_archive(database: Database) -> None:
                     position=2,
                     parent_id=TEXT_CATEGORY_ID,
                     message_count=counts[LOBBY_ID],
+                    last_scraped_at=last,
+                ),
+                # #60 (Browse): a voice channel, absent from Browse's channel pane.
+                Channel(
+                    id=HANGOUT_ID,
+                    guild_id=GUILD_ID,
+                    name="hangout",
+                    type=GUILD_VOICE,
+                    position=3,
+                    parent_id=TEXT_CATEGORY_ID,
                     last_scraped_at=last,
                 ),
                 User(id=ALICE_ID, username="alice", global_name="Alice"),

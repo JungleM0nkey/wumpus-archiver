@@ -26,9 +26,9 @@ interface RouteVisit {
 
 const ROUTES: RouteVisit[] = [
 	{ route: '/', url: '/', shows: 'Smoke Test Guild' },
-	{ route: '/channels', url: '/channels', shows: 'general' },
-	{ route: '/channel/[id]', url: `/channel/${ART_ID}`, shows: 'My first sketch' },
-	{ route: '/timeline', url: '/timeline', shows: 'Welcome to the smoke test guild!' },
+	// Browse opens the guild's most active channel, #lobby.
+	{ route: '/browse', url: '/browse', shows: 'aaron checks in, 2 of 2.' },
+	{ route: '/browse/[channel]', url: `/browse/${ART_ID}`, shows: 'My first sketch' },
 	{ route: '/search', url: '/search?q=hello', shows: 'The hello world of June.' },
 	{ route: '/media', url: '/media', shows: 'May 2024' },
 	{ route: '/people', url: '/people', shows: 'Alice' },

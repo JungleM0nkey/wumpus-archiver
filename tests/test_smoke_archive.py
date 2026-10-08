@@ -14,6 +14,7 @@ from tests.smoke_archive import (
     ART_ID,
     CAROL_ID,
     GUILD_ID,
+    HANGOUT_ID,
     LURKERS,
     NIGHT_GUILD_ID,
     NIGHT_SCRAPE_ADDED,
@@ -112,6 +113,16 @@ async def test_messages_carry_replies_reactions_and_local_attachments(client: As
     assert all(url.startswith("/attachments/") for url in urls)
     for url in urls:
         assert (await client.get(url)).status_code == 200
+
+
+async def test_browse_has_a_voice_channel_to_leave_out(client: AsyncClient) -> None:
+    """The Browse smoke tests check the channel pane lists the text channels, not this."""
+    guild = (await client.get(f"/api/guilds/{GUILD_ID}")).json()
+    voice = [c for c in guild["channels"] if c["type"] == 2]
+    assert [(c["id"], c["name"]) for c in voice] == [(str(HANGOUT_ID), "hangout")]
+    texts = {c["name"]: c["message_count"] for c in guild["channels"] if c["type"] == 0}
+    lobby = LURKERS + SORTED_APART_MESSAGES
+    assert texts == {"general": 6, "random": 3, "lobby": lobby, "art": 3}
 
 
 async def test_search_and_profile_find_the_seeded_text(client: AsyncClient) -> None:

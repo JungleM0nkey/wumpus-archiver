@@ -19,7 +19,7 @@ const SOURCES = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 const GLYPH =
 	/[←-⇿⊕-⊡⌀-⏿■-◿☀-➿⟀-⟯⤀-⥿⬀-⯿]|\p{Extended_Pictographic}/u;
 
-const VISITS = ['/', `/channel/${ART_ID}`, '/media', '/search?q=hello', '/people', '/archive'];
+const VISITS = ['/', `/browse/${ART_ID}`, '/media', '/search?q=hello', '/people', '/archive'];
 
 /** The first family of an element's computed font-family, unquoted. */
 async function firstFamily(page: Page, selector: string): Promise<string> {
@@ -31,7 +31,7 @@ async function firstFamily(page: Page, selector: string): Promise<string> {
 }
 
 test('the UI is set in Instrument Sans and timestamps in JetBrains Mono', async ({ page }) => {
-	await page.goto(`/channel/${ART_ID}`, { waitUntil: 'networkidle' });
+	await page.goto(`/browse/${ART_ID}`, { waitUntil: 'networkidle' });
 	await expect(page.locator('main time').first()).toBeVisible();
 
 	expect(await firstFamily(page, 'body')).toMatch(/^Instrument Sans/);
@@ -93,7 +93,7 @@ test("the page's background is the canvas colour", async ({ page }) => {
 });
 
 test('the sidebar and message cards draw their icons as SVG, not glyphs or emoji', async ({ page }) => {
-	await page.goto(`/channel/${ART_ID}`, { waitUntil: 'networkidle' });
+	await page.goto(`/browse/${ART_ID}`, { waitUntil: 'networkidle' });
 
 	const links = page.locator('.sidebar .nav-item');
 	await expect(links).toHaveCount(5);

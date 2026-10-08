@@ -12,6 +12,7 @@ const GUILD_ID = '900000000000000001';
 const NIGHT_ID = '900000000000000002';
 const GENERAL_ID = '900000000000000020';
 const LOUNGE_ID = '900000000000000031';
+const PHOTOS_ID = '900000000000000032';
 const CAROL_ID = '900000000000000110';
 
 /** Every /api request the page makes from now on, as "METHOD /path?query". */
@@ -60,9 +61,10 @@ test('switching guild re-scopes every destination, and the URL carries it throug
 	await expect(stat(main, 'Authors')).toHaveText('2');
 	await expect(stat(main, 'Attachments')).toHaveText('1');
 
+	// Browse opens Night Owls' most active channel.
 	await open(page, 'Browse');
-	await expect(page).toHaveURL(`/channels?guild=${NIGHT_ID}`);
-	await expect(main.getByText('lounge', { exact: true })).toBeVisible();
+	await expect(page).toHaveURL(`/browse/${LOUNGE_ID}?guild=${NIGHT_ID}`);
+	await expect(main.getByRole('heading', { name: 'lounge' })).toBeVisible();
 	await expect(main.getByText('general', { exact: true })).toHaveCount(0);
 
 	await open(page, 'Media');
@@ -105,27 +107,29 @@ test('switching guild stays on the screen, and re-reads it once', async ({ page 
 test("switching guild on a channel goes to Browse's index, as the channel is not in the other guild", async ({
 	page
 }) => {
-	await page.goto(`/channel/${GENERAL_ID}`, { waitUntil: 'networkidle' });
+	await page.goto(`/browse/${GENERAL_ID}`, { waitUntil: 'networkidle' });
 	await switchGuild(page, 'Night Owls');
-	await expect(page).toHaveURL(`/channels?guild=${NIGHT_ID}`);
-	await expect(page.locator('main').getByText('lounge', { exact: true })).toBeVisible();
+	// Browse's index, which opens Night Owls' most active channel.
+	await expect(page).toHaveURL(`/browse/${LOUNGE_ID}?guild=${NIGHT_ID}`);
+	await expect(page.locator('main').getByRole('heading', { name: 'lounge' })).toBeVisible();
 });
 
 test("a screen's own links keep the selected guild", async ({ page }) => {
-	await page.goto(`/channels?guild=${NIGHT_ID}`, { waitUntil: 'networkidle' });
+	await page.goto(`/browse/${LOUNGE_ID}?guild=${NIGHT_ID}`, { waitUntil: 'networkidle' });
 	const main = page.locator('main');
-	await main.getByRole('link', { name: /lounge/ }).click();
-	await expect(page).toHaveURL(`/channel/${LOUNGE_ID}?guild=${NIGHT_ID}`);
-	await expect(main.getByText('Night owls unite.')).toBeVisible();
+	await main.getByRole('link', { name: /photos/ }).click();
+	await expect(page).toHaveURL(`/browse/${PHOTOS_ID}?guild=${NIGHT_ID}`);
+	await expect(main.getByText('Long exposure attempt')).toBeVisible();
 
-	await main.getByRole('link', { name: 'Channels' }).click();
-	await expect(page).toHaveURL(`/channels?guild=${NIGHT_ID}`);
+	await main.getByRole('link', { name: /lounge/ }).click();
+	await expect(page).toHaveURL(`/browse/${LOUNGE_ID}?guild=${NIGHT_ID}`);
+	await expect(main.getByText('Night owls unite.')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Guild: Night Owls' })).toBeVisible();
 });
 
 test('a channel link without a guild selects the guild that holds the channel', async ({ page }) => {
-	await page.goto(`/channel/${LOUNGE_ID}`, { waitUntil: 'networkidle' });
-	await expect(page).toHaveURL(`/channel/${LOUNGE_ID}?guild=${NIGHT_ID}`);
+	await page.goto(`/browse/${LOUNGE_ID}`, { waitUntil: 'networkidle' });
+	await expect(page).toHaveURL(`/browse/${LOUNGE_ID}?guild=${NIGHT_ID}`);
 	await expect(page.getByRole('button', { name: 'Guild: Night Owls' })).toBeVisible();
 	await expect(page.locator('main').getByRole('heading', { name: 'lounge' })).toBeVisible();
 	await expect(page.locator('main').getByText('Night owls unite.')).toBeVisible();
@@ -152,21 +156,15 @@ const VISITS: Visit[] = [
 		hides: (m) => m.getByText('Smoke Test Guild')
 	},
 	{
-		route: '/channels',
-		url: `/channels?${g}`,
-		shows: (m) => m.getByText('lounge', exact),
+		route: '/browse',
+		url: `/browse?${g}`,
+		shows: (m) => m.getByText('Night owls unite.'),
 		hides: (m) => m.getByText('general', exact)
 	},
 	{
-		route: '/channel/[id]',
-		url: `/channel/${LOUNGE_ID}?${g}`,
+		route: '/browse/[channel]',
+		url: `/browse/${LOUNGE_ID}?${g}`,
 		shows: (m) => m.getByText('Game night is on Friday.'),
-		hides: (m) => m.getByText('Smoke Test Guild')
-	},
-	{
-		route: '/timeline',
-		url: `/timeline?${g}`,
-		shows: (m) => m.getByText('Night owls unite.'),
 		hides: (m) => m.getByText('general', exact)
 	},
 	{

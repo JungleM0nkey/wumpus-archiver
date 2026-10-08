@@ -11,6 +11,7 @@ const portalPackage = JSON.parse(
 
 // Ids and text from tests/smoke_archive.py.
 const GENERAL_ID = '900000000000000020';
+const LOBBY_ID = '900000000000000023';
 
 test('the tab shows the Wumpus Archiver favicon', async ({ page }) => {
 	await page.goto('/', { waitUntil: 'networkidle' });
@@ -39,7 +40,8 @@ test('the sidebar holds the five destinations, and the Archive screen is not one
 	await expect(nav.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
 
 	for (const [name, url, heading] of [
-		['Browse', '/channels', 'Channels'],
+		// Browse opens the guild's most active channel.
+		['Browse', `/browse/${LOBBY_ID}`, 'lobby'],
 		['Media', '/media', 'Media'],
 		['Search', '/search', 'Search'],
 		['People', '/people', 'People'],
@@ -178,7 +180,7 @@ test('the archive-status card says the archive is idle and opens the Archive scr
 
 test('the archive-status card shows a running scrape job on every screen', async ({ page }) => {
 	await runningJob(page);
-	await page.goto(`/channel/${GENERAL_ID}`, { waitUntil: 'domcontentloaded' });
+	await page.goto(`/browse/${GENERAL_ID}`, { waitUntil: 'domcontentloaded' });
 	const card = page.getByRole('link', { name: /^Archive screen:/ });
 	await expect(card).toHaveAttribute('data-state', 'running');
 	await expect(card).toContainText('Scraping');
@@ -191,9 +193,8 @@ test('the archive-status card shows a running scrape job on every screen', async
 // A screen and text in its content; the content's scroll container is checked from it.
 const SCREENS: [string, string][] = [
 	['/', 'Most Active Channels'],
-	['/channels', 'general'],
-	[`/channel/${GENERAL_ID}`, 'The hello world of June.'],
-	['/timeline', 'Welcome to the smoke test guild!'],
+	['/browse', 'aaron checks in, 2 of 2.'],
+	[`/browse/${GENERAL_ID}`, 'The hello world of June.'],
 	['/search?q=hello', 'The hello world of June.'],
 	['/media', 'May 2024'],
 	['/people', 'Lurker 001'],
@@ -264,12 +265,11 @@ test('a new screen opens at the top', async ({ page }) => {
 	await expect.poll(() => main.evaluate((m) => m.scrollTop)).toBe(0);
 });
 
-test("a reader's header and the timeline's channel list stay in view as the content scrolls", async ({ page }) => {
+test("the reader's header and Browse's channel pane stay in view as the content scrolls", async ({ page }) => {
 	await page.setViewportSize({ width: 1280, height: 540 });
 	for (const [url, selector] of [
-		[`/channel/${GENERAL_ID}`, '.channel-header'],
-		[`/timeline?channel=${GENERAL_ID}`, '.timeline-header'],
-		[`/timeline?channel=${GENERAL_ID}`, '.filter-sidebar']
+		[`/browse/${GENERAL_ID}`, '.reader-header'],
+		[`/browse/${GENERAL_ID}`, '.channel-pane']
 	]) {
 		await page.goto(url, { waitUntil: 'networkidle' });
 		const main = page.locator('main');

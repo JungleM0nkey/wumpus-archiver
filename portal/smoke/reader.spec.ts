@@ -1,10 +1,10 @@
-// The channel readers open at a channel's newest messages and page back in time,
-// adding older messages above without moving what is in view (ADR 0003, #56).
+// Browse's reader opens at a channel's newest messages and pages back in time,
+// adding older messages above without moving what is in view (ADR 0003, #56, #60).
 //
 // The smoke archive's channels fit in one page, so the paging tests narrow every
 // messages request to PAGE messages; general's six then take three pages.
-import type { Page } from '@playwright/test';
 import { ROUTE_ANNOTATION, expect, test } from './fixtures.ts';
+import { narrowPages, topOf } from './reader.ts';
 
 // Ids and text from tests/smoke_archive.py.
 const GENERAL_ID = '900000000000000020';
@@ -17,29 +17,7 @@ interface Reader {
 	url: (channelId: string) => string;
 }
 
-const READERS: Reader[] = [
-	{ route: '/channel/[id]', url: (id) => `/channel/${id}` },
-	{ route: '/timeline', url: (id) => `/timeline?channel=${id}` }
-];
-
-/** Answer every channel messages request with at most `limit` messages. */
-async function narrowPages(page: Page, limit: number): Promise<void> {
-	await page.route(
-		(url) => url.pathname.startsWith('/api/channels/') && url.pathname.endsWith('/messages'),
-		async (route) => {
-			const url = new URL(route.request().url());
-			url.searchParams.set('limit', String(limit));
-			await route.continue({ url: url.href });
-		}
-	);
-}
-
-/** The top of the message whose text is `text`, in viewport pixels. */
-async function topOf(page: Page, text: string): Promise<number> {
-	const box = await page.locator('main').getByText(text, { exact: true }).boundingBox();
-	expect(box, `${text} is laid out`).not.toBeNull();
-	return box!.y;
-}
+const READERS: Reader[] = [{ route: '/browse/[channel]', url: (id) => `/browse/${id}` }];
 
 for (const reader of READERS) {
 	const annotation = { type: ROUTE_ANNOTATION, description: reader.route };

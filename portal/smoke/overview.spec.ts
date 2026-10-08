@@ -30,7 +30,7 @@ test('an Overview top channel opens that channel', async ({ page }) => {
 	await page.goto('/', { waitUntil: 'networkidle' });
 	await page.getByRole('link', { name: '#general' }).click();
 
-	await expect(page).toHaveURL(new RegExp(GENERAL_ID));
+	await expect(page).toHaveURL(`/browse/${GENERAL_ID}`);
 	await expect(page.locator('main').getByText('Anyone up for a game tonight?')).toBeVisible();
 });
 

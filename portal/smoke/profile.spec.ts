@@ -101,7 +101,7 @@ test('top channels and reactions received link and count', profile, async ({ pag
 	await page.goto(`/people/${ALICE_ID}`, { waitUntil: 'networkidle' });
 	const channels = page.locator('main section', { has: page.getByRole('heading', { name: 'Top channels' }) });
 	await expect(channels.getByRole('link')).toHaveCount(3);
-	await expect(channels.getByRole('link', { name: /#art/ })).toHaveAttribute('href', `/channel/${ART_ID}`);
+	await expect(channels.getByRole('link', { name: /#art/ })).toHaveAttribute('href', `/browse/${ART_ID}`);
 
 	const reactions = page.locator('main section', { has: page.getByRole('heading', { name: 'Reactions received' }) });
 	await expect(reactions.locator('.section-sub')).toHaveText('6 reactions on their messages');
@@ -121,8 +121,8 @@ test("a profile's recent messages are the author's newest, each opening its chan
 	const recent = page.locator('main .recent');
 	await expect(recent.locator('.recent-content')).toHaveText(ALICE_NEWEST_FIRST);
 	const first = recent.getByRole('link').first();
-	await expect(first).toHaveAttribute('href', `/channel/${ART_ID}?message=${ANOTHER_DRAWING_ID}`);
+	await expect(first).toHaveAttribute('href', `/browse/${ART_ID}?message=${ANOTHER_DRAWING_ID}`);
 	await first.click();
-	await expect(page).toHaveURL(`/channel/${ART_ID}?message=${ANOTHER_DRAWING_ID}`);
+	await expect(page).toHaveURL(`/browse/${ART_ID}?message=${ANOTHER_DRAWING_ID}`);
 	await expect(page.locator('main').getByText('Another drawing')).toBeVisible();
 });
