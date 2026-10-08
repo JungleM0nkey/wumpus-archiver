@@ -544,7 +544,7 @@
 	>
 		<div class="feed-area">
 			{#if loading}
-				<div class="feed"><MessageSkeleton /></div>
+				<div class="feed"><MessageSkeleton shape="row" /></div>
 			{:else if error && messages.length === 0}
 				<div class="state">
 					<Alert tone="danger" title="Messages could not be loaded">{error}</Alert>
