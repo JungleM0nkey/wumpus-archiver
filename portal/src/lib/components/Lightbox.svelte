@@ -53,8 +53,8 @@
 	/** The tile the Lightbox opened from, and its attachment, for focus and the zoom back. */
 	let opener: HTMLElement | null = null;
 	let openerId: string | null = null;
-	/** Set while it opens or closes, so a second click or Esc waits its turn. */
-	let busy = false;
+	/** The open or close under way: a second click is ignored, and Esc waits its turn. */
+	let busy: Promise<void> | null = null;
 
 	let dialog: HTMLDialogElement | undefined = $state();
 	let media: HTMLImageElement | HTMLVideoElement | undefined = $state();
@@ -86,37 +86,40 @@
 	/** Open on `attachment`, zooming from `tile` (its grid tile) when given. */
 	export async function open(attachment: GalleryAttachment, tile?: HTMLElement): Promise<void> {
 		if (currentId !== null || busy) return;
-		busy = true;
 		opener = tile ?? null;
 		openerId = attachment.id;
+		busy = transition(tile ? mediaIn(tile) : null, async () => {
+			currentId = attachment.id;
+			await tick();
+			dialog?.showModal();
+			dialog?.focus();
+			return media ?? null;
+		});
 		try {
-			await transition(tile ? mediaIn(tile) : null, async () => {
-				currentId = attachment.id;
-				await tick();
-				dialog?.showModal();
-				dialog?.focus();
-				return media ?? null;
-			});
+			await busy;
 		} finally {
-			busy = false;
+			busy = null;
 		}
 		if (index >= attachments.length - NEAR_END) onnearend?.();
 	}
 
 	/** Close, zooming back to the tile it opened from when it still shows that attachment. */
 	export async function close(): Promise<void> {
-		if (currentId === null || busy) return;
-		busy = true;
+		// The dialog is open, and takes keys, before its zoom in ends: an Esc then closes
+		// it once the zoom is done, rather than being lost.
+		while (busy) await busy.catch(() => {});
+		if (currentId === null) return;
 		const tile = openerTile();
 		const back = tile && currentId === openerId ? mediaIn(tile) : null;
+		busy = transition(back ? (media ?? null) : null, async () => {
+			currentId = null;
+			await tick();
+			return back;
+		});
 		try {
-			await transition(back ? (media ?? null) : null, async () => {
-				currentId = null;
-				await tick();
-				return back;
-			});
+			await busy;
 		} finally {
-			busy = false;
+			busy = null;
 		}
 		opener = null;
 		tile?.focus();

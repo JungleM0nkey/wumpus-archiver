@@ -186,6 +186,33 @@ test('Esc closes the Lightbox and returns focus to the tile it opened from', med
 	await expect(opener).toBeFocused();
 });
 
+test('Esc while the Lightbox is still zooming in closes it once it has opened', media, async ({ page }) => {
+	await page.goto('/media', { waitUntil: 'networkidle' });
+	// The dialog is open, and has focus, before its zoom in ends: press Esc right then,
+	// the moment the dialog opens, as a reader quick on the key can.
+	const pressed = page.evaluate(
+		() =>
+			new Promise<void>((resolve) => {
+				const observer = new MutationObserver(() => {
+					const dialog = document.querySelector('dialog[open]');
+					if (!dialog) return;
+					observer.disconnect();
+					queueMicrotask(() => {
+						const init = { key: 'Escape', bubbles: true, cancelable: true };
+						(document.activeElement ?? dialog).dispatchEvent(new KeyboardEvent('keydown', init));
+						resolve();
+					});
+				});
+				observer.observe(document.body, { subtree: true, attributeFilter: ['open'] });
+			})
+	);
+	const opener = tile(page, 'sketch.png');
+	await opener.click();
+	await pressed;
+	await expect(lightbox(page)).toHaveCount(0);
+	await expect(opener).toBeFocused();
+});
+
 test('focus stays inside the Lightbox while it is open', media, async ({ page }) => {
 	await page.goto('/media', { waitUntil: 'networkidle' });
 	await tile(page, 'another.png').click();
