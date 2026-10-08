@@ -51,7 +51,7 @@ test('switching guild re-scopes every destination, and the URL carries it throug
 	const calls = apiCalls(page);
 	const main = page.locator('main');
 	await page.goto('/', { waitUntil: 'networkidle' });
-	await expect(stat(main, 'Messages')).toHaveText('130');
+	await expect(stat(main, 'Messages')).toHaveText('135');
 
 	await switchGuild(page, 'Night Owls');
 	await expect(page).toHaveURL(`/?guild=${NIGHT_ID}`);
@@ -72,7 +72,7 @@ test('switching guild re-scopes every destination, and the URL carries it throug
 	await expect(main.getByRole('img', { name: 'sketch.png' })).toHaveCount(0);
 
 	await open(page, 'People');
-	await expect(page).toHaveURL(`/users?guild=${NIGHT_ID}`);
+	await expect(page).toHaveURL(`/people?guild=${NIGHT_ID}`);
 	await expect(main.getByText('Carol', { exact: true })).toBeVisible();
 	await expect(main.getByText('Alice', { exact: true })).toHaveCount(0);
 
@@ -94,10 +94,10 @@ test('switching guild re-scopes every destination, and the URL carries it throug
 });
 
 test('switching guild stays on the screen, and re-reads it once', async ({ page }) => {
-	await page.goto('/users', { waitUntil: 'networkidle' });
+	await page.goto('/people', { waitUntil: 'networkidle' });
 	const calls = apiCalls(page);
 	await switchGuild(page, 'Night Owls');
-	await expect(page).toHaveURL(`/users?guild=${NIGHT_ID}`);
+	await expect(page).toHaveURL(`/people?guild=${NIGHT_ID}`);
 	await expect(page.locator('main').getByText('Carol', { exact: true })).toBeVisible();
 	await page.waitForLoadState('networkidle');
 	expect(calls).toEqual([`GET /api/guilds/${NIGHT_ID}/users?limit=50&sort=messages`]);
@@ -189,14 +189,14 @@ const VISITS: Visit[] = [
 		hides: (m) => m.getByText('art', exact)
 	},
 	{
-		route: '/users',
-		url: `/users?${g}`,
+		route: '/people',
+		url: `/people?${g}`,
 		shows: (m) => m.getByText('Carol', exact),
 		hides: (m) => m.getByText('Alice', exact)
 	},
 	{
-		route: '/users/[id]',
-		url: `/users/${CAROL_ID}?${g}`,
+		route: '/people/[id]',
+		url: `/people/${CAROL_ID}?${g}`,
 		shows: (m) => m.getByText('#lounge', exact),
 		hides: (m) => m.getByText('#general', exact)
 	},

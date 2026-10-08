@@ -43,7 +43,7 @@ test('the sidebar holds the five destinations, and the Archive screen is not one
 		['Browse', '/channels', 'Channels'],
 		['Media', '/gallery', 'Media'],
 		['Search', '/search', 'Search'],
-		['People', '/users', 'People'],
+		['People', '/people', 'People'],
 		['Overview', '/', 'Archive']
 	]) {
 		await nav.getByRole('link', { name }).click();
@@ -198,8 +198,8 @@ const SCREENS: [string, string][] = [
 	['/timeline', 'Welcome to the smoke test guild!'],
 	['/search?q=hello', 'The hello world of June.'],
 	['/gallery', 'Media'],
-	['/users', 'Lurker 001'],
-	['/users/900000000000000100', 'Alice'],
+	['/people', 'Lurker 001'],
+	['/people/900000000000000100', 'Alice'],
 	['/control', 'Downloaded Images']
 ];
 
@@ -227,7 +227,7 @@ for (const [url, text] of SCREENS) {
 
 test('back and forward restore each screen’s scroll position', async ({ page }) => {
 	await page.setViewportSize({ width: 1280, height: 600 });
-	await page.goto('/users', { waitUntil: 'networkidle' });
+	await page.goto('/people', { waitUntil: 'networkidle' });
 	const main = page.locator('main');
 	const scrollTop = () => main.evaluate((m) => m.scrollTop);
 
@@ -236,29 +236,29 @@ test('back and forward restore each screen’s scroll position', async ({ page }
 	// A row wholly in view, so clicking it scrolls nothing.
 	const index = await main.evaluate((m) => {
 		const view = m.getBoundingClientRect();
-		const rows = [...m.querySelectorAll('.user-row')];
+		const rows = [...m.querySelectorAll('.person-row')];
 		return rows.findIndex((r) => r.getBoundingClientRect().top > view.top + 100);
 	});
-	await main.locator('.user-row').nth(index).click();
-	await expect(page).toHaveURL(/\/users\/\d+$/);
-	await expect(main.getByText('Recent Messages')).toBeVisible();
+	await main.locator('.person-row').nth(index).click();
+	await expect(page).toHaveURL(/\/people\/\d+$/);
+	await expect(main.getByText('Recent messages')).toBeVisible();
 	await expect.poll(scrollTop).toBe(0);
 	await main.evaluate((m) => (m.scrollTop = 120));
 	const profileTop = await scrollTop();
 	expect(profileTop).toBeGreaterThan(0);
 
 	await page.goBack();
-	await expect(page).toHaveURL('/users');
+	await expect(page).toHaveURL('/people');
 	await expect.poll(scrollTop).toBe(1500);
 
 	await page.goForward();
-	await expect(page).toHaveURL(/\/users\/\d+$/);
+	await expect(page).toHaveURL(/\/people\/\d+$/);
 	await expect.poll(scrollTop).toBe(profileTop);
 });
 
 test('a new screen opens at the top', async ({ page }) => {
 	await page.setViewportSize({ width: 1280, height: 600 });
-	await page.goto('/users', { waitUntil: 'networkidle' });
+	await page.goto('/people', { waitUntil: 'networkidle' });
 	const main = page.locator('main');
 	await main.evaluate((m) => (m.scrollTop = 900));
 	await page.getByRole('navigation', { name: 'Destinations' }).getByRole('link', { name: 'Overview' }).click();

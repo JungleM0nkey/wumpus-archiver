@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { getStats } from '#lib/api.ts';
+	import { personHref } from '#lib/routes.ts';
 	import { shell } from '#lib/shell.svelte.ts';
 	import type { Stats } from '#lib/types.ts';
 	import StatCard from '#lib/components/StatCard.svelte';
@@ -135,7 +136,7 @@
 				</h2>
 				<div class="contributors-grid">
 					{#each stats.top_users as user, i (user.id)}
-						<a href="/users/{user.id}" class="contributor-card enter" style:--i={i}>
+						<a href={personHref(user.id)} class="contributor-card enter" style:--i={i}>
 							<span class="contributor-rank mono">#{i + 1}</span>
 							{#if user.avatar_url}
 								<img class="contributor-avatar" src={user.avatar_url} alt={user.display_name} />

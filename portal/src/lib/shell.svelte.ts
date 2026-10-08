@@ -42,7 +42,7 @@ export const SCROLLER_ID = 'shell-scroller';
  */
 const GUILD_BOUND: [RegExp, string][] = [
 	[/^\/channel\/[^/]+(\/.*)?$/, '/channels'],
-	[/^\/users\/[^/]+$/, '/users']
+	[/^\/people\/[^/]+$/, '/people']
 ];
 
 /** Search params that name something in one guild (a channel), dropped when the guild changes. */

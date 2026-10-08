@@ -32,16 +32,8 @@ const ROUTES: RouteVisit[] = [
 	{ route: '/timeline', url: '/timeline', shows: 'Welcome to the smoke test guild!' },
 	{ route: '/search', url: '/search?q=hello', shows: 'The hello world of June.' },
 	{ route: '/gallery', url: '/gallery', shows: 'art' },
-	{ route: '/users', url: '/users', shows: 'Alice' },
-	{
-		route: '/users/[id]',
-		url: `/users/${ALICE_ID}`,
-		shows: 'Alice',
-		act: async (page) => {
-			await page.getByRole('button', { name: 'Load Messages' }).first().click();
-			await expect(page.getByRole('button', { name: 'Loaded' }).first()).toBeVisible();
-		}
-	},
+	{ route: '/people', url: '/people', shows: 'Alice' },
+	{ route: '/people/[id]', url: `/people/${ALICE_ID}`, shows: 'Another drawing' },
 	{ route: '/control', url: '/control', shows: '.smoke-archive/attachments' }
 ];
 

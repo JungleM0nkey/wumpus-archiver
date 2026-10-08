@@ -158,8 +158,8 @@ first guild when absent), and every page shows that guild.
 | `/timeline` | Browse | Channel reader beside a channel list |
 | `/gallery` | Media | Guild-wide image gallery |
 | `/search` | Search | Full-text search with filters |
-| `/users` | People | Author directory |
-| `/users/[id]` | People | Author profile page |
+| `/people` | People | Authors as a table, sortable by messages, name or recent activity, searchable by name (`/users` redirects here) |
+| `/people/[id]` | People | A profile: stat tiles, a 52-week activity heatmap, top channels, reactions received, recent messages (`/users/[id]` redirects here) |
 | `/control` | Archive screen (sidebar footer) | Scrape control |
 
 ## Environment Variables

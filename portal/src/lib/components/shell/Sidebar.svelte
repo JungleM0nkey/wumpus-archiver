@@ -34,7 +34,7 @@
 		},
 		{ href: '/gallery', label: 'Media', icon: 'images', owns: (p) => /^\/gallery(\/|$)/.test(p) },
 		{ href: '/search', label: 'Search', icon: 'search', owns: (p) => /^\/search(\/|$)/.test(p) },
-		{ href: '/users', label: 'People', icon: 'users', owns: (p) => /^\/users(\/|$)/.test(p) }
+		{ href: '/people', label: 'People', icon: 'users', owns: (p) => /^\/people(\/|$)/.test(p) }
 	];
 
 	let narrow = $state(false);
