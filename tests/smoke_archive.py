@@ -1,8 +1,9 @@
 """The small archive the portal smoke suite browses, and the command that writes it.
 
-One guild with two categories, three text channels, two authors and a dozen messages
-spread over two months, including a reply, reactions and local attachments (two
-images and a text file). Ids are Discord-sized snowflakes, past JavaScript's safe
+One guild with two categories, four text channels, two regular authors and a dozen
+messages spread over two months, including a reply, reactions and local attachments
+(two images and a text file). Beside them, enough one-message authors ("lurkers", all
+in #lobby) that the People screen fills three pages. Ids are Discord-sized snowflakes, past JavaScript's safe
 integer range, so the portal is exercised with ids it must keep as strings.
 
 ``python -m tests.smoke_archive <dir>`` writes ``<dir>/archive.db`` and the local
@@ -34,6 +35,7 @@ MEDIA_CATEGORY_ID = 900000000000000011
 GENERAL_ID = 900000000000000020
 RANDOM_ID = 900000000000000021
 ART_ID = 900000000000000022
+LOBBY_ID = 900000000000000023
 ALICE_ID = 900000000000000100
 BOB_ID = 900000000000000101
 
@@ -79,6 +81,13 @@ _ATTACHMENTS: list[tuple[int, str, str, int | None, int | None]] = [
 ]
 _FIRST_ATTACHMENT_ID = 900000000000002000
 
+LURKERS = 118
+"""Authors with one message each: with Alice and Bob, two full People pages of 50 and 20 more."""
+_FIRST_LURKER_ID = 900000000000000200
+_FIRST_LURKER_MESSAGE_ID = 900000000000003000
+_LURKERS_FROM = 21 * 24 * 60
+"""Minutes after START of the first lurker's message, between the regular messages."""
+
 
 def _png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
     """A valid solid-colour PNG, so the browser decodes it without an error."""
@@ -113,6 +122,7 @@ async def seed_smoke_archive(database: Database) -> None:
     """Write the smoke archive's rows into a connected ``database`` that holds the schema."""
     last = START + timedelta(minutes=_MESSAGES[-1][2])
     counts = Counter(channel_id for channel_id, *_ in _MESSAGES)
+    counts[LOBBY_ID] = LURKERS
 
     async with database.session() as session:
         session.add(
@@ -173,6 +183,17 @@ async def seed_smoke_archive(database: Database) -> None:
                     message_count=counts[ART_ID],
                     last_scraped_at=last,
                 ),
+                Channel(
+                    id=LOBBY_ID,
+                    guild_id=GUILD_ID,
+                    name="lobby",
+                    type=GUILD_TEXT,
+                    topic="Say hi",
+                    position=2,
+                    parent_id=TEXT_CATEGORY_ID,
+                    message_count=counts[LOBBY_ID],
+                    last_scraped_at=last,
+                ),
                 User(id=ALICE_ID, username="alice", global_name="Alice"),
                 User(id=BOB_ID, username="bob", global_name="Bob"),
             ]
@@ -188,6 +209,22 @@ async def seed_smoke_archive(database: Database) -> None:
                     clean_content=content,
                     created_at=START + timedelta(minutes=minutes),
                     reference_id=None if reply_to is None else _FIRST_MESSAGE_ID + reply_to,
+                    scraped_at=last,
+                )
+            )
+        for n in range(LURKERS):
+            name = f"Lurker {n + 1:03d}"
+            session.add(
+                User(id=_FIRST_LURKER_ID + n, username=f"lurker{n + 1:03d}", global_name=name)
+            )
+            session.add(
+                Message(
+                    id=_FIRST_LURKER_MESSAGE_ID + n,
+                    channel_id=LOBBY_ID,
+                    author_id=_FIRST_LURKER_ID + n,
+                    content=f"{name} says hi.",
+                    clean_content=f"{name} says hi.",
+                    created_at=START + timedelta(minutes=_LURKERS_FROM + n),
                     scraped_at=last,
                 )
             )
