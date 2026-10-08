@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { page } from '$app/state';
+	import type { PageProps } from './$types';
 	import { getGuilds, getUserProfile, searchMessages } from '#lib/api.ts';
 	import type { Guild, UserProfile, Message } from '#lib/types.ts';
 	import StatCard from '#lib/components/StatCard.svelte';
@@ -14,7 +14,8 @@
 	let showMessages = $state(false);
 	let loadingMessages = $state(false);
 
-	const userId = $derived(page.params.id);
+	let { params }: PageProps = $props();
+	const userId = $derived(params.id);
 
 	onMount(async () => {
 		try {

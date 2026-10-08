@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { getGuilds, getGuild, getStats } from '#lib/api.ts';
-	import type { Guild, Channel, Stats } from '#lib/types.ts';
+	import { ChannelType, type Guild, type Channel, type Stats } from '#lib/types.ts';
 
 	let guild: Guild | null = $state(null);
 	let channels: Channel[] = $state([]);
@@ -80,7 +80,7 @@
 					<div class="channel-header">
 						<span class="channel-hash">#</span>
 						<span class="channel-name">{ch.name}</span>
-						{#if ch.type === 'category'}
+						{#if ch.type === ChannelType.GUILD_CATEGORY}
 							<span class="badge">Category</span>
 						{/if}
 					</div>
