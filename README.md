@@ -148,7 +148,13 @@ All endpoints are under `/api/`:
 A left sidebar, which collapses to an icon rail with Cmd+\ (Ctrl+\ elsewhere), holds a
 guild switcher, a search field, the five destinations and an archive-status card that
 leads to the Archive screen. The selected guild is part of the URL (`?guild=<id>`, the
-first guild when absent), and every page shows that guild.
+first guild when absent), and every page shows that guild. Below 768px a bottom tab bar
+carries the five destinations and the sidebar opens as a sheet from the top bar's menu.
+
+Cmd+K (Ctrl+K elsewhere) opens a command palette on every page: it jumps to a destination,
+a channel or a person, or searches messages for what you typed. Cmd+1–5 go to the five
+destinations, `/` searches in the current view, Esc closes or clears, and `?` lists every
+shortcut.
 
 | Route | Destination | Description |
 |---|---|---|

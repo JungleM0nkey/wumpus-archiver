@@ -24,10 +24,19 @@
 //   fills the visible height takes `height: var(--shell-viewport-height)`. A sticky
 //   header across the top also takes `use:stickyHeader`, so that scrolling something
 //   into view (a click, find in page, keyboard focus) stops below it, not under it.
+//
+// The destinations and the narrow layout
+//   DESTINATIONS are the five screens the sidebar, the mobile tab bar, the command
+//   palette and ⌘1–5 go to; a route that replaces one changes its entry here. Below
+//   768px (`viewport.narrow`) the sidebar becomes a sheet opened from a top bar and a
+//   tab bar carries the destinations; `--shell-viewport-height` is then the room
+//   between those two bars. A screen never hides a control on a narrow viewport: it
+//   stacks it, scrolls it sideways, or folds it into a disclosure.
 import type { Action } from 'svelte/action';
 import { goto, type BeforeNavigate } from '$app/navigation';
 import { page } from '$app/state';
 import { getGuild, getGuilds } from './api';
+import type { IconName } from './components/ui/icons';
 import type { Guild, GuildDetail } from './types';
 
 /** The search param that names the selected guild. */
@@ -47,6 +56,39 @@ const GUILD_BOUND: [RegExp, string][] = [
 
 /** Search params that name something in one guild (a channel), dropped when the guild changes. */
 const GUILD_BOUND_PARAMS = ['channel'];
+
+export interface Destination {
+	href: string;
+	label: string;
+	icon: IconName;
+	/** Whether the destination owns `path`. */
+	owns: (path: string) => boolean;
+}
+
+/**
+ * The five destinations, in the sidebar's order, which is also ⌘1–5's.
+ */
+export const DESTINATIONS: Destination[] = [
+	{ href: '/', label: 'Overview', icon: 'dashboard', owns: (p) => p === '/' },
+	{ href: '/browse', label: 'Browse', icon: 'hash', owns: (p) => /^\/browse(\/|$)/.test(p) },
+	{ href: '/media', label: 'Media', icon: 'images', owns: (p) => /^\/media(\/|$)/.test(p) },
+	{ href: '/search', label: 'Search', icon: 'search', owns: (p) => /^\/search(\/|$)/.test(p) },
+	{ href: '/people', label: 'People', icon: 'users', owns: (p) => /^\/people(\/|$)/.test(p) }
+];
+
+/** The viewport width below which the shell takes its narrow layout. */
+export const NARROW_QUERY = '(max-width: 767px)';
+
+const narrowQuery = typeof matchMedia === 'function' ? matchMedia(NARROW_QUERY) : null;
+let narrow = $state(narrowQuery?.matches ?? false);
+narrowQuery?.addEventListener('change', () => (narrow = narrowQuery.matches));
+
+export const viewport = {
+	/** Whether the viewport is narrower than 768px: a top bar, a sheet and a tab bar. */
+	get narrow(): boolean {
+		return narrow;
+	}
+};
 
 let guilds = $state<Guild[]>([]);
 let guildsError = $state('');
@@ -207,7 +249,7 @@ export const sidebar = {
 };
 
 /** True on Apple platforms, whose shortcuts use Command where others use Control. */
-const APPLE = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+export const APPLE = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
 /** The sidebar toggle's keys as the keyboard labels them: Command-backslash, or Ctrl+\ off Apple. */
 export const RAIL_SHORTCUT = APPLE ? '⌘\\' : 'Ctrl+\\';

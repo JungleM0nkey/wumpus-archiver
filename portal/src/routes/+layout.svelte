@@ -14,18 +14,33 @@
 	import {
 		afterNavigate,
 		beforeNavigate,
+		goto,
 		onNavigate,
 		snapshot,
 		type OnNavigate
 	} from '$app/navigation';
+	import CommandPalette from '#lib/components/shell/CommandPalette.svelte';
+	import KeyboardMap from '#lib/components/shell/KeyboardMap.svelte';
 	import Sidebar from '#lib/components/shell/Sidebar.svelte';
+	import TabBar from '#lib/components/shell/TabBar.svelte';
+	import TopBar from '#lib/components/shell/TopBar.svelte';
+	import Dialog from '#lib/components/ui/Dialog.svelte';
+	import {
+		destinationShortcut,
+		isPaletteShortcut,
+		isTyping,
+		overlays,
+		searchInView
+	} from '#lib/keyboard.svelte.ts';
 	import {
 		GUILD_PARAM,
 		SCROLLER_ID,
 		carryGuild,
 		isRailShortcut,
 		shell,
-		sidebar
+		sidebar,
+		viewport,
+		withGuild
 	} from '#lib/shell.svelte.ts';
 
 	let { children } = $props();
@@ -55,6 +70,16 @@
 		focused.addEventListener('blur', refocus, { once: true });
 		setTimeout(() => focused.removeEventListener('blur', refocus));
 	}
+
+	// Going somewhere from the sheet closes it; the palette closes itself as it goes.
+	afterNavigate(() => {
+		overlays.sheet = false;
+	});
+
+	// The sheet is the narrow layout's; widening the window closes it.
+	$effect(() => {
+		if (!viewport.narrow) overlays.sheet = false;
+	});
 
 	/** Whether `navigation` changes the screen, not only its own search params. */
 	function changesScreen(from: URL | undefined, to: URL | undefined): boolean {
@@ -153,10 +178,47 @@
 		restore: restoreScroll
 	});
 
+	// The keyboard map (keyboard.svelte.ts). A dialog handles its own Esc and Tab.
 	function onKeydown(event: KeyboardEvent) {
+		if (event.defaultPrevented) return;
 		if (isRailShortcut(event)) {
 			event.preventDefault();
-			sidebar.toggle();
+			if (!viewport.narrow) sidebar.toggle();
+			return;
+		}
+		if (isPaletteShortcut(event)) {
+			event.preventDefault();
+			overlays.palette = !overlays.palette;
+			return;
+		}
+		const destination = destinationShortcut(event);
+		if (destination) {
+			event.preventDefault();
+			overlays.closeAll();
+			void goto(withGuild(destination.href));
+			return;
+		}
+		if (overlays.any || event.metaKey || event.ctrlKey || event.altKey) return;
+
+		const field = event.target;
+		if (event.key === 'Escape' && isTyping(field)) {
+			// Esc clears a text field, and leaves an empty one. A search field clears itself.
+			if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+				if (!field.value) field.blur();
+				else if (field.type !== 'search') {
+					field.value = '';
+					field.dispatchEvent(new Event('input', { bubbles: true }));
+				}
+			}
+			return;
+		}
+		if (isTyping(event.target)) return;
+		if (event.key === '?') {
+			event.preventDefault();
+			overlays.keymap = true;
+		} else if (event.key === '/') {
+			event.preventDefault();
+			void searchInView();
 		}
 	}
 </script>
@@ -167,14 +229,27 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="shell">
-	<Sidebar />
+<div class="shell" class:narrow={viewport.narrow}>
+	{#if viewport.narrow}
+		<TopBar />
+	{:else}
+		<Sidebar />
+	{/if}
 	<main id={SCROLLER_ID} class="scroller" bind:this={scroller}>
 		{#key shell.guild?.id}
 			{@render children()}
 		{/key}
 	</main>
+	{#if viewport.narrow}
+		<TabBar />
+		<Dialog bind:open={overlays.sheet} label="Menu" placement="sheet" id="shell-sheet">
+			<Sidebar sheet />
+		</Dialog>
+	{/if}
 </div>
+
+<CommandPalette />
+<KeyboardMap />
 
 <style>
 	.shell {
@@ -186,9 +261,22 @@
 		overflow: hidden;
 	}
 
+	/* Below 768px: the top bar, the content, the tab bar. */
+	.shell.narrow {
+		--shell-viewport-height: calc(
+			100dvh - var(--size-topbar) - var(--size-tabbar) - env(safe-area-inset-bottom, 0px)
+		);
+		flex-direction: column;
+	}
+
+	.shell.narrow > :global(*:not(main)) {
+		flex-shrink: 0;
+	}
+
 	.scroller {
 		flex: 1;
 		min-width: 0;
+		min-height: 0;
 		overflow-x: hidden;
 		overflow-y: auto;
 		view-transition-name: page;

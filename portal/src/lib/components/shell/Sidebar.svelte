@@ -2,51 +2,30 @@
 	The shell's sidebar: the brand, the guild switcher, a search field, the five
 	destinations and the archive-status card. It collapses to a 64px icon rail with
 	Command- or Control-backslash (shell.svelte.ts keeps the choice), where labels fade
-	out and each item shows its name as a tooltip. Below 768px it is always the rail.
+	out and each item shows its name as a tooltip. Below 768px the layout opens it as a
+	sheet (`sheet`): always expanded, with a button that closes it.
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { RAIL_KEYSHORTCUTS, RAIL_SHORTCUT, sidebar, withGuild } from '#lib/shell.svelte.ts';
+	import { MOD_ARIA, overlays } from '#lib/keyboard.svelte.ts';
+	import {
+		DESTINATIONS,
+		RAIL_KEYSHORTCUTS,
+		RAIL_SHORTCUT,
+		sidebar,
+		withGuild
+	} from '#lib/shell.svelte.ts';
 	import Icon from '../ui/Icon.svelte';
 	import IconButton from '../ui/IconButton.svelte';
-	import type { IconName } from '../ui/icons.ts';
+	import Shortcut from '../ui/Shortcut.svelte';
 	import { tooltip } from '../ui/tooltip.ts';
 	import ArchiveStatus from './ArchiveStatus.svelte';
 	import GuildSwitcher from './GuildSwitcher.svelte';
 
-	interface Destination {
-		href: string;
-		label: string;
-		icon: IconName;
-		/** Whether the destination owns `path`. */
-		owns: (path: string) => boolean;
-	}
+	let { sheet = false }: { sheet?: boolean } = $props();
 
-	// Today's routes until each destination's own ticket replaces them.
-	const destinations: Destination[] = [
-		{ href: '/', label: 'Overview', icon: 'dashboard', owns: (p) => p === '/' },
-		{
-			href: '/browse',
-			label: 'Browse',
-			icon: 'hash',
-			owns: (p) => /^\/browse(\/|$)/.test(p)
-		},
-		{ href: '/media', label: 'Media', icon: 'images', owns: (p) => /^\/media(\/|$)/.test(p) },
-		{ href: '/search', label: 'Search', icon: 'search', owns: (p) => /^\/search(\/|$)/.test(p) },
-		{ href: '/people', label: 'People', icon: 'users', owns: (p) => /^\/people(\/|$)/.test(p) }
-	];
-
-	let narrow = $state(false);
-	$effect(() => {
-		const query = matchMedia('(max-width: 767px)');
-		narrow = query.matches;
-		const onChange = () => (narrow = query.matches);
-		query.addEventListener('change', onChange);
-		return () => query.removeEventListener('change', onChange);
-	});
-
-	const rail = $derived(sidebar.rail || narrow);
+	const rail = $derived(sidebar.rail && !sheet);
 	let query = $state('');
 
 	function search(event: SubmitEvent) {
@@ -57,16 +36,19 @@
 	}
 </script>
 
-<aside class="sidebar" class:rail aria-label="Sidebar">
+<aside class="sidebar" class:rail class:sheet aria-label="Sidebar">
 	<div class="brand-row">
 		<a href={withGuild('/')} class="brand" aria-label="Wumpus Archiver" use:tooltip={{ text: 'Wumpus Archiver', enabled: rail }}>
 			<span class="brand-mark"><Icon name="archive" size={18} /></span>
 			<span class="label brand-text">wumpus<span class="brand-accent">.archive</span></span>
 		</a>
+		{#if sheet}
+			<IconButton icon="x" label="Close menu" onclick={() => (overlays.sheet = false)} />
+		{/if}
 	</div>
 
 	<div class="section">
-		<GuildSwitcher {rail} />
+		<GuildSwitcher {rail} anchored={sheet} />
 	</div>
 
 	<form class="section search" role="search" onsubmit={search}>
@@ -87,10 +69,23 @@
 			aria-label="Search messages"
 			inert={rail}
 		/>
+		<!-- The sheet's top bar has its own way into the palette. -->
+		{#if !sheet}
+			<button
+				type="button"
+				class="label palette-key"
+				aria-label="Open the command palette"
+				aria-keyshortcuts="{MOD_ARIA}+K"
+				inert={rail}
+				onclick={() => (overlays.palette = true)}
+			>
+				<Shortcut keys={['Mod', 'K']} />
+			</button>
+		{/if}
 	</form>
 
 	<nav class="nav" aria-label="Destinations">
-		{#each destinations as destination (destination.href)}
+		{#each DESTINATIONS as destination (destination.href)}
 			{@const active = destination.owns(page.url.pathname)}
 			<a
 				href={withGuild(destination.href)}
@@ -108,7 +103,7 @@
 	<div class="footer">
 		<ArchiveStatus {rail} />
 		<div class="footer-row">
-			{#if !narrow}
+			{#if !sheet}
 				<IconButton
 					icon={sidebar.rail ? 'panel-left-open' : 'panel-left-close'}
 					label="{sidebar.rail ? 'Expand' : 'Collapse'} sidebar ({RAIL_SHORTCUT})"
@@ -117,7 +112,15 @@
 					onclick={sidebar.toggle}
 				/>
 			{/if}
-			<span class="label version mono">v{__PORTAL_VERSION__}</span>
+			<span class="label footer-end" inert={rail}>
+				<IconButton
+					icon="keyboard"
+					label="Keyboard shortcuts (?)"
+					aria-keyshortcuts="?"
+					onclick={() => (overlays.keymap = true)}
+				/>
+				<span class="version mono">v{__PORTAL_VERSION__}</span>
+			</span>
 		</div>
 	</div>
 </aside>
@@ -135,6 +138,22 @@
 		border-right: 1px solid var(--border-subtle);
 		overflow: hidden;
 		transition: width var(--duration-large) var(--ease-in-out);
+	}
+
+	/* In the mobile sheet it fills the sheet, which draws the edge. */
+	.sidebar.sheet {
+		width: 100%;
+		border-right: none;
+		background: none;
+	}
+
+	.sidebar.sheet .brand-row {
+		justify-content: space-between;
+	}
+
+	/* The sheet's guild list opens under its trigger (GuildSwitcher's `anchored`). */
+	.section {
+		position: relative;
 	}
 
 	.sidebar.rail {
@@ -246,6 +265,19 @@
 		color: var(--text-tertiary);
 	}
 
+	.palette-key {
+		display: inline-flex;
+		align-items: center;
+		height: 100%;
+		padding: 0 6px 0 var(--space-1);
+		border-radius: var(--radius-sm);
+	}
+
+	.palette-key:hover :global(.kbd) {
+		color: var(--text-primary);
+		border-color: var(--border-strong);
+	}
+
 	.nav {
 		flex: 1;
 		min-height: 0;
@@ -301,6 +333,13 @@
 		/* The toggle's centre lines up with the nav icons' on the rail. */
 		padding-left: 4px;
 		min-height: 32px;
+	}
+
+	.footer-end {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		margin-left: auto;
 	}
 
 	.version {

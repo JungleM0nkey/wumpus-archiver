@@ -10,7 +10,18 @@
 	import Icon from '../ui/Icon.svelte';
 	import { tooltip } from '../ui/tooltip.ts';
 
-	let { rail = false }: { rail?: boolean } = $props();
+	let {
+		rail = false,
+		anchored = false
+	}: {
+		rail?: boolean;
+		/**
+		 * The list opens under the trigger, placed by its container (which is
+		 * `position: relative`), not floating at the trigger's place on screen: for the
+		 * mobile sheet, which is still sliding in when the list may open.
+		 */
+		anchored?: boolean;
+	} = $props();
 
 	const listId = 'guild-switcher-list';
 	let open = $state(false);
@@ -120,13 +131,14 @@
 			bind:this={list}
 			id={listId}
 			class="list"
+			class:anchored
 			role="listbox"
 			aria-label="Guilds"
 			aria-activedescendant="guild-option-{active}"
 			tabindex="-1"
-			style:top="{position.top}px"
-			style:left="{position.left}px"
-			style:width="{position.width}px"
+			style:top={anchored ? undefined : `${position.top}px`}
+			style:left={anchored ? undefined : `${position.left}px`}
+			style:width={anchored ? undefined : `${position.width}px`}
 			onkeydown={onListKeydown}
 		>
 			{#each shell.guilds as guild, i (guild.id)}
@@ -241,6 +253,13 @@
 		box-shadow: var(--shadow-floating);
 		transform-origin: top left;
 		animation: scale-in var(--duration-medium) var(--ease-out-quint);
+	}
+
+	.list.anchored {
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		right: 0;
 	}
 
 	.option {

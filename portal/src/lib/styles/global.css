@@ -103,6 +103,8 @@
 	--size-sidebar: 240px;
 	--size-rail: 64px;
 	--size-topbar: 56px;
+	/* The mobile tab bar, above the device's bottom safe area. */
+	--size-tabbar: 56px;
 	--size-reader-max: 880px;
 
 	/* ── Motion ────────────────────────────────────────────────────────── */
@@ -259,6 +261,13 @@ svg.icon {
 	}
 }
 
+/* The mobile sheet entering from the left edge. */
+@keyframes sheet-in {
+	from {
+		transform: translateX(-100%);
+	}
+}
+
 /* An indeterminate progress bar's fill sweeping across its track. */
 @keyframes sweep {
 	from {
@@ -345,6 +354,12 @@ svg.icon {
 	}
 
 	@keyframes scale-in {
+		from {
+			opacity: 0;
+		}
+	}
+
+	@keyframes sheet-in {
 		from {
 			opacity: 0;
 		}

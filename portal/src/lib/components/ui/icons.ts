@@ -7,6 +7,8 @@ import Activity from '@lucide/svelte/icons/activity';
 import Archive from '@lucide/svelte/icons/archive';
 import ArrowDown from '@lucide/svelte/icons/arrow-down';
 import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+import ArrowRight from '@lucide/svelte/icons/arrow-right';
+import ArrowUp from '@lucide/svelte/icons/arrow-up';
 import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 import Ban from '@lucide/svelte/icons/ban';
 import ChartColumn from '@lucide/svelte/icons/chart-column';
@@ -20,6 +22,8 @@ import CircleDashed from '@lucide/svelte/icons/circle-dashed';
 import CircleDot from '@lucide/svelte/icons/circle-dot';
 import CircleHelp from '@lucide/svelte/icons/circle-help';
 import CircleX from '@lucide/svelte/icons/circle-x';
+import Command from '@lucide/svelte/icons/command';
+import CornerDownLeft from '@lucide/svelte/icons/corner-down-left';
 import Download from '@lucide/svelte/icons/download';
 import Folder from '@lucide/svelte/icons/folder';
 import Hash from '@lucide/svelte/icons/hash';
@@ -29,9 +33,11 @@ import ImageOff from '@lucide/svelte/icons/image-off';
 import Images from '@lucide/svelte/icons/images';
 import Inbox from '@lucide/svelte/icons/inbox';
 import Info from '@lucide/svelte/icons/info';
+import Keyboard from '@lucide/svelte/icons/keyboard';
 import Layers from '@lucide/svelte/icons/layers';
 import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
 import LayoutGrid from '@lucide/svelte/icons/layout-grid';
+import Menu from '@lucide/svelte/icons/menu';
 import MessageSquare from '@lucide/svelte/icons/message-square';
 import MessagesSquare from '@lucide/svelte/icons/messages-square';
 import OctagonAlert from '@lucide/svelte/icons/octagon-alert';
@@ -64,6 +70,8 @@ export const icons = {
 	archive: Archive,
 	'arrow-down': ArrowDown,
 	'arrow-left': ArrowLeft,
+	'arrow-right': ArrowRight,
+	'arrow-up': ArrowUp,
 	'arrow-up-right': ArrowUpRight,
 	ban: Ban,
 	chart: ChartColumn,
@@ -77,6 +85,8 @@ export const icons = {
 	'circle-dot': CircleDot,
 	'circle-help': CircleHelp,
 	'circle-x': CircleX,
+	command: Command,
+	'corner-down-left': CornerDownLeft,
 	download: Download,
 	folder: Folder,
 	hash: Hash,
@@ -86,9 +96,11 @@ export const icons = {
 	images: Images,
 	inbox: Inbox,
 	info: Info,
+	keyboard: Keyboard,
 	layers: Layers,
 	dashboard: LayoutDashboard,
 	grid: LayoutGrid,
+	menu: Menu,
 	message: MessageSquare,
 	forum: MessagesSquare,
 	'octagon-alert': OctagonAlert,
