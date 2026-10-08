@@ -75,6 +75,11 @@ class Database:
             await session.close()
 
     @property
+    def connected(self) -> bool:
+        """Whether ``connect()`` has been called and not yet undone by ``disconnect()``."""
+        return self._engine is not None
+
+    @property
     def engine(self) -> AsyncEngine:
         """Get the database engine."""
         if not self._engine:

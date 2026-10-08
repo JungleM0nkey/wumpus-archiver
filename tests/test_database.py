@@ -92,3 +92,15 @@ class TestDatabase:
         db = Database("sqlite+aiosqlite:///unused.db")
         with pytest.raises(RuntimeError, match="not connected"):
             _ = db.engine
+
+
+class TestConnected:
+    """``connected`` tracks the connect/disconnect lifecycle without raising."""
+
+    async def test_false_before_connect_true_after_false_after_disconnect(self, tmp_path) -> None:
+        db = Database(f"sqlite+aiosqlite:///{tmp_path / 'connected.db'}")
+        assert db.connected is False
+        await db.connect()
+        assert db.connected is True
+        await db.disconnect()
+        assert db.connected is False

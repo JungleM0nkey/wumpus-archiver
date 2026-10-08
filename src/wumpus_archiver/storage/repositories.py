@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from wumpus_archiver.models.attachment import Attachment
@@ -69,11 +69,6 @@ class ChannelRepository:
         result = await self.session.execute(select(Channel).where(Channel.id == channel_id))
         return result.scalar_one_or_none()
 
-    async def get_by_guild(self, guild_id: int) -> list[Channel]:
-        """Get all channels for a guild."""
-        result = await self.session.execute(select(Channel).where(Channel.guild_id == guild_id))
-        return list(result.scalars().all())
-
     async def upsert(self, channel: Channel) -> Channel:
         """Insert or update channel."""
         existing = await self.get_by_id(channel.id)
@@ -108,29 +103,6 @@ class MessageRepository:
         """Get message by ID."""
         result = await self.session.execute(select(Message).where(Message.id == message_id))
         return result.scalar_one_or_none()
-
-    async def get_by_channel(
-        self,
-        channel_id: int,
-        before_id: int | None = None,
-        after_id: int | None = None,
-        limit: int = 100,
-    ) -> list[Message]:
-        """Get messages from a channel with pagination."""
-        query = (
-            select(Message)
-            .where(Message.channel_id == channel_id)
-            .order_by(desc(Message.created_at))
-            .limit(limit)
-        )
-
-        if before_id:
-            query = query.where(Message.id < before_id)
-        if after_id:
-            query = query.where(Message.id > after_id)
-
-        result = await self.session.execute(query)
-        return list(result.scalars().all())
 
     async def upsert(self, message: Message) -> Message:
         """Insert or update message."""

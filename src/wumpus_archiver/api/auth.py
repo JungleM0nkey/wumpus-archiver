@@ -4,6 +4,8 @@ import secrets
 
 from fastapi import HTTPException, Request, status
 
+from wumpus_archiver.api.deps import ApiAuthToken
+
 _BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
 
 
@@ -25,13 +27,14 @@ def _extract_bearer_token(header: str | None) -> str | None:
     return credentials
 
 
-async def require_api_token(request: Request) -> None:
+async def require_api_token(api_auth_token: ApiAuthToken, request: Request) -> None:
     """FastAPI dependency guarding state-changing endpoints with a shared secret.
 
-    The expected token is read from ``request.app.state.api_auth_token``. The check fails
-    closed: when no token is configured the endpoint is disabled rather than left open.
+    The expected token is the one ``create_app`` was handed. The check fails closed:
+    when no token is configured the endpoint is disabled rather than left open.
 
     Args:
+        api_auth_token: The configured token, or ``None`` when scrape control is disabled.
         request: Incoming request.
 
     Raises:
@@ -39,7 +42,7 @@ async def require_api_token(request: Request) -> None:
             ``WWW-Authenticate: Bearer`` challenge) if the ``Authorization`` header is
             missing, malformed, or carries the wrong token.
     """
-    expected: str | None = getattr(request.app.state, "api_auth_token", None)
+    expected = api_auth_token.get_secret_value() if api_auth_token is not None else None
     if not expected:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

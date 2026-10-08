@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import cast
 
 import click
+from pydantic import ValidationError
 
 from wumpus_archiver.bot.scraper import ArchiverBot
 from wumpus_archiver.config import Settings
@@ -173,17 +174,36 @@ def serve(
     import uvicorn
 
     from wumpus_archiver.api.app import create_app
-    from wumpus_archiver.storage.database import Database as DB
+    from wumpus_archiver.compose import (
+        api_security_from_settings,
+        portal_build_dir,
+        scrape_from_settings,
+    )
 
     if build_portal:
         _build_portal_static()
 
+    # serve is the composition root: it resolves every path, the bot token, the API
+    # token and the CORS origins once, and hands the factory values it never has to
+    # look for itself.
     db_path = database.resolve()
-    db_url = f"sqlite+aiosqlite:///{db_path}"
-    db = DB(db_url)
-
-    att_path = attachments_dir.resolve() if attachments_dir.exists() else None
-    app = create_app(db, attachments_path=att_path)
+    db = Database(f"sqlite+aiosqlite:///{db_path}")  # unconnected: the app's lifespan owns it
+    att_path = attachments_dir.resolve() if attachments_dir.is_dir() else None
+    portal = portal_build_dir()
+    try:
+        scrape = scrape_from_settings(db)
+    except ValidationError as e:
+        click.echo(f"Error: Failed to load settings: {e}", err=True)
+        sys.exit(1)
+    api_auth_token, cors_origins = api_security_from_settings()
+    app = create_app(
+        db,
+        attachments_dir=att_path,
+        portal_build=portal,
+        scrape=scrape,
+        api_auth_token=api_auth_token,
+        cors_origins=cors_origins,
+    )
 
     click.echo(f"Starting portal at http://{host}:{port}")
     _warn_if_not_loopback(host)
@@ -192,6 +212,14 @@ def serve(
         click.echo(f"Attachments: {att_path}")
     else:
         click.echo("Attachments: not found (images served from Discord CDN)")
+    if portal:
+        click.echo(f"Portal: {portal}")
+    else:
+        click.echo("Portal: not built (API only; use --build-portal)")
+    if scrape.configured:
+        click.echo("Scrape control: enabled")
+    else:
+        click.echo("Scrape control: read-only (no DISCORD_BOT_TOKEN)")
     uvicorn.run(app, host=host, port=port)
 
 
@@ -452,7 +480,8 @@ def dev(
 
     # Resolve paths
     db_path = database.resolve()
-    att_dir = attachments_dir.resolve() if attachments_dir.exists() else None
+    # Like serve: only an existing directory is handed to the factory, which raises otherwise.
+    att_dir = attachments_dir.resolve() if attachments_dir.is_dir() else None
 
     # Find npm and portal directory
     try:
@@ -541,18 +570,26 @@ def _write_dev_app_module(db_path: Path, attachments_path: Path | None) -> None:
     """
     dev_module = Path(__file__).parent / "api" / "_dev_app.py"
     db_url = f"sqlite+aiosqlite:///{db_path}"
-    att_line = f"    attachments_path=Path({str(attachments_path)!r})," if attachments_path else ""
+    att_line = f"    attachments_dir=Path({str(attachments_path)!r})," if attachments_path else ""
+    # The generated module is dev's composition root: it reads the bot token, the API
+    # token and the CORS origins from the environment the uvicorn subprocess inherits,
+    # explicitly, and passes no portal build because Vite serves the UI in dev.
     content = f'''"""Auto-generated dev app instance for uvicorn --reload. DO NOT EDIT."""
 
 from pathlib import Path
 
 from wumpus_archiver.api.app import create_app
+from wumpus_archiver.compose import api_security_from_settings, scrape_from_settings
 from wumpus_archiver.storage.database import Database
 
 _db = Database({db_url!r})
+_api_auth_token, _cors_origins = api_security_from_settings()
 app = create_app(
     _db,
 {att_line}
+    scrape=scrape_from_settings(_db),
+    api_auth_token=_api_auth_token,
+    cors_origins=_cors_origins,
 )
 '''
     # Python source is UTF-8 by default; don't depend on the locale encoding for non-ASCII paths.

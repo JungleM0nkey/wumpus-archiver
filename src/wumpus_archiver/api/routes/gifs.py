@@ -1,15 +1,14 @@
 """GIF API route handlers — browse/search the deduplicated GIF index."""
 
-from fastapi import APIRouter, Query, Request
+from pathlib import Path
+
+from fastapi import APIRouter, Query
 from sqlalchemy import text
 
-from wumpus_archiver.api.routes._helpers import (
-    escape_like,
-    get_attachments_path,
-    get_db,
-    raise_not_found,
-)
+from wumpus_archiver.api.deps import AttachmentsDir, Db
+from wumpus_archiver.api.routes._helpers import local_attachment_url, raise_not_found
 from wumpus_archiver.api.schemas import GifListResponse, GifSchema
+from wumpus_archiver.storage.archive_reads import escape_like
 
 router = APIRouter()
 
@@ -24,15 +23,7 @@ _SELECT_COLS = """\
 _FILENAME_LIKE = "lower(g.filename) LIKE lower(:q) ESCAPE '\\'"
 
 
-def _gif_url(request: Request, local_path: str | None) -> str:
-    """Build a local URL for the GIF if the file exists on disk."""
-    attachments_dir = get_attachments_path(request)
-    if attachments_dir and local_path and (attachments_dir / local_path).exists():
-        return f"/attachments/{local_path}"
-    return ""
-
-
-def _row_to_gif(request: Request, row: tuple) -> GifSchema:
+def _row_to_gif(attachments_dir: Path | None, row: tuple) -> GifSchema:
     """Convert a raw DB row from gif_index to a GifSchema."""
     (
         att_id,
@@ -50,7 +41,7 @@ def _row_to_gif(request: Request, row: tuple) -> GifSchema:
         channel_name,
     ) = row
 
-    resolved_url = _gif_url(request, local_path) or url
+    resolved_url = local_attachment_url(attachments_dir, local_path) or url
     return GifSchema(
         id=att_id,
         content_hash=content_hash,
@@ -69,7 +60,8 @@ def _row_to_gif(request: Request, row: tuple) -> GifSchema:
 
 @router.get("/gifs", response_model=GifListResponse)
 async def list_gifs(
-    request: Request,
+    db: Db,
+    attachments_dir: AttachmentsDir,
     q: str | None = Query(None, description="Search by filename"),
     sort: str = Query("trending", description="Sort: trending, newest, popular"),
     offset: int = Query(0, ge=0),
@@ -77,8 +69,6 @@ async def list_gifs(
     channel_id: int | None = Query(None, description="Filter by origin channel"),
 ) -> GifListResponse:
     """Browse the deduplicated GIF collection."""
-    db = get_db(request)
-
     conditions = []
     params: dict[str, object] = {"limit": limit, "offset": offset}
 
@@ -119,7 +109,7 @@ async def list_gifs(
         if has_more:
             rows = rows[:limit]
 
-        gifs = [_row_to_gif(request, r) for r in rows]
+        gifs = [_row_to_gif(attachments_dir, r) for r in rows]
 
         return GifListResponse(
             gifs=gifs,
@@ -131,12 +121,11 @@ async def list_gifs(
 
 @router.get("/gifs/trending", response_model=GifListResponse)
 async def trending_gifs(
-    request: Request,
+    db: Db,
+    attachments_dir: AttachmentsDir,
     limit: int = Query(30, ge=1, le=100),
 ) -> GifListResponse:
     """Get the most-shared GIFs (by usage count from the gif_index view)."""
-    db = get_db(request)
-
     sql = f"""\
         SELECT {_SELECT_COLS}
         FROM gif_index g
@@ -149,7 +138,7 @@ async def trending_gifs(
         result = await session.execute(text(sql), {"limit": limit})
         rows = result.all()
 
-        gifs = [_row_to_gif(request, r) for r in rows]
+        gifs = [_row_to_gif(attachments_dir, r) for r in rows]
 
         return GifListResponse(
             gifs=gifs,
@@ -161,12 +150,11 @@ async def trending_gifs(
 
 @router.get("/gifs/random", response_model=GifSchema)
 async def random_gif(
-    request: Request,
+    db: Db,
+    attachments_dir: AttachmentsDir,
     q: str | None = Query(None, description="Optional filename filter"),
 ) -> GifSchema:
     """Get a random GIF, optionally filtered by filename search."""
-    db = get_db(request)
-
     where_clause = f"WHERE {_FILENAME_LIKE}" if q else ""
     params: dict[str, object] = {}
     if q:
@@ -188,17 +176,16 @@ async def random_gif(
         if not row:
             raise_not_found("no GIFs found")
 
-        return _row_to_gif(request, row)
+        return _row_to_gif(attachments_dir, row)
 
 
 @router.get("/gifs/{gif_id}", response_model=GifSchema)
 async def get_gif(
-    request: Request,
+    db: Db,
+    attachments_dir: AttachmentsDir,
     gif_id: int,
 ) -> GifSchema:
     """Get a single GIF by its attachment ID (resolves through content_hash)."""
-    db = get_db(request)
-
     # First find the content_hash for this attachment, then look it up in gif_index.
     hash_sql = text(
         "SELECT content_hash FROM attachments WHERE id = :gif_id "
@@ -225,4 +212,4 @@ async def get_gif(
         if not row:
             raise_not_found(f"GIF {gif_id} not found")
 
-        return _row_to_gif(request, row)
+        return _row_to_gif(attachments_dir, row)

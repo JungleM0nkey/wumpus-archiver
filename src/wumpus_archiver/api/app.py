@@ -1,80 +1,88 @@
-"""FastAPI application factory."""
+"""FastAPI application factory.
 
-import logging
+``create_app`` is a pure function of the collaborators it is handed. It reads
+nothing from the environment, the working directory, ``.env`` or the package
+location; the composition roots (``wumpus-archiver serve``, the dev module, the
+test fixtures) resolve those and pass values in. See ``wumpus_archiver.compose``
+for the helpers they share.
+"""
+
 import os
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from collections.abc import AsyncIterator
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import SecretStr
 
-from wumpus_archiver.api.scrape_manager import ScrapeJobManager
+from wumpus_archiver.api.deps import Wiring, bind
+from wumpus_archiver.api.scrape_control import ReadOnlyScrape, ScrapeControl
 from wumpus_archiver.storage.database import Database
-
-logger = logging.getLogger(__name__)
-
-
-def _load_api_security_settings() -> tuple[str | None, list[str]]:
-    """Resolve the API auth token and allowed CORS origins from env/.env.
-
-    ``Settings()`` requires ``DISCORD_BOT_TOKEN``, which a read-only portal deployment may
-    not have, so a placeholder bot token is supplied: only the API fields are read here.
-    If settings still cannot be loaded, fall back to the raw environment variables.
-
-    Returns:
-        Tuple of (API auth token or None, allowed CORS origins).
-    """
-    from pydantic import SecretStr
-
-    from wumpus_archiver.config import DEFAULT_CORS_ORIGINS, Settings, parse_cors_origins
-
-    try:
-        settings = Settings(discord_bot_token=SecretStr("unused"))
-        token = settings.api_auth_token.get_secret_value() if settings.api_auth_token else None
-        return token, list(settings.cors_origins)
-    except Exception:
-        logger.warning("Could not load settings; reading API_AUTH_TOKEN/CORS_ORIGINS from env")
-
-    env_token = os.environ.get("API_AUTH_TOKEN", "").strip() or None
-    raw_origins = os.environ.get("CORS_ORIGINS")
-    if raw_origins is None:
-        return env_token, list(DEFAULT_CORS_ORIGINS)
-    try:
-        return env_token, parse_cors_origins(raw_origins)
-    except ValueError:
-        # Fail closed: an unparseable allow-list must not widen cross-origin access
-        logger.warning("Invalid CORS_ORIGINS; no cross-origin requests will be allowed")
-        return env_token, []
 
 
 def create_app(
     database: Database,
-    attachments_path: Path | None = None,
-    discord_token: str | None = None,
-    api_auth_token: str | None = None,
+    *,
+    attachments_dir: Path | None = None,
+    portal_build: Path | None = None,
+    scrape: ScrapeControl | None = None,
+    api_auth_token: SecretStr | str | None = None,
+    cors_origins: Sequence[str] = (),
 ) -> FastAPI:
-    """Create and configure the FastAPI application.
+    """Build the portal app from the collaborators handed in.
+
+    The factory never touches the database at construction time. The database
+    must be connected, with its schema present, before the first ``/api`` request
+    is served. The app's lifespan follows one rule (see ADR 0001): on startup it
+    connects the database only if it is not already connected, and on shutdown it
+    disconnects only what it connected. An ASGI server therefore owns the
+    connection of a fresh ``Database``, while a test fixture that connected the
+    database itself keeps owning it.
+
+    Routes are mounted in this order, and the order is part of the contract:
+    CORS, ``/attachments``, the ``/api`` router, then the portal (``/_app``,
+    ``/robots.txt`` and the SPA fallback last), so every defined ``/api`` route
+    wins over the fallback.
 
     Args:
-        database: Database instance for storage
-        attachments_path: Path to local attachments directory (enables local image serving)
-        discord_token: Optional Discord bot token for scrape control panel
-        api_auth_token: Optional bearer token required for scrape start/cancel. If omitted,
-            ``API_AUTH_TOKEN`` is read from the environment/.env; with no token at all,
-            scrape control is disabled (those endpoints return 403).
+        database: The archive to serve.
+        attachments_dir: Directory of local attachments, served at ``/attachments``.
+            ``None`` means attachment URLs stay on the Discord CDN. A given path
+            must be an existing directory; a missing one raises rather than being
+            silently skipped.
+        portal_build: The portal's built static output, served as a single-page
+            app with a fallback to its ``index.html``. ``None`` means API only:
+            ``/`` is a 404. A given path must contain ``index.html``.
+        scrape: Scrape control for the ``/api/scrape`` routes. ``None`` means the
+            control is read-only (no bot token was configured).
+        api_auth_token: Bearer token that ``POST /api/scrape/start`` and
+            ``/api/scrape/cancel`` require. ``None`` or blank disables both (403):
+            scrape control fails closed.
+        cors_origins: Browser origins allowed to call the API cross-origin. The
+            default allows none; the composition roots pass the configured list.
 
     Returns:
-        Configured FastAPI application
+        The configured FastAPI application.
+
+    Raises:
+        RuntimeError: If ``attachments_dir`` is not an existing directory.
+        FileNotFoundError: If ``portal_build`` has no ``index.html``.
     """
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        """Manage application lifecycle."""
-        await database.connect()
-        yield
-        await database.disconnect()
+        """Connect the database if nobody else did; disconnect only what we connected."""
+        owns_connection = not database.connected
+        if owns_connection:
+            await database.connect()
+        try:
+            yield
+        finally:
+            if owns_connection:
+                await database.disconnect()
 
     app = FastAPI(
         title="Wumpus Archiver",
@@ -83,99 +91,89 @@ def create_app(
         lifespan=lifespan,
     )
 
-    env_auth_token, cors_origins = _load_api_security_settings()
-
-    # CORS: only the configured origins (default: SvelteKit dev server + apehost dashboard).
-    # Auth is a bearer header, not cookies, so credentials are never allowed.
+    # CORS: only the origins handed in. Auth is a bearer header, not cookies, so
+    # credentials are never allowed.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins,
+        allow_origins=list(cors_origins),
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
 
-    # Store database on app state
-    app.state.database = database
+    if isinstance(api_auth_token, str):
+        api_auth_token = SecretStr(api_auth_token)
+    if api_auth_token is not None and not api_auth_token.get_secret_value().strip():
+        api_auth_token = None
 
-    # Bearer token guarding scrape start/cancel; None disables scrape control (fail closed)
-    app.state.api_auth_token = api_auth_token or env_auth_token
-    if not app.state.api_auth_token:
-        logger.info("No API_AUTH_TOKEN set — scrape start/cancel are disabled")
+    resolved_attachments = attachments_dir.resolve() if attachments_dir is not None else None
+    bind(
+        app,
+        Wiring(
+            database=database,
+            attachments_dir=resolved_attachments,
+            portal_build=portal_build.resolve() if portal_build is not None else None,
+            scrape=scrape if scrape is not None else ReadOnlyScrape(),
+            api_auth_token=api_auth_token,
+        ),
+    )
 
-    # Scrape control panel: manager + token
-    app.state.scrape_manager = ScrapeJobManager(database)
-    # Try loading token from env/.env if not explicitly provided
-    resolved_token = discord_token
-    if not resolved_token:
-        try:
-            from wumpus_archiver.config import Settings
+    if resolved_attachments is not None:
+        # StaticFiles raises RuntimeError when the directory does not exist.
+        app.mount(
+            "/attachments",
+            StaticFiles(directory=str(resolved_attachments)),
+            name="attachments",
+        )
 
-            settings = Settings()  # type: ignore[call-arg]
-            resolved_token = settings.discord_bot_token.get_secret_value()
-            logger.info("Loaded Discord bot token from settings — scrape control enabled")
-        except Exception:
-            logger.info("No Discord bot token found — scrape control panel will be read-only")
-    app.state.discord_token = resolved_token
-
-    # Store and serve local attachments if path provided
-    resolved_attachments: Path | None = None
-    if attachments_path:
-        resolved_attachments = attachments_path.resolve()
-        if resolved_attachments.exists():
-            app.mount(
-                "/attachments",
-                StaticFiles(directory=str(resolved_attachments)),
-                name="attachments",
-            )
-    app.state.attachments_path = resolved_attachments
-
-    # Register API routes
     from wumpus_archiver.api.routes import router as api_router  # noqa: PLC0415
 
     app.include_router(api_router, prefix="/api")
 
-    # Serve portal static files if built (SPA with fallback to index.html)
-    portal_dist = _portal_dist()
-    if portal_dist.exists():
-        portal_root = portal_dist.resolve()
-        from fastapi.responses import FileResponse
-
-        # Mount static assets (JS, CSS, etc.) at /_app/
-        app_assets = portal_dist / "_app"
-        if app_assets.exists():
-            app.mount(
-                "/_app",
-                StaticFiles(directory=str(app_assets)),
-                name="portal_assets",
-            )
-
-        # Serve robots.txt and other root-level static files
-        @app.get("/robots.txt", include_in_schema=False)
-        async def robots_txt() -> FileResponse:
-            return FileResponse(str(portal_dist / "robots.txt"))
-
-        # SPA fallback: serve index.html for all unmatched routes
-        @app.get("/{full_path:path}", include_in_schema=False)
-        async def spa_fallback(full_path: str) -> FileResponse:
-            # Try serving exact file first (e.g. favicon.ico), but never anything
-            # that resolves outside the build directory.
-            file_path = _resolve_portal_file(portal_root, full_path)
-            if file_path is not None:
-                return FileResponse(str(file_path))
-            # Fallback to index.html for SPA routing
-            return FileResponse(str(portal_dist / "index.html"))
+    if portal_build is not None:
+        _mount_portal(app, portal_build.resolve())
 
     return app
 
 
-def _portal_dist() -> Path:
-    """Return the directory containing the built SvelteKit portal.
+def _mount_portal(app: FastAPI, portal_root: Path) -> None:
+    """Serve the portal build as a single-page app with a guarded fallback.
 
-    Returns:
-        Path to ``portal/build`` (it may not exist if the portal was not built)
+    Args:
+        app: The app to mount on; the ``/api`` router must already be included.
+        portal_root: Resolved absolute path of the portal build directory.
+
+    Raises:
+        FileNotFoundError: If the directory has no ``index.html``.
     """
-    return Path(__file__).parent.parent.parent.parent / "portal" / "build"
+    index_html = portal_root / "index.html"
+    if not index_html.is_file():
+        raise FileNotFoundError(f"portal build has no index.html: {portal_root}")
+
+    # Mount static assets (JS, CSS, etc.) at /_app/
+    app_assets = portal_root / "_app"
+    if app_assets.is_dir():
+        app.mount(
+            "/_app",
+            StaticFiles(directory=str(app_assets)),
+            name="portal_assets",
+        )
+
+    # Serve robots.txt and other root-level static files
+    @app.get("/robots.txt", include_in_schema=False)
+    async def robots_txt() -> FileResponse:
+        return FileResponse(str(portal_root / "robots.txt"))
+
+    # SPA fallback: serve index.html for all unmatched routes
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str) -> FileResponse:
+        # Try serving exact file first (e.g. favicon.ico), but never anything
+        # that resolves outside the build directory.
+        file_path = _resolve_portal_file(portal_root, full_path)
+        if file_path is not None:
+            return FileResponse(str(file_path))
+        # Fallback to index.html for SPA routing
+        return FileResponse(str(index_html))
 
 
 # ``Path.resolve()`` is quadratic in the number of path segments and runs on the event loop,

@@ -3,10 +3,10 @@
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 
-import discord
 import pytest
 from click.testing import CliRunner
 
+from wumpus_archiver.api.deps import wiring_of
 from wumpus_archiver.cli import cli
 
 
@@ -30,32 +30,24 @@ class TestCLI:
     def test_scrape_missing_token(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test scrape command fails without token.
 
-        An empty token still passes ``Settings`` validation, so ``scrape`` goes on to
-        build the bot. The bot is replaced with a fake that fails to log in, exactly as
-        discord.py does for an improper token, so the test never touches the network.
+        A blank token fails ``Settings`` validation, so ``scrape`` stops before it
+        builds a bot; a bot that is built anyway fails the test rather than reaching
+        the network.
         """
-        created: list[object] = []
 
-        class FakeBot:
-            def __init__(self, *args: object, **kwargs: object) -> None:
-                created.append(self)
+        def no_bot(*args: object, **kwargs: object) -> None:
+            pytest.fail("scrape built a bot despite a blank token")
 
-            async def start(self) -> None:
-                raise discord.LoginFailure("Improper token has been passed.")
-
-            async def close(self) -> None:
-                pass
-
-        monkeypatch.setattr("wumpus_archiver.cli.ArchiverBot", FakeBot)
+        monkeypatch.setattr("wumpus_archiver.cli.ArchiverBot", no_bot)
         runner = CliRunner()
         result = runner.invoke(
             cli,
             ["scrape", "--guild-id", "12345", "--output", str(tmp_path / "archive.db")],
             env={"DISCORD_BOT_TOKEN": ""},
         )
-        assert len(created) == 1
         assert result.exit_code != 0
-        assert "Improper token" in result.output
+        assert "Failed to load settings" in result.output
+        assert "must not be empty" in result.output
 
     def test_scrape_missing_guild_id(self) -> None:
         """Test scrape command requires --guild-id."""
@@ -79,6 +71,99 @@ class TestCLI:
         assert result.exit_code != 0
         assert "does not exist" in result.output
 
+    def test_serve_composes_app_and_hands_it_to_uvicorn(self, tmp_path, monkeypatch) -> None:
+        """serve builds the app from the CLI's inputs and runs it with the given host/port."""
+        db_file = tmp_path / "test.db"
+        db_file.touch()
+        attachments = tmp_path / "attachments"
+        attachments.mkdir()
+        # serve resolves the bot token from the environment and .env; pin both to "none".
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        # serve discovers the portal build on disk; pin it to a fake one.
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "index.html").write_text("<!doctype html>")
+        monkeypatch.setattr("wumpus_archiver.compose.portal_build_dir", lambda: build)
+
+        calls: list[tuple[object, dict[str, object]]] = []
+
+        def fake_run(app: object, **kwargs: object) -> None:
+            calls.append((app, kwargs))
+
+        monkeypatch.setattr("uvicorn.run", fake_run)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["serve", str(db_file), "--host", "0.0.0.0", "--port", "9999", "-a", str(attachments)],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1
+        app, kwargs = calls[0]
+        assert kwargs == {"host": "0.0.0.0", "port": 9999}
+        wiring = wiring_of(app)
+        assert wiring.database.database_url == f"sqlite+aiosqlite:///{db_file.resolve()}"
+        assert wiring.database.connected is False, "the app's lifespan owns the connection"
+        assert wiring.attachments_dir == attachments.resolve()
+        assert wiring.portal_build == build.resolve()
+        assert f"Portal: {build}" in result.output
+        assert wiring.scrape.configured is False
+        assert "Scrape control: read-only" in result.output
+
+    def test_serve_without_attachments_dir(self, tmp_path, monkeypatch) -> None:
+        """A missing attachments directory means images are served from the CDN."""
+        db_file = tmp_path / "test.db"
+        db_file.touch()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        monkeypatch.setattr("wumpus_archiver.compose.portal_build_dir", lambda: None)
+        apps: list[object] = []
+        monkeypatch.setattr("uvicorn.run", lambda app, **kw: apps.append(app))
+
+        result = CliRunner().invoke(cli, ["serve", str(db_file), "-a", str(tmp_path / "nope")])
+
+        assert result.exit_code == 0, result.output
+        assert "images served from Discord CDN" in result.output
+        assert "Portal: not built" in result.output
+        assert wiring_of(apps[0]).attachments_dir is None
+        assert wiring_of(apps[0]).portal_build is None
+
+    def test_serve_enables_scrape_control_with_a_token(self, tmp_path, monkeypatch) -> None:
+        """A bot token in the environment turns scrape control on without starting anything."""
+        db_file = tmp_path / "test.db"
+        db_file.touch()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "a-real-looking-token")
+        monkeypatch.setattr("wumpus_archiver.compose.portal_build_dir", lambda: None)
+        apps: list[object] = []
+        monkeypatch.setattr("uvicorn.run", lambda app, **kw: apps.append(app))
+
+        result = CliRunner().invoke(cli, ["serve", str(db_file)])
+
+        assert result.exit_code == 0, result.output
+        assert "Scrape control: enabled" in result.output
+        assert wiring_of(apps[0]).scrape.configured is True
+
+    def test_serve_reports_invalid_settings_instead_of_going_read_only(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A bad setting next to a valid token is an error, not silently read-only."""
+        db_file = tmp_path / "test.db"
+        db_file.touch()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "a-real-looking-token")
+        monkeypatch.setenv("API_PORT", "70000")
+        monkeypatch.setattr("wumpus_archiver.compose.portal_build_dir", lambda: None)
+        monkeypatch.setattr("uvicorn.run", lambda app, **kw: pytest.fail("uvicorn must not run"))
+
+        result = CliRunner().invoke(cli, ["serve", str(db_file)])
+
+        assert result.exit_code == 1
+        assert "Failed to load settings" in result.output
+        assert "Port must be between" in result.output
+
     def test_serve_starts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test serve command starts the portal."""
         db_file = tmp_path / "test.db"
@@ -99,6 +184,37 @@ class TestCLI:
         assert (host, port) == ("127.0.0.1", 8000)
         # Should not report 'not yet implemented'
         assert "not yet implemented" not in (result.output or "")
+
+    @pytest.mark.parametrize("kind", ["file", "missing"])
+    def test_dev_passes_no_attachments_dir_unless_it_is_a_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+    ) -> None:
+        """Like serve, dev never hands the factory a path that is not a directory."""
+        db_file = tmp_path / "test.db"
+        db_file.touch()
+        attachments = tmp_path / "attachments"
+        if kind == "file":
+            attachments.write_text("not a directory")
+        portal = tmp_path / "portal"
+        (portal / "node_modules").mkdir(parents=True)
+        written: list[Path | None] = []
+
+        async def no_processes(*args: object, **kwargs: object) -> int:
+            return 0
+
+        monkeypatch.setattr("wumpus_archiver.utils.process_manager.find_npm", lambda: "npm")
+        monkeypatch.setattr(
+            "wumpus_archiver.utils.process_manager.resolve_portal_dir", lambda: portal
+        )
+        monkeypatch.setattr("wumpus_archiver.utils.process_manager.run_concurrently", no_processes)
+        monkeypatch.setattr(
+            "wumpus_archiver.cli._write_dev_app_module", lambda db, att: written.append(att)
+        )
+
+        result = CliRunner().invoke(cli, ["dev", str(db_file), "-a", str(attachments)])
+
+        assert result.exit_code == 0, result.output
+        assert written == [None]
 
     def test_update_not_implemented(self, tmp_path) -> None:
         """Test update command returns error (not implemented)."""

@@ -182,6 +182,10 @@ sent as `Authorization: Bearer <token>`. If it is not set, those endpoints retur
 than being open. Read-only endpoints are unchanged, and CORS no longer allows credentials,
 arbitrary methods or arbitrary headers.
 
+## UI / UX refresh proposal
+
+A redesign of the portal (audit of the current UI, new information architecture, dark-theme tokens, components, desktop and mobile screens, motion spec) lives in [docs/UI_UX_PROPOSAL.md](docs/UI_UX_PROPOSAL.md) with the matching Figma file linked at the top of that document.
+
 ## Development
 
 ```bash

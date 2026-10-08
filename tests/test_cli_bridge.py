@@ -9,9 +9,12 @@ from click.testing import CliRunner
 
 from wumpus_archiver import cli as cli_module
 from wumpus_archiver.api.app import create_app
+from wumpus_archiver.api.deps import wiring_of
+from wumpus_archiver.api.scrape_manager import ScrapeJobManager
 from wumpus_archiver.bot import backfill as backfill_module
 from wumpus_archiver.bot import mirror as mirror_module
 from wumpus_archiver.cli import cli
+from wumpus_archiver.compose import api_security_from_settings, scrape_from_settings
 from wumpus_archiver.config import DEFAULT_CHAT_BRIDGE_URL
 from wumpus_archiver.storage.database import Database
 
@@ -415,17 +418,19 @@ class TestBridgeUrlDoesNotAffectOtherCommands:
         assert FAKE_URL_PASSWORD not in result.output
 
     @pytest.mark.parametrize("bridge_url", UNUSABLE_BRIDGE_URLS)
-    async def test_create_app_still_loads_dotenv_settings(
+    async def test_the_app_still_gets_its_dotenv_settings(
         self,
         bridge_url: str,
         database: Database,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Test create_app() keeps the .env bot token, API token and CORS origins.
+        """Test the app serve composes keeps the .env bot token, API token and CORS origins.
 
         A failing Settings() used to silently turn scrape control off and reset CORS to the
-        defaults, because the .env values are only visible through Settings.
+        defaults, because the .env values are only visible through Settings. The app is
+        built the way ``serve`` builds it: the compose helpers read the settings and
+        ``create_app`` is handed the values.
         """
         origin = "https://portal.example.test"
         (tmp_path / ".env").write_text(
@@ -437,10 +442,16 @@ class TestBridgeUrlDoesNotAffectOtherCommands:
         )
 
         with caplog.at_level("INFO"):
-            app = create_app(database)
+            scrape = scrape_from_settings(database)
+            api_auth_token, cors_origins = api_security_from_settings()
+            app = create_app(
+                database, scrape=scrape, api_auth_token=api_auth_token, cors_origins=cors_origins
+            )
 
-        assert app.state.discord_token == FAKE_DISCORD_TOKEN
-        assert app.state.api_auth_token == FAKE_API_TOKEN
+        assert isinstance(scrape, ScrapeJobManager)
+        assert scrape._token == FAKE_DISCORD_TOKEN
+        wired_token = wiring_of(app).api_auth_token
+        assert wired_token is not None and wired_token.get_secret_value() == FAKE_API_TOKEN
         assert "Could not load settings" not in caplog.text
         assert "read-only" not in caplog.text
         assert FAKE_URL_PASSWORD not in caplog.text

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import SplitResult, urlsplit
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Origins allowed to call the API cross-origin unless CORS_ORIGINS overrides them:
@@ -180,6 +180,19 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
     log_file: Path | None = Field(default=None, validation_alias="LOG_FILE")
 
+    @field_validator("discord_bot_token")
+    @classmethod
+    def validate_token_not_blank(cls, v: SecretStr) -> SecretStr:
+        """Reject an empty or whitespace-only bot token.
+
+        A blank value usually comes from a placeholder in .env or an unset shell
+        variable; accepting it would let a scrape reach the Discord gateway with
+        no credential and hang there.
+        """
+        if not v.get_secret_value().strip():
+            raise ValueError("DISCORD_BOT_TOKEN must not be empty")
+        return v
+
     @field_validator("chat_bridge_url", mode="before")
     @classmethod
     def blank_bridge_url_is_default(cls, v: object) -> object:
@@ -265,3 +278,23 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()  # type: ignore[call-arg]
+
+
+def optional_bot_token() -> str | None:
+    """The bot token from the environment or ``.env``, or ``None``.
+
+    ``None`` means no usable token: the variable is unset, empty or whitespace.
+    This is the only way composition roots (``serve``, the dev module) decide
+    whether scrape control is enabled; the API itself never reads settings.
+
+    Raises:
+        ValidationError: If settings are invalid for any other reason (for
+            example a bad ``API_PORT``), so a misconfiguration is reported
+            rather than silently read as "no token".
+    """
+    try:
+        return Settings().discord_bot_token.get_secret_value()  # type: ignore[call-arg]
+    except ValidationError as exc:
+        if all(error["loc"] == ("DISCORD_BOT_TOKEN",) for error in exc.errors()):
+            return None
+        raise

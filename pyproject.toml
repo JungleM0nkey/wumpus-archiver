@@ -42,6 +42,7 @@ postgres = [
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-xdist>=3.5.0",
     "pytest-cov>=4.1.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
@@ -122,11 +123,14 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 minversion = "7.0"
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+# Files run in parallel, one file per worker so module-scoped fixtures build once;
+# pass -n0 to run serially (for --pdb, or to read output in order).
+addopts = "-v --tb=short -n auto --dist loadfile"
 
 [tool.coverage.run]
 source = ["src/wumpus_archiver"]

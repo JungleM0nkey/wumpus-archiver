@@ -1,21 +1,17 @@
 """Tests for search inputs on the API: case-insensitive matching and LIKE-wildcard escaping.
 
 Covers ``/api/gifs``, ``/api/gifs/random``, ``/api/search`` and
-``/api/guilds/{guild_id}/users`` against SQLite (the default database), plus unit tests for
-:func:`wumpus_archiver.api.routes._helpers.escape_like`.
+``/api/guilds/{guild_id}/users`` against SQLite (the default database). The unit tests for
+the LIKE escaping live with archive reads in ``tests/test_archive_reads.py``.
 """
 
-from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from sqlalchemy import text
 
-from wumpus_archiver.api.routes import router as api_router
-from wumpus_archiver.api.routes._helpers import escape_like
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
@@ -132,15 +128,9 @@ async def seeded_db(database: Database) -> Database:
     return database
 
 
-@pytest.fixture
-async def client(seeded_db: Database) -> AsyncGenerator[AsyncClient, None]:
-    """HTTP client for a minimal app that mounts the API routers on the seeded database."""
-    app = FastAPI()
-    app.state.database = seeded_db
-    app.state.attachments_path = None
-    app.include_router(api_router, prefix="/api")
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
-        yield http
+@pytest.fixture(autouse=True)
+async def _seeded(seeded_db: Database) -> None:
+    """Every test here runs the shared ``client`` over the seeded database."""
 
 
 def _gif_ids(payload: dict[str, Any]) -> set[str]:
@@ -153,37 +143,6 @@ def _message_ids(payload: dict[str, Any]) -> set[str]:
 
 def _user_ids(payload: dict[str, Any]) -> set[str]:
     return {user["id"] for user in payload["users"]}
-
-
-class TestEscapeLike:
-    """Unit tests for escape_like."""
-
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            ("", ""),
-            ("plain text", "plain text"),
-            ("%", "\\%"),
-            ("_", "\\_"),
-            ("\\", "\\\\"),
-            ("100%_real", "100\\%\\_real"),
-            ("%_%", "\\%\\_\\%"),
-            # The escape character must be escaped first, so it is not double-processed.
-            ("a\\%", "a\\\\\\%"),
-            ("a\\_b", "a\\\\\\_b"),
-        ],
-    )
-    def test_default_escape(self, value: str, expected: str) -> None:
-        """Test that %, _ and the backslash are each prefixed with a backslash."""
-        assert escape_like(value) == expected
-
-    def test_custom_escape_character(self) -> None:
-        """Test escaping with a non-default escape character."""
-        assert escape_like("a!b%c_d", escape="!") == "a!!b!%c!_d"
-
-    def test_backslash_is_not_special_with_custom_escape(self) -> None:
-        """Test that a backslash is left alone when another escape character is used."""
-        assert escape_like("a\\b", escape="!") == "a\\b"
 
 
 class TestGifSearch:
@@ -322,6 +281,40 @@ class TestMessageSearch:
         response = await client.get("/api/search", params={"q": "%", "channel_id": CHANNEL_ID + 1})
         assert response.status_code == 200
         assert response.json()["total"] == 0
+
+    async def test_results_carry_their_channel_name(
+        self, client: AsyncClient, statements: list[str]
+    ) -> None:
+        """Test that each result names its channel, joined into the search page."""
+        response = await client.get("/api/search", params={"q": "HELLO"})
+        assert response.status_code == 200
+        assert [r["channel_name"] for r in response.json()["results"]] == ["general"]
+        assert sum("JOIN channels" in statement for statement in statements) == 1
+
+    async def test_author_filter_narrows_the_total_too(self, client: AsyncClient) -> None:
+        """Test that the total counts only the author's matches, like the results."""
+        response = await client.get("/api/search", params={"q": "hi", "author_id": 201})
+        assert response.status_code == 200
+        payload = response.json()
+        assert _message_ids(payload) == {"900"}
+        assert payload["total"] == 1
+
+    @pytest.mark.parametrize("param", ["guild_id", "channel_id", "author_id"])
+    async def test_a_zero_id_is_no_filter(self, client: AsyncClient, param: str) -> None:
+        """Test that an id of 0 means the filter is absent, as it always has."""
+        unfiltered = await client.get("/api/search", params={"q": "%"})
+        response = await client.get("/api/search", params={"q": "%", param: 0})
+        assert response.status_code == 200
+        assert response.json() == unfiltered.json()
+        assert response.json()["total"] == 1
+
+    async def test_a_channel_outside_the_guild_matches_nothing(self, client: AsyncClient) -> None:
+        """Test that guild and channel apply together rather than the channel winning."""
+        response = await client.get(
+            "/api/search", params={"q": "%", "guild_id": GUILD_ID + 1, "channel_id": CHANNEL_ID}
+        )
+        assert response.status_code == 200
+        assert response.json() == {"results": [], "total": 0, "query": "%"}
 
 
 class TestUserSearch:

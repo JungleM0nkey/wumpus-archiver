@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from wumpus_archiver.config import DEFAULT_CHAT_BRIDGE_URL, Settings, validate_bridge_url
+from wumpus_archiver.config import (
+    DEFAULT_CHAT_BRIDGE_URL,
+    Settings,
+    optional_bot_token,
+    validate_bridge_url,
+)
 
 
 class TestSettings:
@@ -25,9 +30,22 @@ class TestSettings:
         assert settings.log_level == "INFO"
         assert settings.log_file is None
 
-    def test_token_required(self) -> None:
+    def test_token_required(self, monkeypatch) -> None:
         """Test that discord_bot_token is required."""
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
         with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+
+    @pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+    def test_token_must_not_be_blank(self, blank: str) -> None:
+        """An empty or whitespace-only token is rejected, not stored."""
+        with pytest.raises(ValidationError, match="must not be empty"):
+            Settings(discord_bot_token=blank, _env_file=None)
+
+    def test_blank_token_from_env_is_rejected(self, monkeypatch) -> None:
+        """A blank DISCORD_BOT_TOKEN in the environment fails loading settings."""
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "")
+        with pytest.raises(ValidationError, match="must not be empty"):
             Settings(_env_file=None)
 
     def test_port_validation_low(self) -> None:
@@ -98,6 +116,49 @@ class TestSettings:
         settings = Settings(_env_file=None)
         assert settings.discord_bot_token.get_secret_value() == "env-token"
         assert settings.api_port == 9999
+
+
+class TestOptionalBotToken:
+    """``optional_bot_token`` is how composition roots decide whether scrape control is on."""
+
+    def test_returns_the_token_from_the_environment(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "env-token")
+        assert optional_bot_token() == "env-token"
+
+    def test_reads_dot_env_in_the_working_directory(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        (tmp_path / ".env").write_text("DISCORD_BOT_TOKEN=file-token\n")
+        assert optional_bot_token() == "file-token"
+
+    def test_none_when_unset(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        assert optional_bot_token() is None
+
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_none_when_blank(self, monkeypatch, tmp_path, blank: str) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", blank)
+        assert optional_bot_token() is None
+
+    def test_unrelated_invalid_settings_are_not_read_as_no_token(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A valid token next to a bad API_PORT is a misconfiguration, not read-only mode."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "env-token")
+        monkeypatch.setenv("API_PORT", "70000")
+        with pytest.raises(ValidationError, match="Port must be between"):
+            optional_bot_token()
+
+    def test_blank_token_next_to_invalid_settings_still_raises(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "")
+        monkeypatch.setenv("API_PORT", "70000")
+        with pytest.raises(ValidationError, match="Port must be between"):
+            optional_bot_token()
 
 
 FAKE_DISCORD_TOKEN = "fake-discord-token-AAAA1111"

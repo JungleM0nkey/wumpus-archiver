@@ -2,27 +2,14 @@
 
 from pathlib import Path
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 
-from wumpus_archiver.api.schemas import (
-    AttachmentSchema,
-    GalleryAttachmentSchema,
-)
-from wumpus_archiver.storage.database import Database
-
-
-def get_db(request: Request) -> Database:
-    """Get database from app state."""
-    return request.app.state.database  # type: ignore[no-any-return]
-
-
-def get_attachments_path(request: Request) -> Path | None:
-    """Get local attachments path from app state."""
-    return getattr(request.app.state, "attachments_path", None)
+from wumpus_archiver.api.schemas import GalleryAttachmentSchema
+from wumpus_archiver.storage.archive_reads import AttachmentRow
 
 
 def rewrite_attachment_url(
-    request: Request,
+    attachments_dir: Path | None,
     local_path: str | None,
     download_status: str,
     original_url: str,
@@ -30,30 +17,37 @@ def rewrite_attachment_url(
     """Rewrite attachment URL to local version if downloaded.
 
     Args:
-        request: Current request (for base URL)
+        attachments_dir: The configured attachments directory, or None
         local_path: Relative local path from attachment record
         download_status: Download status of the attachment
         original_url: Original Discord CDN URL
 
     Returns:
-        Local URL if downloaded, otherwise original URL
+        Local URL if downloaded and present locally, otherwise original URL
     """
-    attachments_dir = get_attachments_path(request)
-    if (
-        attachments_dir
-        and local_path
-        and download_status == "downloaded"
-        and (attachments_dir / local_path).exists()
-    ):
+    if download_status != "downloaded":
+        return original_url
+    return local_attachment_url(attachments_dir, local_path) or original_url
+
+
+def local_attachment_url(attachments_dir: Path | None, local_path: str | None) -> str | None:
+    """The portal URL of a local attachment, or ``None`` if it is not served locally.
+
+    A local attachment is served at ``/attachments/<local_path>`` (a path relative to
+    the site root; nothing here depends on the request) when an attachments dir is
+    configured and the file is present in it.
+
+    Args:
+        attachments_dir: The configured attachments directory, or None
+        local_path: The attachment's path relative to that directory, or None
+
+    Returns:
+        The local URL, or None when there is no attachments dir, no local path, or
+        the file is missing
+    """
+    if attachments_dir and local_path and (attachments_dir / local_path).exists():
         return f"/attachments/{local_path}"
-    return original_url
-
-
-def rewrite_attachment_schema(request: Request, schema: AttachmentSchema) -> AttachmentSchema:
-    """Rewrite URLs in an AttachmentSchema if local file exists."""
-    # We need to query the DB for local_path — but schemas don't have it.
-    # Instead the caller should pass the ORM object data.
-    return schema
+    return None
 
 
 def raise_not_found(detail: str) -> None:
@@ -61,50 +55,23 @@ def raise_not_found(detail: str) -> None:
     raise HTTPException(status_code=404, detail=detail)
 
 
-def escape_like(value: str, escape: str = "\\") -> str:
-    """Escape SQL ``LIKE`` wildcards so user input matches literally.
-
-    The escape character is escaped first, then ``%`` and ``_``. The caller must
-    pass the same escape character to the ``LIKE`` clause (``ESCAPE '\\'`` in raw
-    SQL or ``escape="\\\\"`` in SQLAlchemy ``like``/``ilike``).
-
-    Args:
-        value: Raw user-supplied search text
-        escape: Escape character used by the ``LIKE`` clause
-
-    Returns:
-        The value with ``escape``, ``%`` and ``_`` each prefixed by ``escape``
-    """
-    return (
-        value.replace(escape, escape + escape)
-        .replace("%", escape + "%")
-        .replace("_", escape + "_")
-    )
-
-
-IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp", "image/avif")
-
-
 def rows_to_gallery_schemas(
-    request: Request,
-    rows: list[tuple],  # type: ignore[type-arg]
-    channel_map: dict[int, str] | None = None,
+    attachments_dir: Path | None,
+    rows: list[AttachmentRow],
 ) -> list[GalleryAttachmentSchema]:
-    """Convert raw DB rows to GalleryAttachmentSchema list.
+    """Convert attachment rows from archive reads to gallery schemas.
 
     Args:
-        request: Current request for URL rewriting
-        rows: Tuples of (Attachment, created_at, channel_id, username, global_name, avatar_url)
-        channel_map: Optional map of channel_id -> channel_name
+        attachments_dir: The configured attachments directory, or None
+        rows: Attachments with their message context
 
     Returns:
         List of GalleryAttachmentSchema
     """
     attachments = []
-    for att, created_at, msg_channel_id, username, global_name, avatar_url in rows:
-        url = rewrite_attachment_url(
-            request, att.local_path, att.download_status, att.url
-        )
+    for row in rows:
+        att = row.attachment
+        url = rewrite_attachment_url(attachments_dir, att.local_path, att.download_status, att.url)
         proxy_url = att.proxy_url
         if url != att.url:
             proxy_url = None
@@ -119,11 +86,11 @@ def rows_to_gallery_schemas(
                 proxy_url=proxy_url,
                 width=att.width,
                 height=att.height,
-                created_at=created_at,
-                author_name=global_name or username,
-                author_avatar_url=avatar_url,
-                channel_id=msg_channel_id,
-                channel_name=channel_map.get(msg_channel_id) if channel_map else None,
+                created_at=row.created_at,
+                author_name=row.author_global_name or row.author_username,
+                author_avatar_url=row.author_avatar_url,
+                channel_id=row.channel_id,
+                channel_name=row.channel_name,
             )
         )
     return attachments

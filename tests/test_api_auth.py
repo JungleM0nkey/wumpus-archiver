@@ -9,8 +9,10 @@ from fastapi import FastAPI
 from pydantic import SecretStr, ValidationError
 
 from wumpus_archiver.api.app import create_app
+from wumpus_archiver.api.deps import wiring_of
 from wumpus_archiver.api.scrape_manager import JobStatus, ScrapeJob, ScrapeJobManager
 from wumpus_archiver.cli import _warn_if_not_loopback
+from wumpus_archiver.compose import api_security_from_settings
 from wumpus_archiver.config import DEFAULT_CORS_ORIGINS, Settings
 from wumpus_archiver.storage.database import Database
 
@@ -35,8 +37,8 @@ def start_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, str]]:
     """Replace the scrape manager's start/cancel so no Discord connection is attempted."""
     calls: list[tuple[int, str]] = []
 
-    def fake_start(self: ScrapeJobManager, guild_id: int, token: str) -> ScrapeJob:
-        calls.append((guild_id, token))
+    def fake_start(self: ScrapeJobManager, guild_id: int) -> ScrapeJob:
+        calls.append((guild_id, self._token))
         return ScrapeJob(
             id="job123",
             guild_id=guild_id,
@@ -47,6 +49,37 @@ def start_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, str]]:
     monkeypatch.setattr(ScrapeJobManager, "start_scrape", fake_start)
     monkeypatch.setattr(ScrapeJobManager, "cancel", lambda self: True)
     return calls
+
+
+def make_app(database: Database, *, api_auth_token: str | None = None) -> FastAPI:
+    """An app with scrape control configured, the given API token and the default origins.
+
+    This is what ``serve`` hands ``create_app`` when the bot token is set, ``CORS_ORIGINS``
+    is unset and ``API_AUTH_TOKEN`` is ``api_auth_token``.
+    """
+    return create_app(
+        database,
+        scrape=ScrapeJobManager(database, DISCORD_TOKEN),
+        api_auth_token=api_auth_token,
+        cors_origins=DEFAULT_CORS_ORIGINS,
+    )
+
+
+def app_as_serve_builds_it(database: Database) -> FastAPI:
+    """The app composed the way ``serve`` composes it: the API token and origins from settings."""
+    api_auth_token, cors_origins = api_security_from_settings()
+    return create_app(
+        database,
+        scrape=ScrapeJobManager(database, DISCORD_TOKEN),
+        api_auth_token=api_auth_token,
+        cors_origins=cors_origins,
+    )
+
+
+def wired_token(app: FastAPI) -> str | None:
+    """The API token the app was built with, revealed."""
+    token = wiring_of(app).api_auth_token
+    return token.get_secret_value() if token is not None else None
 
 
 def client_for(app: FastAPI) -> httpx.AsyncClient:
@@ -68,7 +101,7 @@ class TestScrapeControlDisabled:
     async def test_start_returns_403(
         self, database: Database, start_calls: list[tuple[int, str]]
     ) -> None:
-        app = create_app(database, discord_token=DISCORD_TOKEN)
+        app = make_app(database)
         async with client_for(app) as client:
             resp = await client.post("/api/scrape/start", json=START_BODY)
         assert resp.status_code == 403
@@ -76,7 +109,7 @@ class TestScrapeControlDisabled:
         assert start_calls == []
 
     async def test_cancel_returns_403(self, database: Database) -> None:
-        app = create_app(database, discord_token=DISCORD_TOKEN)
+        app = make_app(database)
         async with client_for(app) as client:
             resp = await client.post("/api/scrape/cancel")
         assert resp.status_code == 403
@@ -85,7 +118,7 @@ class TestScrapeControlDisabled:
     async def test_bearer_header_does_not_bypass(
         self, database: Database, start_calls: list[tuple[int, str]]
     ) -> None:
-        app = create_app(database, discord_token=DISCORD_TOKEN)
+        app = make_app(database)
         async with client_for(app) as client:
             for token in ("", "anything", "None"):
                 resp = await client.post(
@@ -101,15 +134,15 @@ class TestScrapeControlDisabled:
         start_calls: list[tuple[int, str]],
     ) -> None:
         monkeypatch.setenv("API_AUTH_TOKEN", "")
-        app = create_app(database, discord_token=DISCORD_TOKEN)
-        assert not app.state.api_auth_token
+        app = app_as_serve_builds_it(database)
+        assert wired_token(app) is None
         async with client_for(app) as client:
             resp = await client.post("/api/scrape/start", json=START_BODY, headers=bearer(""))
         assert resp.status_code == 403
         assert start_calls == []
 
     async def test_status_reports_control_disabled(self, database: Database) -> None:
-        app = create_app(database, discord_token=DISCORD_TOKEN)
+        app = make_app(database)
         async with client_for(app) as client:
             resp = await client.get("/api/scrape/status")
         assert resp.status_code == 200
@@ -123,7 +156,7 @@ class TestScrapeControlEnabled:
     async def test_missing_header_returns_401(
         self, database: Database, start_calls: list[tuple[int, str]], path: str
     ) -> None:
-        app = create_app(database, discord_token=DISCORD_TOKEN, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         async with client_for(app) as client:
             resp = await client.post(path, json=START_BODY)
         assert resp.status_code == 401
@@ -143,7 +176,7 @@ class TestScrapeControlEnabled:
     async def test_malformed_header_returns_401(
         self, database: Database, start_calls: list[tuple[int, str]], header: str
     ) -> None:
-        app = create_app(database, discord_token=DISCORD_TOKEN, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         async with client_for(app) as client:
             resp = await client.post(
                 "/api/scrape/start", json=START_BODY, headers={"Authorization": header}
@@ -156,7 +189,7 @@ class TestScrapeControlEnabled:
     async def test_wrong_token_returns_401(
         self, database: Database, start_calls: list[tuple[int, str]], path: str
     ) -> None:
-        app = create_app(database, discord_token=DISCORD_TOKEN, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         wrong = "x" * len(API_TOKEN)  # same length: must still be rejected
         async with client_for(app) as client:
             resp = await client.post(path, json=START_BODY, headers=bearer(wrong))
@@ -169,7 +202,7 @@ class TestScrapeControlEnabled:
         assert start_calls == []
 
     async def test_non_ascii_token_returns_401_not_500(self, database: Database) -> None:
-        app = create_app(database, discord_token=DISCORD_TOKEN, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         async with client_for(app) as client:
             resp = await client.post(
                 "/api/scrape/start",
@@ -181,7 +214,7 @@ class TestScrapeControlEnabled:
     async def test_correct_token_starts_scrape(
         self, database: Database, start_calls: list[tuple[int, str]]
     ) -> None:
-        app = create_app(database, discord_token=DISCORD_TOKEN, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         async with client_for(app) as client:
             resp = await client.post(
                 "/api/scrape/start", json=START_BODY, headers=bearer(API_TOKEN)
@@ -193,7 +226,7 @@ class TestScrapeControlEnabled:
     async def test_scheme_is_case_insensitive(
         self, database: Database, start_calls: list[tuple[int, str]]
     ) -> None:
-        app = create_app(database, discord_token=DISCORD_TOKEN, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         async with client_for(app) as client:
             resp = await client.post(
                 "/api/scrape/start",
@@ -206,7 +239,7 @@ class TestScrapeControlEnabled:
     async def test_correct_token_cancels_scrape(
         self, database: Database, start_calls: list[tuple[int, str]]
     ) -> None:
-        app = create_app(database, discord_token=DISCORD_TOKEN, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         async with client_for(app) as client:
             resp = await client.post("/api/scrape/cancel", headers=bearer(API_TOKEN))
         assert resp.status_code == 200
@@ -214,13 +247,13 @@ class TestScrapeControlEnabled:
 
     async def test_correct_token_cancel_without_job_is_404(self, database: Database) -> None:
         """Auth passes, so the endpoint's own logic answers (nothing to cancel)."""
-        app = create_app(database, discord_token=DISCORD_TOKEN, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         async with client_for(app) as client:
             resp = await client.post("/api/scrape/cancel", headers=bearer(API_TOKEN))
         assert resp.status_code == 404
 
     async def test_read_endpoints_stay_open(self, database: Database) -> None:
-        app = create_app(database, discord_token=DISCORD_TOKEN, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         async with client_for(app) as client:
             status = await client.get("/api/scrape/status")
             history = await client.get("/api/scrape/history")
@@ -240,7 +273,7 @@ class TestScrapeControlEnabled:
     ) -> None:
         """API_AUTH_TOKEN is picked up even though DISCORD_BOT_TOKEN is not set."""
         monkeypatch.setenv("API_AUTH_TOKEN", API_TOKEN)
-        app = create_app(database, discord_token=DISCORD_TOKEN)
+        app = app_as_serve_builds_it(database)
         async with client_for(app) as client:
             denied = await client.post("/api/scrape/start", json=START_BODY)
             ok = await client.post("/api/scrape/start", json=START_BODY, headers=bearer(API_TOKEN))
@@ -254,17 +287,19 @@ class TestScrapeControlEnabled:
         start_calls: list[tuple[int, str]],
     ) -> None:
         (tmp_path / ".env").write_text(f"API_AUTH_TOKEN={API_TOKEN}\n")
-        app = create_app(database, discord_token=DISCORD_TOKEN)
+        app = app_as_serve_builds_it(database)
         async with client_for(app) as client:
             ok = await client.post("/api/scrape/start", json=START_BODY, headers=bearer(API_TOKEN))
         assert ok.status_code == 202
 
-    async def test_explicit_token_wins_over_environment(
-        self, database: Database, monkeypatch: pytest.MonkeyPatch
+    async def test_create_app_never_reads_the_token_from_the_environment(
+        self, database: Database, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
+        """Only the composition root reads API_AUTH_TOKEN; the factory uses what it is handed."""
         monkeypatch.setenv("API_AUTH_TOKEN", "env-token")
-        app = create_app(database, discord_token=DISCORD_TOKEN, api_auth_token=API_TOKEN)
-        assert app.state.api_auth_token == API_TOKEN
+        (tmp_path / ".env").write_text("API_AUTH_TOKEN=dotenv-token\n")
+        assert wired_token(make_app(database, api_auth_token=API_TOKEN)) == API_TOKEN
+        assert wired_token(make_app(database)) is None
 
     async def test_env_fallback_when_settings_are_invalid(
         self,
@@ -275,8 +310,19 @@ class TestScrapeControlEnabled:
         """Unrelated invalid settings must not silently drop the configured token."""
         monkeypatch.setenv("LOG_LEVEL", "bogus")
         monkeypatch.setenv("API_AUTH_TOKEN", API_TOKEN)
-        app = create_app(database, discord_token=DISCORD_TOKEN)
-        assert app.state.api_auth_token == API_TOKEN
+        app = app_as_serve_builds_it(database)
+        assert wired_token(app) == API_TOKEN
+
+    async def test_the_token_never_shows_in_a_repr(self, database: Database) -> None:
+        app = make_app(database, api_auth_token=API_TOKEN)
+        assert API_TOKEN not in repr(wiring_of(app))
+
+    async def test_a_blank_token_handed_in_disables_control(self, database: Database) -> None:
+        app = make_app(database, api_auth_token="   ")
+        assert wired_token(app) is None
+        async with client_for(app) as client:
+            resp = await client.post("/api/scrape/start", json=START_BODY, headers=bearer("   "))
+        assert resp.status_code == 403
 
 
 class TestCors:
@@ -300,7 +346,7 @@ class TestCors:
             )
 
     async def test_allowed_origin_preflight(self, database: Database) -> None:
-        app = create_app(database, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         resp = await self._preflight(app, ALLOWED_ORIGIN)
         assert resp.status_code == 200
         assert resp.headers["access-control-allow-origin"] == ALLOWED_ORIGIN
@@ -314,31 +360,31 @@ class TestCors:
 
     @pytest.mark.parametrize("origin", list(DEFAULT_CORS_ORIGINS))
     async def test_default_origins_are_allowed(self, database: Database, origin: str) -> None:
-        app = create_app(database, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         resp = await self._preflight(app, origin)
         assert resp.status_code == 200
         assert resp.headers["access-control-allow-origin"] == origin
 
     async def test_disallowed_origin_preflight(self, database: Database) -> None:
-        app = create_app(database, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         resp = await self._preflight(app, EVIL_ORIGIN)
         assert resp.status_code == 400
         assert "access-control-allow-origin" not in resp.headers
         assert "access-control-allow-credentials" not in resp.headers
 
     async def test_disallowed_method_preflight(self, database: Database) -> None:
-        app = create_app(database, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         for method in ("DELETE", "PUT", "PATCH"):
             resp = await self._preflight(app, ALLOWED_ORIGIN, method=method)
             assert resp.status_code == 400
 
     async def test_disallowed_header_preflight(self, database: Database) -> None:
-        app = create_app(database, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         resp = await self._preflight(app, ALLOWED_ORIGIN, headers="x-custom-header")
         assert resp.status_code == 400
 
     async def test_simple_request_headers(self, database: Database) -> None:
-        app = create_app(database, api_auth_token=API_TOKEN)
+        app = make_app(database, api_auth_token=API_TOKEN)
         async with client_for(app) as client:
             ok = await client.get("/api/scrape/status", headers={"Origin": ALLOWED_ORIGIN})
             evil = await client.get("/api/scrape/status", headers={"Origin": EVIL_ORIGIN})
@@ -350,7 +396,7 @@ class TestCors:
         self, database: Database, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("CORS_ORIGINS", "https://a.example, https://b.example/ ,")
-        app = create_app(database, api_auth_token=API_TOKEN)
+        app = app_as_serve_builds_it(database)
         for origin in ("https://a.example", "https://b.example"):
             resp = await self._preflight(app, origin)
             assert resp.status_code == 200
@@ -363,15 +409,21 @@ class TestCors:
     ) -> None:
         monkeypatch.setenv("LOG_LEVEL", "bogus")
         monkeypatch.setenv("CORS_ORIGINS", "https://a.example")
-        app = create_app(database, api_auth_token=API_TOKEN)
+        app = app_as_serve_builds_it(database)
         assert (await self._preflight(app, "https://a.example")).status_code == 200
         assert (await self._preflight(app, ALLOWED_ORIGIN)).status_code == 400
+
+    async def test_no_origins_handed_in_allows_none(self, database: Database) -> None:
+        """The factory's own default is closed; serve hands it the configured list."""
+        app = create_app(database, api_auth_token=API_TOKEN)
+        for origin in DEFAULT_CORS_ORIGINS:
+            assert (await self._preflight(app, origin)).status_code == 400
 
     async def test_invalid_origins_fail_closed(
         self, database: Database, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("CORS_ORIGINS", '["https://a.example"')  # truncated JSON
-        app = create_app(database, api_auth_token=API_TOKEN)
+        app = app_as_serve_builds_it(database)
         assert (await self._preflight(app, ALLOWED_ORIGIN)).status_code == 400
         assert (await self._preflight(app, "https://a.example")).status_code == 400
 
@@ -430,9 +482,7 @@ class TestSettingsFields:
         assert settings.cors_origins == ["https://a.example", "https://b.example"]
 
     @pytest.mark.parametrize("raw", ['["https://a.example"', "[1, 2]", '["a", {}]'])
-    def test_invalid_cors_json_is_rejected(
-        self, monkeypatch: pytest.MonkeyPatch, raw: str
-    ) -> None:
+    def test_invalid_cors_json_is_rejected(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
         monkeypatch.setenv("CORS_ORIGINS", raw)
         with pytest.raises(ValidationError):
             Settings(discord_bot_token="t", _env_file=None)
