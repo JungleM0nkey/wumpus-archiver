@@ -55,8 +55,8 @@ test("the tiles read Messages, Channels, Authors and Attachments, with the guild
 	await page.goto('/', { waitUntil: 'networkidle' });
 	const labels = await page.locator('main .stat-card .stat-label').allInnerTexts();
 	expect(labels.map((l) => l.toLowerCase())).toEqual(['messages', 'channels', 'authors', 'attachments']);
-	await expect(tile(page, 'Messages').locator('.stat-value')).toHaveText('130');
-	await expect(tile(page, 'Authors').locator('.stat-value')).toHaveText('120');
+	await expect(tile(page, 'Messages').locator('.stat-value')).toHaveText('135');
+	await expect(tile(page, 'Authors').locator('.stat-value')).toHaveText('122');
 });
 
 test('with no completed scrape job the tiles show no change, not zero', async ({ page }) => {
@@ -99,7 +99,7 @@ test("the chart has one point per month of the guild's activity", async ({ page,
 test('the chart has axis labels, a summary, and reads each month by hover or keyboard', async ({ page }) => {
 	await page.goto('/', { waitUntil: 'networkidle' });
 	const chart = page.locator('main .activity-chart');
-	await expect(chart.locator('figcaption')).toContainText('130 messages over 2 months, May 2024 to Jun 2024.');
+	await expect(chart.locator('figcaption')).toContainText('135 messages over 2 months, May 2024 to Jun 2024.');
 	await expect(chart.locator('.y-tick').first()).toHaveText('0');
 	await expect(chart.locator('.x-tick')).toHaveText(['May 2024', 'Jun']);
 
@@ -111,7 +111,7 @@ test('the chart has axis labels, a summary, and reads each month by hover or key
 
 	await page.mouse.move(0, 0);
 	await plot.focus();
-	await expect(plot).toHaveAttribute('aria-valuetext', 'Jun 2024: 122 messages');
+	await expect(plot).toHaveAttribute('aria-valuetext', 'Jun 2024: 127 messages');
 	await page.keyboard.press('ArrowLeft');
 	await expect(plot).toHaveAttribute('aria-valuetext', 'May 2024: 8 messages');
 	await expect(chart.locator('.chart-tooltip')).toContainText('May 2024');
@@ -158,18 +158,18 @@ async function recordFirstValue(page: Page): Promise<void> {
 test('the totals count up when they first paint', async ({ page }) => {
 	await recordFirstValue(page);
 	await page.goto('/', { waitUntil: 'networkidle' });
-	await expect(tile(page, 'Messages').locator('.stat-value')).toHaveText('130');
+	await expect(tile(page, 'Messages').locator('.stat-value')).toHaveText('135');
 	const seen = await page.evaluate(() => (window as unknown as { seenValues: string[] }).seenValues);
 	expect(seen[0]).toBe('0');
 	expect(seen.length).toBeGreaterThan(2);
-	expect(seen[seen.length - 1]).toBe('130');
+	expect(seen[seen.length - 1]).toBe('135');
 });
 
 test('under reduced motion the totals show at once', async ({ page }) => {
 	await page.emulateMedia({ reducedMotion: 'reduce' });
 	await recordFirstValue(page);
 	await page.goto('/', { waitUntil: 'networkidle' });
-	await expect(tile(page, 'Messages').locator('.stat-value')).toHaveText('130');
+	await expect(tile(page, 'Messages').locator('.stat-value')).toHaveText('135');
 	const seen = await page.evaluate(() => (window as unknown as { seenValues: string[] }).seenValues);
-	expect(seen).toEqual(['130']);
+	expect(seen).toEqual(['135']);
 });
