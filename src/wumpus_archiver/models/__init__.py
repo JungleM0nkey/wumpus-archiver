@@ -2,6 +2,7 @@
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
+from wumpus_archiver.models.completed_scrape import CompletedScrape
 from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.reaction import Reaction
@@ -14,4 +15,5 @@ __all__ = [
     "User",
     "Attachment",
     "Reaction",
+    "CompletedScrape",
 ]

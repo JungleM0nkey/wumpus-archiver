@@ -16,6 +16,7 @@ from tests.smoke_archive import (
     GUILD_ID,
     LURKERS,
     NIGHT_GUILD_ID,
+    NIGHT_SCRAPE_ADDED,
     SORTED_APART,
     SORTED_APART_MESSAGES,
     seed_smoke_archive,
@@ -117,6 +118,23 @@ async def test_search_and_profile_find_the_seeded_text(client: AsyncClient) -> N
     assert [r["message"]["content"] for r in search["results"]] == ["The hello world of June."]
     profile = (await client.get(f"/api/users/{ALICE_ID}/profile")).json()
     assert profile["display_name"] == "Alice"
+
+
+# ── #67 Overview ─────────────────────────────────────────────────────────────
+
+
+async def test_only_night_owls_has_a_completed_scrape_job(client: AsyncClient) -> None:
+    """The Overview's smoke tests show a change on Night Owls' tiles and none on the first's."""
+    first = (await client.get(f"/api/guilds/{GUILD_ID}/stats")).json()
+    assert first["since_last_scrape"] is None
+    night = (await client.get(f"/api/guilds/{NIGHT_GUILD_ID}/stats")).json()
+    change = night["since_last_scrape"]
+    assert {key: change[key] for key in NIGHT_SCRAPE_ADDED} == NIGHT_SCRAPE_ADDED
+
+
+async def test_the_most_active_channels_leave_out_the_categories(client: AsyncClient) -> None:
+    stats = (await client.get(f"/api/guilds/{GUILD_ID}/stats")).json()
+    assert [c["name"] for c in stats["top_channels"]] == ["lobby", "general", "random", "art"]
 
 
 async def test_written_archive_holds_the_seed_and_its_files(tmp_path: Path) -> None:

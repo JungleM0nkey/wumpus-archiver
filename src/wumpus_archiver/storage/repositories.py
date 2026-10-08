@@ -7,10 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
+from wumpus_archiver.models.completed_scrape import CompletedScrape
 from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.reaction import Reaction
 from wumpus_archiver.models.user import User
+from wumpus_archiver.storage.archive_reads import GuildTotals
 
 
 class GuildRepository:
@@ -201,3 +203,43 @@ class ReactionRepository:
         else:
             self.session.add(reaction)
             return reaction
+
+
+class CompletedScrapeRepository:
+    """Repository for the record each completed scrape job leaves (see ``docs/adr/0004``)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def record(
+        self,
+        guild_id: int,
+        *,
+        started_at: datetime,
+        at_start: GuildTotals,
+        completed_at: datetime | None = None,
+    ) -> CompletedScrape:
+        """Record that a scrape job of ``guild_id`` completed, with the totals it started from.
+
+        ``at_start`` must be read before the job writes anything. Times are stored as
+        naive UTC; ``completed_at`` defaults to now.
+        """
+        completed = completed_at or datetime.now(UTC)
+        record = CompletedScrape(
+            guild_id=guild_id,
+            started_at=_naive_utc(started_at),
+            completed_at=_naive_utc(completed),
+            messages_at_start=at_start.messages,
+            channels_at_start=at_start.channels,
+            authors_at_start=at_start.authors,
+            attachments_at_start=at_start.attachments,
+        )
+        self.session.add(record)
+        return record
+
+
+def _naive_utc(value: datetime) -> datetime:
+    """The archive stores naive UTC; convert an aware datetime to that."""
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(UTC).replace(tzinfo=None)

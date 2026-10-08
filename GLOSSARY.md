@@ -35,6 +35,10 @@ _Avoid_: export, sync, import, crawl
 One run of a scrape against one guild, with a status (pending, connecting, scraping, completed, failed, cancelled) and progress.
 _Avoid_: task, run, crawl
 
+**Change since the last scrape**:
+How much a guild total differs from what it was when the guild's last completed scrape job started: what that job added, plus anything ingested since. A guild with no completed scrape job on record has none, which is not the same as zero.
+_Avoid_: delta (in copy), growth
+
 **Scrape control**:
 The ability to start and cancel scrape jobs from the portal. It is read-only when no bot token is configured.
 _Avoid_: control panel, control page, scrape manager (the implementation)

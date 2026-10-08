@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
+from wumpus_archiver.models.completed_scrape import CompletedScrape
 from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.reaction import Reaction
@@ -281,6 +282,7 @@ async def seed_smoke_archive(database: Database) -> None:
                 )
             )
         _add_night_guild(session)
+        _add_night_scrape(session)  # #67
         for n in range(LURKERS):
             name = f"Lurker {n + 1:03d}"
             session.add(
@@ -407,6 +409,31 @@ def _add_night_guild(session: AsyncSession) -> None:
                 scraped_at=last,
             )
         )
+
+
+# ── #67 Overview: the change since the last completed scrape job ────────────
+# Night Owls has one completed scrape job on record; Smoke Test Guild has none, so its
+# stat tiles show no change at all. The job started when the guild held its first two
+# messages (both in #lounge, by Carol and Dave) and no attachment, so it added three
+# messages and moonrise.png: no channel and no author.
+NIGHT_SCRAPE_ADDED = {"messages": 3, "channels": 0, "authors": 0, "attachments": 1}
+"""What Night Owls' last completed scrape job added, as the stats report it."""
+
+
+def _add_night_scrape(session: AsyncSession) -> None:
+    """Record Night Owls' completed scrape job, with the totals it started from."""
+    completed = NIGHT_START + timedelta(minutes=_NIGHT_MESSAGES[-1][2])
+    session.add(
+        CompletedScrape(
+            guild_id=NIGHT_GUILD_ID,
+            started_at=completed - timedelta(minutes=4),
+            completed_at=completed,
+            messages_at_start=2,
+            channels_at_start=3,
+            authors_at_start=2,
+            attachments_at_start=0,
+        )
+    )
 
 
 def write_attachments(attachments_dir: Path) -> None:

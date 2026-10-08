@@ -150,8 +150,28 @@ class SearchResponse(BaseModel):
     query: str | None
 
 
+class SinceLastScrapeSchema(BaseModel):
+    """How the guild's totals changed since its last completed scrape job started.
+
+    Each count is the current total minus the total when that job started, so it is
+    what that job added plus anything ingested after it (see ``docs/adr/0004``).
+    ``authors`` is the change in ``total_users``.
+    """
+
+    started_at: datetime
+    completed_at: datetime
+    messages: int
+    channels: int
+    authors: int
+    attachments: int
+
+
 class StatsSchema(BaseModel):
-    """Guild statistics."""
+    """Guild statistics.
+
+    ``top_channels`` lists text channels only. ``since_last_scrape`` is ``None`` when
+    no scrape job of the guild has completed (or none was recorded), never zeros.
+    """
 
     guild_name: str
     total_channels: int
@@ -160,6 +180,7 @@ class StatsSchema(BaseModel):
     total_attachments: int
     top_channels: list[dict[str, object]]
     top_users: list[dict[str, object]]
+    since_last_scrape: SinceLastScrapeSchema | None = None
 
 
 class GalleryAttachmentSchema(BaseModel):

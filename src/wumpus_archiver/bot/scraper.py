@@ -15,10 +15,12 @@ from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.reaction import Reaction
 from wumpus_archiver.models.user import User
+from wumpus_archiver.storage import archive_reads
 from wumpus_archiver.storage.database import Database
 from wumpus_archiver.storage.repositories import (
     AttachmentRepository,
     ChannelRepository,
+    CompletedScrapeRepository,
     GuildRepository,
     MessageRepository,
     ReactionRepository,
@@ -91,7 +93,14 @@ class ArchiverBot:
         attachments_found = 0
         errors: list[str] = []
 
+        # An archive written before completed scrapes were recorded gains their table here.
+        await self.database.create_tables()
+
         async with self.database.session() as session:
+            # The totals this scrape starts from, before it writes anything (ADR 0004)
+            started_at = datetime.now(UTC)
+            at_start = await archive_reads.guild_totals(session, guild_id)
+
             # Save guild info
             await self._save_guild(session, guild)
 
@@ -158,6 +167,9 @@ class ArchiverBot:
             # Update guild scrape metadata
             guild_repo = GuildRepository(session)
             await guild_repo.update_scrape_metadata(guild_id)
+            await CompletedScrapeRepository(session).record(
+                guild_id, started_at=started_at, at_start=at_start
+            )
 
         stats["channels_scraped"] = channels_scraped
         stats["messages_scraped"] = messages_scraped

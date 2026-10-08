@@ -1,16 +1,19 @@
-"""The guild stats route over a seeded archive."""
+"""The guild stats and activity routes over a seeded archive."""
 
 from datetime import datetime
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
 from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.user import User
+from wumpus_archiver.storage import archive_reads
 from wumpus_archiver.storage.database import Database
+from wumpus_archiver.storage.repositories import CompletedScrapeRepository
 
 WHEN = datetime(2024, 3, 1)
 
@@ -79,6 +82,7 @@ async def test_guild_stats(client: AsyncClient) -> None:
                 "message_count": 1,
             },
         ],
+        "since_last_scrape": None,
     }
 
 
@@ -102,10 +106,10 @@ def _counts_messages(statement: str) -> bool:
 async def test_guild_stats_reads_each_total_once(
     client: AsyncClient, statements: list[str]
 ) -> None:
-    """Guild, channels, totals, attachments, top channels and top users: nothing thrown away."""
+    """Guild, totals, attachments, channels, top channels, top users and the last scrape."""
     response = await client.get("/api/guilds/1/stats")
     assert response.status_code == 200
-    assert len(statements) == 6
+    assert len(statements) == 7
     assert sum(map(_counts_messages, statements)) == 1
     assert not any("reactions" in statement for statement in statements)
 
@@ -126,7 +130,7 @@ async def test_more_than_ten_authors_add_the_top_users_count(
     response = await client.get("/api/guilds/1/stats")
     payload = response.json()
     assert (payload["total_users"], len(payload["top_users"])) == (12, 10)
-    assert len(statements) == 7
+    assert len(statements) == 8
 
 
 async def test_total_users_counts_authors_without_a_users_row(
@@ -160,3 +164,126 @@ async def test_top_channels_are_text_channels_only(client: AsyncClient, database
         "news",
     ]
     assert payload["total_channels"] == 7
+
+
+# ── The change since the last completed scrape job (ADR 0004) ───────────────
+
+STARTED = datetime(2024, 4, 1, 10, 0)
+COMPLETED = datetime(2024, 4, 1, 10, 5)
+
+
+async def _add_rows(database: Database, *, first_id: int, channel_id: int) -> None:
+    """What a scrape might add to guild one: a channel, a new author, two messages, a file."""
+    async with database.session() as session:
+        session.add(Channel(id=channel_id, guild_id=1, name=f"new{channel_id}", type=0))
+        session.add(User(id=first_id, username=f"new{first_id}"))
+        session.add_all(
+            [
+                Message(
+                    id=first_id,
+                    channel_id=channel_id,
+                    author_id=first_id,
+                    created_at=WHEN,
+                    scraped_at=WHEN,
+                ),
+                Message(
+                    id=first_id + 1, channel_id=10, author_id=100, created_at=WHEN, scraped_at=WHEN
+                ),
+            ]
+        )
+        session.add(Attachment(id=first_id, message_id=first_id, filename="g", size=1, url="u"))
+
+
+async def _record_scrape(
+    database: Database, guild_id: int, at_start: archive_reads.GuildTotals, completed: datetime
+) -> None:
+    async with database.session() as session:
+        await CompletedScrapeRepository(session).record(
+            guild_id, started_at=STARTED, at_start=at_start, completed_at=completed
+        )
+
+
+async def _totals(database: Database, guild_id: int) -> archive_reads.GuildTotals:
+    async with database.session() as session:
+        return await archive_reads.guild_totals(session, guild_id)
+
+
+async def test_without_a_completed_scrape_there_is_no_change_rather_than_zero(
+    client: AsyncClient,
+) -> None:
+    payload = (await client.get("/api/guilds/1/stats")).json()
+    assert payload["since_last_scrape"] is None
+
+
+async def test_the_change_is_what_was_added_since_the_last_completed_scrape_started(
+    client: AsyncClient, database: Database
+) -> None:
+    """A scrape records the totals it started from; the stats subtract them from today's."""
+    at_start = await _totals(database, 1)
+    await _add_rows(database, first_id=500, channel_id=30)  # during the scrape
+    await _record_scrape(database, 1, at_start, COMPLETED)
+    await _add_rows(database, first_id=600, channel_id=31)  # after it
+
+    payload = (await client.get("/api/guilds/1/stats")).json()
+    assert payload["since_last_scrape"] == {
+        "started_at": "2024-04-01T10:00:00",
+        "completed_at": "2024-04-01T10:05:00",
+        "messages": 4,
+        "channels": 2,
+        "authors": 2,
+        "attachments": 2,
+    }
+    assert (
+        payload["total_messages"] - at_start.messages,
+        payload["total_channels"] - at_start.channels,
+        payload["total_users"] - at_start.authors,
+        payload["total_attachments"] - at_start.attachments,
+    ) == (4, 2, 2, 2)
+
+
+async def test_a_scrape_that_added_nothing_shows_a_true_zero(
+    client: AsyncClient, database: Database
+) -> None:
+    await _record_scrape(database, 1, await _totals(database, 1), COMPLETED)
+    change = (await client.get("/api/guilds/1/stats")).json()["since_last_scrape"]
+    counts = (change["messages"], change["channels"], change["authors"], change["attachments"])
+    assert counts == (0, 0, 0, 0)
+
+
+async def test_the_latest_completed_scrape_of_this_guild_counts(
+    client: AsyncClient, database: Database
+) -> None:
+    """An older scrape of the guild, and any scrape of another guild, are ignored."""
+    await _record_scrape(database, 1, archive_reads.GuildTotals(), datetime(2024, 3, 1))
+    await _record_scrape(database, 1, await _totals(database, 1), COMPLETED)
+    await _record_scrape(database, 2, archive_reads.GuildTotals(), datetime(2024, 5, 1))
+    await _add_rows(database, first_id=500, channel_id=30)
+
+    change = (await client.get("/api/guilds/1/stats")).json()["since_last_scrape"]
+    assert change["completed_at"] == "2024-04-01T10:05:00"
+    assert change["messages"] == 2
+
+
+async def test_an_archive_without_the_completed_scrapes_table_reads_as_never_scraped(
+    client: AsyncClient, database: Database
+) -> None:
+    """An archive written before ADR 0004 is served as it is, until its next scrape."""
+    async with database.session() as session:
+        await session.execute(text("DROP TABLE completed_scrapes"))
+    response = await client.get("/api/guilds/1/stats")
+    assert response.status_code == 200
+    assert response.json()["since_last_scrape"] is None
+    assert response.json()["total_messages"] == 4
+
+
+async def test_create_tables_gives_an_older_archive_the_completed_scrapes_table(
+    database: Database,
+) -> None:
+    """What a scrape does first, so it can record itself in an archive from before ADR 0004."""
+    async with database.session() as session:
+        await session.execute(text("DROP TABLE completed_scrapes"))
+    await database.create_tables()
+    await _record_scrape(database, 1, archive_reads.GuildTotals(), COMPLETED)
+    async with database.session() as session:
+        assert await archive_reads.last_completed_scrape(session, 1) is not None
+

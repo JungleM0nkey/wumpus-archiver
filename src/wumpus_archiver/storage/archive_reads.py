@@ -1,8 +1,8 @@
 """Archive reads: the named reads of the archive, each over a scope.
 
-See ``docs/adr/0002`` and ``docs/adr/0003``. Every read takes the ``AsyncSession`` its
-caller opened and never writes, commits, flushes or closes it. This module imports the
-models only, never FastAPI or the API schemas.
+See ``docs/adr/0002``, ``docs/adr/0003`` and ``docs/adr/0004``. Every read takes the
+``AsyncSession`` its caller opened and never writes, commits, flushes or closes it. This
+module imports the models only, never FastAPI or the API schemas.
 """
 
 from collections.abc import Sequence
@@ -12,11 +12,13 @@ from enum import Enum, StrEnum
 from typing import Any
 
 from sqlalchemy import ColumnElement, Select, and_, exists, extract, func, join, or_, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from wumpus_archiver.models.attachment import Attachment
 from wumpus_archiver.models.channel import Channel
+from wumpus_archiver.models.completed_scrape import CompletedScrape
 from wumpus_archiver.models.guild import Guild
 from wumpus_archiver.models.message import Message
 from wumpus_archiver.models.reaction import Reaction
@@ -75,6 +77,20 @@ class GuildCounts:
 
     channels: int = 0
     messages: int = 0
+
+
+@dataclass(frozen=True)
+class GuildTotals:
+    """A guild's totals as the stats report them: messages, channels, authors, attachments.
+
+    Channels are every channel row the guild has, categories included, as the
+    guild detail lists them; authors are distinct non-null author ids.
+    """
+
+    messages: int = 0
+    channels: int = 0
+    authors: int = 0
+    attachments: int = 0
 
 
 TEXT_CHANNEL_TYPES = (0, 5)
@@ -667,3 +683,43 @@ async def top_channels(session: AsyncSession, guild_id: int, *, limit: int) -> l
         .limit(limit)
     )
     return [TopChannel(*row) for row in result.all()]
+
+
+async def guild_totals(session: AsyncSession, guild_id: int) -> GuildTotals:
+    """A guild's messages, channels, authors and attachments, counted live, in three statements.
+
+    The stats route reports these, and a scrape job records them when it starts, so
+    the change since the last scrape compares like with like.
+    """
+    scope = Scope(guild=guild_id)
+    totals = await message_and_author_totals(session, scope)
+    attachments = await attachment_total(session, scope)
+    channels = await session.execute(
+        select(func.count()).select_from(Channel).where(Channel.guild_id == guild_id)
+    )
+    return GuildTotals(
+        messages=totals.messages,
+        channels=int(channels.scalar_one()),
+        authors=totals.authors,
+        attachments=attachments,
+    )
+
+
+async def last_completed_scrape(session: AsyncSession, guild_id: int) -> CompletedScrape | None:
+    """The guild's most recently completed scrape job, or ``None`` when none has completed.
+
+    An archive written before completed scrapes were recorded has no such table until
+    its next scrape creates it; that reads as ``None`` too, not as an error.
+    """
+    try:
+        result = await session.execute(
+            select(CompletedScrape)
+            .where(CompletedScrape.guild_id == guild_id)
+            .order_by(CompletedScrape.completed_at.desc(), CompletedScrape.id.desc())
+            .limit(1)
+        )
+    except OperationalError as error:
+        if "no such table" not in str(error.orig):
+            raise
+        return None
+    return result.scalar_one_or_none()
