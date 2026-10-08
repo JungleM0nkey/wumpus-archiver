@@ -68,9 +68,12 @@ test('exactly one Lightbox exists, and both the Media screen and Browse use it',
 	const files = sources();
 	const importing = (name: string) =>
 		files.filter(([, text]) => new RegExp(`import \\w+ from '[^']*/${name}'`).test(text)).map(([f]) => f);
-	// One component draws a dialog over the page; MediaTimeline is the only screen part that renders it.
-	expect(files.filter(([, text]) => /<dialog\b/.test(text)).map(([f]) => f)).toEqual([
-		'lib/components/Lightbox.svelte'
+	// The Lightbox draws its own dialog over the page; the only other <dialog> is the
+	// shell's Dialog primitive (#59: the palette, the keyboard map, the mobile sheet).
+	// MediaTimeline is the only screen part that renders the Lightbox.
+	expect(files.filter(([, text]) => /<dialog\b/.test(text)).map(([f]) => f).sort()).toEqual([
+		'lib/components/Lightbox.svelte',
+		'lib/components/ui/Dialog.svelte'
 	]);
 	expect(files.filter(([f]) => /lightbox/i.test(f.split('/').pop()!)).map(([f]) => f)).toEqual([
 		'lib/components/Lightbox.svelte'
