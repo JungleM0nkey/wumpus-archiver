@@ -2,7 +2,8 @@
 
 Two guilds. The first, "Smoke Test Guild", has two categories, four text channels, two
 regular authors and a dozen messages spread over two months, including a reply,
-reactions and local attachments (two images and a text file). Beside them, enough
+reactions and local attachments (three images and a text file on #art; on #random a GIF, a
+video and images of other shapes for the Media screen). Beside them, enough
 one-message authors ("lurkers", all in #lobby) that the People screen fills three
 pages, and two more in #lobby whose order by name is not their order by messages
 (#65). The second, "Night Owls", is smaller and shares nothing with the first: its own
@@ -88,7 +89,7 @@ _REACTIONS: dict[int, list[tuple[str, int]]] = {
 """Message index -> (emoji, count) reactions."""
 
 _AttachmentRow = tuple[int, str, str, int | None, int | None]
-"""(message index, filename, content type, width, height or None for a non-image)."""
+"""(message index, filename, content type, width, height or None when not recorded)."""
 
 _ATTACHMENTS: list[_AttachmentRow] = [
     (6, "sketch.png", "image/png", 4, 3),
@@ -140,6 +141,35 @@ _NIGHT_ATTACHMENTS: list[_AttachmentRow] = [
 ]
 _FIRST_NIGHT_ATTACHMENT_ID = 900000000000002100
 
+# ── The Media screen (#62) ──────────────────────────────────────────────────
+# Media on #random's messages, so the Media screen has a GIF, a video and images of
+# several shapes to lay out, badge and filter by type, over two months. They stay off
+# #art, whose attachments other smoke tests count. One image has no recorded size,
+# as Discord sometimes leaves it, so the screen's fallback is exercised. As
+# _ATTACHMENTS, indexing _MESSAGES.
+_MEDIA_ATTACHMENTS: list[_AttachmentRow] = [
+    (4, "wumpus-dance.gif", "image/gif", 160, 160),
+    (5, "tall-poster.png", "image/png", 3, 4),
+    (5, "unmeasured.png", "image/png", None, None),
+    (11, "clip.webm", "video/webm", 320, 180),
+    (11, "panorama.png", "image/png", 21, 9),
+]
+_FIRST_MEDIA_ATTACHMENT_ID = 900000000000002200
+_MEDIA_DIR = Path(__file__).parent / "smoke_media"
+"""Real GIF and WebM files, too fiddly to generate here: a 2-frame 160x160 GIF and a
+1-second 320x180 VP8 WebM (VP8, since Chromium builds without H.264 decode it)."""
+
+
+def _media_file(filename: str) -> bytes:
+    """The content of one of the Media screen's attachments."""
+    if filename == "tall-poster.png":
+        return _png(3, 4, (87, 242, 135))
+    if filename == "unmeasured.png":
+        return _png(2, 1, (254, 231, 92))
+    if filename == "panorama.png":
+        return _png(21, 9, (237, 66, 69))
+    return (_MEDIA_DIR / filename).read_bytes()
+
 
 def _png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
     """A valid solid-colour PNG, so the browser decodes it without an error."""
@@ -169,6 +199,7 @@ def _attachment_rows() -> list[tuple[int, int, int, _AttachmentRow]]:
                 _NIGHT_MESSAGES,
                 _NIGHT_ATTACHMENTS,
             ),
+            (_FIRST_MEDIA_ATTACHMENT_ID, _FIRST_MESSAGE_ID, _MESSAGES, _MEDIA_ATTACHMENTS),
         )
         for offset, row in enumerate(rows)
     ]
@@ -179,7 +210,9 @@ def attachment_files() -> dict[str, bytes]:
     files: dict[str, bytes] = {}
     for offset, (attachment_id, _, _, row) in enumerate(_attachment_rows()):
         _, filename, content_type, width, height = row
-        if width is not None and height is not None:
+        if attachment_id >= _FIRST_MEDIA_ATTACHMENT_ID:
+            content = _media_file(filename)
+        elif width is not None and height is not None:
             content = _png(width, height, (88, 101, 242 - 40 * offset))
         else:
             content = f"{content_type} attachment {filename}\n".encode()

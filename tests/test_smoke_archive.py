@@ -44,7 +44,8 @@ async def test_one_guild_with_categories_two_authors_and_the_lurkers(client: Asy
     stats = (await client.get(f"/api/guilds/{GUILD_ID}/stats")).json()
     totals = (stats["total_messages"], stats["total_users"], stats["total_attachments"])
     authors = 2 + LURKERS + len(SORTED_APART)
-    assert totals == (12 + LURKERS + SORTED_APART_MESSAGES, authors, 4)
+    # Four attachments on #art, five on #random for the Media screen (#62).
+    assert totals == (12 + LURKERS + SORTED_APART_MESSAGES, authors, 4 + 5)
 
 
 async def test_a_second_guild_shares_nothing_with_the_first(client: AsyncClient) -> None:
@@ -148,4 +149,30 @@ async def test_written_archive_holds_the_seed_and_its_files(tmp_path: Path) -> N
     (directory / "stale").mkdir(parents=True)
     await write_smoke_archive(directory)
     assert sorted(p.name for p in directory.iterdir()) == ["archive.db", "attachments"]
-    assert len(list((directory / "attachments").rglob("*.*"))) == 5
+    assert len(list((directory / "attachments").rglob("*.*"))) == 10
+
+
+async def test_the_media_screen_has_a_gif_a_video_and_images_of_several_shapes(
+    client: AsyncClient,
+) -> None:
+    """The Media screen's smoke tests filter by type and check badges and tile shapes (#62)."""
+    timeline = f"/api/guilds/{GUILD_ID}/gallery/timeline"
+
+    async def attachments(content_type: str) -> list[dict[str, object]]:
+        payload = (await client.get(timeline, params={"content_type": content_type})).json()
+        return [a for g in payload["groups"] for a in g["attachments"]]
+
+    media = await attachments("media")
+    assert len(media) == 8
+    assert {str(a["created_at"])[:7] for a in media} == {"2024-05", "2024-06"}
+    sizes = {a["filename"]: (a["width"], a["height"]) for a in media}
+    assert sizes["unmeasured.png"] == (None, None)
+    assert sizes["tall-poster.png"] == (3, 4)
+
+    magic = {"video": b"\x1a\x45\xdf\xa3", "gif": b"GIF89a"}
+    for content_type, filename in [("video", "clip.webm"), ("gif", "wumpus-dance.gif")]:
+        [found] = await attachments(content_type)
+        assert found["filename"] == filename
+        url = str(found["url"])
+        assert url.startswith("/attachments/")
+        assert (await client.get(url)).content.startswith(magic[content_type])
