@@ -12,14 +12,12 @@
 	let error = $state('');
 	let searchQuery = $state('');
 	let sortBy = $state('messages');
-	let offset = $state(0);
 	let hasMore = $state(false);
 	const PAGE_SIZE = 50;
 
 	async function loadUsers(reset = false) {
 		if (!guild) return;
 		if (reset) {
-			offset = 0;
 			users = [];
 			loading = true;
 		} else {
@@ -28,7 +26,8 @@
 
 		try {
 			const res = await getGuildUsers(guild.id, {
-				offset,
+				// The next page starts after the authors already listed.
+				offset: users.length,
 				limit: PAGE_SIZE,
 				sort: sortBy,
 				q: searchQuery || undefined,
@@ -72,7 +71,6 @@
 	}
 
 	function loadMore() {
-		offset += PAGE_SIZE;
 		loadUsers(false);
 	}
 
@@ -160,7 +158,7 @@
 					style="animation-delay: {Math.min(i, 20) * 25}ms"
 				>
 					<div class="user-identity">
-						<span class="user-rank mono">#{i + 1 + offset - users.length + users.length}</span>
+						<span class="user-rank mono">#{i + 1}</span>
 						{#if user.avatar_url}
 							<img
 								class="user-avatar"
