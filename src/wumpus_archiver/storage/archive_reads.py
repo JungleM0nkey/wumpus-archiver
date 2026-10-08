@@ -342,6 +342,7 @@ async def messages(
     has: Has | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
+    pinned: bool | None = None,
     with_channel: bool = False,
 ) -> Page[Message]:
     """Messages in scope, with their author, attachments and reactions loaded.
@@ -359,9 +360,12 @@ async def messages(
     ``text`` matches the content case-insensitively with LIKE wildcards taken
     literally, and so does each of ``terms``: a message must contain every one, in any
     order. ``since`` is inclusive and ``until`` exclusive; aware datetimes are converted
-    to naive UTC.
+    to naive UTC. ``pinned`` keeps only the pinned messages when true, only the unpinned
+    ones when false; the total counts the same messages.
     """
     where = _message_where(scope, text=text, terms=terms, has=has, since=since, until=until)
+    if pinned is not None:
+        where.append(Message.pinned.is_(pinned))
 
     paging: list[ColumnElement[bool]] = []
     older_anchor = await _anchor(session, before)

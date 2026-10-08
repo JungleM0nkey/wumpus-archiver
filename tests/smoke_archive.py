@@ -2,9 +2,9 @@
 
 Two guilds. The first, "Smoke Test Guild", has two categories, four text channels, a
 voice channel that Browse leaves out (#60), two regular authors and a dozen messages
-spread over two months, including a reply, reactions and local attachments (three
-images and a text file on #art; on #random a GIF, a video and images of other shapes
-for the Media screen). Beside them, enough
+spread over two months, including a reply, reactions, three pinned messages (#63)
+and local attachments (three images and a text file on #art; on #random a GIF, a
+video and images of other shapes for the Media screen). Beside them, enough
 one-message authors ("lurkers", all in #lobby) that the People screen fills three
 pages, and two more in #lobby whose order by name is not their order by messages
 (#65). The second, "Night Owls", is smaller and shares nothing with the first: its own
@@ -86,6 +86,12 @@ _FIRST_MESSAGE_ID = 900000000000001000
 
 _REPLIES = {1: 0, 3: 2, 7: 6}
 """Message index -> index of the message it replies to."""
+
+# ── #63 Browse's Pinned tab ──────────────────────────────────────────────────
+# Two pinned messages in #general ("Anyone up for a game tonight?" and "The hello world
+# of June.") and one in #random ("Agreed."), so #general's Pinned tab must list its own
+# two and not the third. Message indexes into _MESSAGES, as _REPLIES.
+PINNED = {2, 9, 5}
 
 _REACTIONS: dict[int, list[tuple[str, int]]] = {
     0: [("👋", 2), ("🎉", 1)],
@@ -328,6 +334,7 @@ async def seed_smoke_archive(database: Database) -> None:
                     clean_content=content,
                     created_at=START + timedelta(minutes=minutes),
                     reference_id=None if reply_to is None else _FIRST_MESSAGE_ID + reply_to,
+                    pinned=index in PINNED,  # #63
                     scraped_at=last,
                 )
             )

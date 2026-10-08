@@ -132,7 +132,7 @@ All endpoints are under `/api/`:
 | `GET /guilds/{id}/users` | Users in a guild |
 | `GET /guilds/{id}/gallery` | Image gallery for a guild |
 | `GET /guilds/{id}/gallery/timeline` | The gallery timeline behind the Media screen: attachments grouped by month, filtered by `content_type` (image, gif, video, media), `channel_id` and `author_id` |
-| `GET /channels/{id}/messages` | Paginated messages, newest first (`before`, `after`, `around` cursors) |
+| `GET /channels/{id}/messages` | Paginated messages, newest first (`before`, `after`, `around` cursors); `pinned=true` lists only the pinned ones |
 | `GET /channels/{id}/gallery` | Channel image gallery |
 | `GET /search` | Message search: every term of `q` (a quoted phrase is one term), filtered by `guild_id`, `channel_id`, `author_id`, `has` (file, image, video, link) and `after`/`before` days in UTC (`after` inclusive, `before` exclusive), sorted `newest` or `oldest`, paged with `cursor`; results carry an escaped `highlight` snippet, and `facets=true` adds counts per channel, author and month |
 | `GET /users/{id}/profile` | User profile with stats |

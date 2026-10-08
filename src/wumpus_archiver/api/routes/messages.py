@@ -30,15 +30,24 @@ async def list_messages(
     around: int | None = Query(
         None, description="Get the page around this message ID, including it; alone"
     ),
+    pinned: bool | None = Query(
+        None, description="Only pinned messages (true) or only unpinned ones (false)"
+    ),
 ) -> MessageListResponse:
     """Get messages from a channel with pagination.
 
     ``around`` opens the channel on one message: the page holds it with the messages on
     either side, ``has_more`` says whether older ones remain and ``has_newer`` whether
     newer ones do. It cannot be combined with ``before`` or ``after``.
+
+    ``pinned`` filters the channel's messages, Browse's Pinned tab reading the pinned
+    ones; ``total`` counts the filtered messages. It pages with ``before`` and ``after``
+    but cannot be combined with ``around``.
     """
     if around is not None and (before is not None or after is not None):
         raise HTTPException(status_code=400, detail="around cannot be combined with before/after")
+    if around is not None and pinned is not None:
+        raise HTTPException(status_code=400, detail="around cannot be combined with pinned")
     has_newer: bool | None = None
     async with db.session() as session:
         page: archive_reads.Page[Message]
@@ -55,6 +64,7 @@ async def list_messages(
                 limit=limit,
                 before=before,
                 after=after,
+                pinned=pinned,
             )
 
         schemas = []

@@ -13,6 +13,8 @@ from wumpus_archiver.models.user import User
 from wumpus_archiver.storage.database import Database
 
 WHEN = datetime(2024, 6, 1)
+# #63 (Browse's Pinned tab): the pinned messages.
+PINNED = {1, 3}
 
 
 @pytest.fixture(autouse=True)
@@ -30,11 +32,12 @@ async def seeded(database: Database) -> None:
                     content=f"message {message_id}",
                     created_at=WHEN + timedelta(minutes=message_id),
                     scraped_at=WHEN,
+                    pinned=message_id in PINNED,
                 )
             )
 
 
-async def _page(client: AsyncClient, **params: int) -> dict[str, Any]:
+async def _page(client: AsyncClient, **params: int | str) -> dict[str, Any]:
     response = await client.get("/api/channels/10/messages", params=params)
     assert response.status_code == 200
     payload: dict[str, Any] = response.json()
@@ -118,4 +121,33 @@ async def test_has_newer_is_only_set_around_a_message(client: AsyncClient) -> No
 @pytest.mark.parametrize("cursor", ["before", "after"])
 async def test_around_does_not_combine_with_a_cursor(client: AsyncClient, cursor: str) -> None:
     response = await client.get("/api/channels/10/messages", params={"around": 2, cursor: 1})
+    assert response.status_code == 400
+
+
+async def test_pinned_lists_only_the_channels_pinned_messages(client: AsyncClient) -> None:
+    """Browse's Pinned tab (#63): the pinned messages, newest first, and their total."""
+    page = await _page(client, pinned="true")
+    assert _ids(page) == ["3", "1"]
+    assert all(m["pinned"] for m in page["messages"])
+    assert (page["total"], page["has_more"]) == (2, False)
+
+
+async def test_pinned_pages_with_a_cursor_and_totals_the_pinned(client: AsyncClient) -> None:
+    first = await _page(client, pinned="true", limit=1)
+    assert (_ids(first), first["total"], first["has_more"]) == (["3"], 2, True)
+    older = await _page(client, pinned="true", limit=1, before=int(first["before_id"]))
+    assert (_ids(older), older["total"], older["has_more"]) == (["1"], 2, False)
+
+
+async def test_pinned_false_lists_the_rest(client: AsyncClient) -> None:
+    page = await _page(client, pinned="false")
+    assert (_ids(page), page["total"]) == (["2"], 1)
+
+
+async def test_without_pinned_every_message_is_listed(client: AsyncClient) -> None:
+    assert (await _page(client))["total"] == 3
+
+
+async def test_pinned_does_not_combine_with_around(client: AsyncClient) -> None:
+    response = await client.get("/api/channels/10/messages", params={"around": 2, "pinned": "true"})
     assert response.status_code == 400

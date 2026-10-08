@@ -157,6 +157,9 @@ SEED_MESSAGES: list[tuple[int, int, int, int, str]] = [
 # Channel 10 in time order, (created_at, id) ascending.
 CHANNEL_ORDER = [1, 2, 3, 4, 5, 6, 7, 9, 8]
 
+# #63 (Browse's Pinned tab): the pinned messages, two in channel 10 and one beside it.
+SEED_PINNED = {3, 9, 31}
+
 # (id, message, content_type)
 SEED_ATTACHMENTS: list[tuple[int, int, str | None]] = [
     (501, 3, "image/png"),
@@ -229,6 +232,7 @@ async def archive(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Dat
                     clean_content=content,
                     created_at=T0 + timedelta(minutes=minutes),
                     scraped_at=T0,
+                    pinned=message_id in SEED_PINNED,
                 )
             )
         for attachment_id, message_id, content_type in SEED_ATTACHMENTS:
@@ -533,6 +537,42 @@ class TestMessagesScopeAndFilters:
             reads, IN_CHANNEL, order=OLDEST, limit=50, since=aware
         )
         assert _ids(by_aware) == _ids(by_naive) == [5, 6, 7, 9, 8]
+
+
+@in_module_loop
+class TestMessagesPinned:
+    """Browse's Pinned tab reads a channel's pinned messages (#63)."""
+
+    async def test_pinned_keeps_only_the_channels_pinned_messages(
+        self, reads: AsyncSession
+    ) -> None:
+        page = await archive_reads.messages(reads, IN_CHANNEL, order=NEWEST, limit=50, pinned=True)
+        assert (_ids(page), page.total, page.has_more) == ([9, 3], 2, False)
+
+    async def test_unpinned_is_the_rest(self, reads: AsyncSession) -> None:
+        page = await archive_reads.messages(reads, IN_CHANNEL, order=OLDEST, limit=50, pinned=False)
+        assert _ids(page) == [m for m in CHANNEL_ORDER if m not in SEED_PINNED]
+        assert page.total == len(CHANNEL_ORDER) - 2
+
+    async def test_the_total_counts_the_pinned_messages_across_pages(
+        self, reads: AsyncSession
+    ) -> None:
+        first = await archive_reads.messages(reads, IN_CHANNEL, order=NEWEST, limit=1, pinned=True)
+        assert (_ids(first), first.total, first.has_more) == ([9], 2, True)
+        older = await archive_reads.messages(
+            reads, IN_CHANNEL, order=NEWEST, limit=1, before=9, pinned=True
+        )
+        assert (_ids(older), older.total, older.has_more) == ([3], 2, False)
+
+    async def test_pinned_follows_the_scope(self, reads: AsyncSession) -> None:
+        page = await archive_reads.messages(
+            reads, Scope(guild=GUILD), order=OLDEST, limit=50, pinned=True
+        )
+        assert (_ids(page), page.total) == ([31, 3, 9], 3)
+        foreign = await archive_reads.messages(
+            reads, Scope(channel=FOREIGN_CHANNEL), order=OLDEST, limit=50, pinned=True
+        )
+        assert (foreign.rows, foreign.total) == ([], 0)
 
 
 @in_module_loop

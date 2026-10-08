@@ -56,6 +56,8 @@ export async function getMessages(
 		limit?: number;
 		/** The page around this message, holding it; not with `before` or `after`. */
 		around?: string | number;
+		/** Only the pinned messages (true) or only the unpinned ones (false); not with `around`. */
+		pinned?: boolean;
 	} = {}
 ): Promise<MessageListResponse> {
 	const params = new URLSearchParams();
@@ -63,6 +65,7 @@ export async function getMessages(
 	if (opts.after) params.set('after', String(opts.after));
 	if (opts.limit) params.set('limit', String(opts.limit));
 	if (opts.around) params.set('around', String(opts.around));
+	if (opts.pinned !== undefined) params.set('pinned', String(opts.pinned));
 	const qs = params.toString();
 	return fetchJSON<MessageListResponse>(`/channels/${channelId}/messages${qs ? `?${qs}` : ''}`);
 }

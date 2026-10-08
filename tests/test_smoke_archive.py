@@ -14,11 +14,14 @@ from tests.smoke_archive import (
     ALICE_ID,
     ART_ID,
     CAROL_ID,
+    GENERAL_ID,
     GUILD_ID,
     HANGOUT_ID,
     LURKERS,
     NIGHT_GUILD_ID,
     NIGHT_SCRAPE_ADDED,
+    PINNED,
+    RANDOM_ID,
     SORTED_APART,
     SORTED_APART_MESSAGES,
     seed_smoke_archive,
@@ -207,3 +210,21 @@ async def test_search_finds_the_links_and_the_markup(client: AsyncClient) -> Non
         "Lurker 102 shouts <mark>echo</mark> &lt;b&gt;<mark>echo</mark>&lt;/b&gt; &amp; "
         "<mark>echo</mark>!"
     )
+
+
+# ── #63 Browse's Pinned tab ──────────────────────────────────────────────────
+
+
+async def test_general_has_two_pinned_messages_and_random_one(client: AsyncClient) -> None:
+    """Browse's Pinned tab smoke test lists #general's two and not #random's."""
+    assert len(PINNED) == 3
+
+    async def pinned(channel_id: int) -> tuple[list[str], int]:
+        url = f"/api/channels/{channel_id}/messages"
+        page = (await client.get(url, params={"pinned": "true"})).json()
+        return [m["content"] for m in page["messages"]], page["total"]
+
+    general = ["The hello world of June.", "Anyone up for a game tonight?"]
+    assert await pinned(GENERAL_ID) == (general, 2)
+    assert await pinned(RANDOM_ID) == (["Agreed."], 1)
+    assert await pinned(ART_ID) == ([], 0)
