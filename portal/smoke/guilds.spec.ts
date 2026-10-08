@@ -202,8 +202,8 @@ const VISITS: Visit[] = [
 	},
 	{
 		// The Archive screen starts a scrape of the selected guild by default.
-		route: '/control',
-		url: `/control?${g}`,
+		route: '/archive',
+		url: `/archive?${g}`,
 		shows: (m) => m.locator(`#guild-select:has(option[value="${NIGHT_ID}"]:checked)`),
 		hides: (m) => m.locator(`#guild-select:has(option[value="${GUILD_ID}"]:checked)`)
 	}

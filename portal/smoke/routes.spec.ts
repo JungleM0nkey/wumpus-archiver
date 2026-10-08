@@ -34,7 +34,7 @@ const ROUTES: RouteVisit[] = [
 	{ route: '/gallery', url: '/gallery', shows: 'art' },
 	{ route: '/people', url: '/people', shows: 'Alice' },
 	{ route: '/people/[id]', url: `/people/${ALICE_ID}`, shows: 'Another drawing' },
-	{ route: '/control', url: '/control', shows: '.smoke-archive/attachments' }
+	{ route: '/archive', url: '/archive', shows: '.smoke-archive/attachments' }
 ];
 
 for (const visit of ROUTES) {

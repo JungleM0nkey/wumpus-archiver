@@ -1,6 +1,8 @@
-// The Archive screen polls scrape status only while a scrape job runs, and re-reads
-// history only when that job finishes. The page's clock is paused, so time moves
-// only when a test runs it forward.
+// The Archive screen (/archive, #66): /control redirects to it; without a bot token
+// its form is disabled and an alert says why; a scrape job started from it shows
+// live, cancels after a confirmation and then shows in the history. It polls scrape
+// status only while a scrape job runs, and re-reads history only when that job
+// finishes. The page's clock is paused, so time moves only when a test runs it forward.
 import type { Page, Request } from '@playwright/test';
 import { expect, test } from './fixtures.ts';
 
@@ -32,7 +34,7 @@ test('with no scrape job running, the Archive screen makes no status requests af
 	page
 }) => {
 	const calls = scrapeCalls(page);
-	await page.goto('/control', { waitUntil: 'networkidle' });
+	await page.goto('/archive', { waitUntil: 'networkidle' });
 	await expect(page.locator('main').getByText('.smoke-archive/attachments').first()).toBeVisible();
 	expect(calls).toEqual({ status: 1, history: 1 });
 
@@ -76,7 +78,7 @@ test('a running scrape job is polled until it finishes, then history is read onc
 	});
 	const calls = scrapeCalls(page);
 
-	await page.goto('/control', { waitUntil: 'networkidle' });
+	await page.goto('/archive', { waitUntil: 'networkidle' });
 	await expect(page.locator('main').getByText('scraping').first()).toBeVisible();
 	expect(calls).toEqual({ status: 1, history: 1 });
 
@@ -92,4 +94,203 @@ test('a running scrape job is polled until it finishes, then history is read onc
 	// Idle again: polling has stopped.
 	await runFor(page, 60_000);
 	expect(calls).toEqual({ status: 3, history: 2 });
+});
+
+// Ids from tests/smoke_archive.py.
+const GUILD_ID = '900000000000000001';
+const NIGHT_ID = '900000000000000002';
+
+test('/control redirects to /archive, keeping the selected guild', async ({ page }) => {
+	await page.goto('/control', { waitUntil: 'networkidle' });
+	await expect(page).toHaveURL('/archive');
+	await expect(page.locator('main h1')).toHaveText('Archive');
+
+	await page.goto(`/control?guild=${NIGHT_ID}`, { waitUntil: 'networkidle' });
+	await expect(page).toHaveURL(`/archive?guild=${NIGHT_ID}`);
+	await expect(page.locator('#guild-select')).toHaveValue(NIGHT_ID);
+});
+
+test('without a bot token the form is disabled and an alert says why and how to enable it', async ({
+	page
+}) => {
+	// The smoke server runs with blank tokens, so scrape control is read-only.
+	await page.goto('/archive', { waitUntil: 'networkidle' });
+	const main = page.locator('main');
+	await expect(main.getByText('Scrape control is read-only')).toBeVisible();
+	await expect(main.getByText(/No bot token was configured/)).toBeVisible();
+	await expect(main.locator('code', { hasText: 'DISCORD_BOT_TOKEN' })).toBeVisible();
+
+	await expect(page.getByLabel('Guild', { exact: true })).toBeDisabled();
+	await expect(page.getByLabel('API token')).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Start scrape' })).toBeDisabled();
+	await expect(main.getByText('Needs a bot token on the server.')).toBeVisible();
+	await expect(main.getByText('No scrape job running.')).toBeVisible();
+});
+
+const API_TOKEN = 'smoke-api-token-not-a-secret';
+
+interface FakeChannel {
+	name: string;
+	messages: number;
+	done: boolean;
+}
+
+interface FakeJob {
+	id: string;
+	guild_id: number;
+	status: string;
+	progress: {
+		current_channel: string;
+		channels_done: number;
+		messages_scraped: number;
+		attachments_found: number;
+		errors: string[];
+		channels: FakeChannel[];
+	};
+	started_at: string;
+	completed_at: string | null;
+	result: null;
+	error_message: null;
+	duration_seconds: number;
+}
+
+/**
+ * Scrape control as a server with both tokens answers it, in the page's routes: a
+ * started job reports #general, then #art as #general finishes, one step per status
+ * read; cancel ends it and puts it in the history.
+ */
+async function fakeScrapeControl(page: Page) {
+	const server = {
+		job: null as FakeJob | null,
+		history: [] as FakeJob[],
+		reads: 0,
+		authorization: [] as (string | null)[]
+	};
+	const busy = () => server.job?.status === 'scraping';
+	const steps: FakeChannel[][] = [
+		[{ name: 'general', messages: 100, done: false }],
+		[
+			{ name: 'general', messages: 140, done: true },
+			{ name: 'art', messages: 7, done: false }
+		]
+	];
+
+	await page.route('**/api/scrape/status', async (route) => {
+		const job = server.job;
+		if (job && busy()) {
+			const channels = steps[Math.min(server.reads, steps.length - 1)];
+			server.reads += 1;
+			job.progress = {
+				...job.progress,
+				channels,
+				current_channel: channels[channels.length - 1].name,
+				channels_done: channels.filter((c) => c.done).length,
+				messages_scraped: channels.reduce((n, c) => n + c.messages, 0)
+			};
+			job.duration_seconds += 2;
+		}
+		await route.fulfill({
+			json: { busy: busy(), current_job: job, has_token: true, control_enabled: true }
+		});
+	});
+	await page.route('**/api/scrape/start', async (route) => {
+		server.authorization.push(await route.request().headerValue('authorization'));
+		const body = route.request().postDataJSON();
+		server.job = {
+			id: 'smoke-job-1',
+			guild_id: Number(body.guild_id),
+			status: 'scraping',
+			progress: {
+				current_channel: '',
+				channels_done: 0,
+				messages_scraped: 0,
+				attachments_found: 0,
+				errors: [],
+				channels: []
+			},
+			started_at: T0.toISOString(),
+			completed_at: null,
+			result: null,
+			error_message: null,
+			duration_seconds: 0
+		};
+		await route.fulfill({ status: 202, json: { job: server.job } });
+	});
+	await page.route('**/api/scrape/cancel', async (route) => {
+		server.authorization.push(await route.request().headerValue('authorization'));
+		const job = server.job!;
+		job.status = 'cancelled';
+		job.completed_at = T0.toISOString();
+		server.history.unshift(structuredClone(job));
+		await route.fulfill({ json: { message: 'Cancellation requested' } });
+	});
+	await page.route('**/api/scrape/history', (route) => route.fulfill({ json: { jobs: server.history } }));
+	return server;
+}
+
+test('a started scrape job shows live, cancels after a confirmation, then shows in the history', async ({
+	page
+}) => {
+	const server = await fakeScrapeControl(page);
+	const calls = scrapeCalls(page);
+	await page.goto('/archive', { waitUntil: 'networkidle' });
+	const main = page.locator('main');
+	await expect(main.getByText('Scrape control is read-only')).toHaveCount(0);
+	await expect(page.locator('#guild-select')).toHaveValue(GUILD_ID);
+
+	// Start a scrape of the selected guild, with the API token.
+	await page.getByLabel('API token').fill(API_TOKEN);
+	await page.getByRole('button', { name: 'Start scrape' }).click();
+
+	const card = main.locator('section[aria-labelledby="job-card-title"]');
+	await expect(card.getByText('scraping').first()).toBeVisible();
+	await expect(card.getByText('Smoke Test Guild')).toBeVisible();
+	await expect(card.getByText('#general').first()).toBeVisible();
+	await expect(card.getByRole('progressbar', { name: 'Scraping' })).toBeVisible();
+	expect(server.authorization).toEqual([`Bearer ${API_TOKEN}`]);
+
+	// The next poll: #general is done, #art is being scraped, and the counters follow.
+	await runFor(page, POLL_MS);
+	const rows = card.getByRole('list', { name: 'Channel status' }).getByRole('listitem');
+	await expect(rows).toHaveCount(2);
+	await expect(rows.nth(0)).toHaveAttribute('data-state', 'scraping');
+	await expect(rows.nth(0)).toContainText('#art');
+	await expect(rows.nth(1)).toHaveAttribute('data-state', 'done');
+	await expect(rows.nth(1)).toContainText('140');
+	await expect(card.getByText('1 of 2 done')).toBeVisible();
+	await expect(card.locator('.counter', { hasText: 'Messages' })).toContainText('147');
+
+	// Cancel asks first; keeping it running changes nothing.
+	await card.getByRole('button', { name: 'Cancel scrape job' }).click();
+	await expect(card.getByText('Cancel this scrape job?')).toBeVisible();
+	await expect(card.getByRole('button', { name: 'Cancel job' })).toBeFocused();
+	await card.getByRole('button', { name: 'Keep running' }).click();
+	await expect(card.getByText('Cancel this scrape job?')).toHaveCount(0);
+	expect(server.authorization).toHaveLength(1);
+
+	await card.getByRole('button', { name: 'Cancel scrape job' }).click();
+	await card.getByRole('button', { name: 'Cancel job' }).click();
+	await expect(card.getByText('cancelled').first()).toBeVisible();
+	await expect(card.getByRole('button', { name: /Cancel/ })).toHaveCount(0);
+	await expect(rows.nth(0)).toHaveAttribute('data-state', 'stopped');
+	expect(server.authorization).toEqual([`Bearer ${API_TOKEN}`, `Bearer ${API_TOKEN}`]);
+
+	// The history, read again now that the job ended, lists it.
+	const history = main.locator('section[aria-labelledby="history-title"]');
+	const row = history.getByRole('row', { name: /smoke-job-1/ });
+	await expect(row).toBeVisible();
+	await expect(row).toContainText('cancelled');
+	await expect(row).toContainText('Smoke Test Guild');
+	await expect(row).toContainText('147');
+
+	// Idle again: nothing is polled, and the token stayed in this tab's sessionStorage only.
+	const settled = { ...calls };
+	await runFor(page, 60_000);
+	expect(calls).toEqual(settled);
+	const stored = await page.evaluate(() => ({
+		local: JSON.stringify({ ...localStorage }),
+		session: JSON.stringify({ ...sessionStorage })
+	}));
+	expect(stored.local).not.toContain(API_TOKEN);
+	expect(stored.session).toContain(API_TOKEN);
 });

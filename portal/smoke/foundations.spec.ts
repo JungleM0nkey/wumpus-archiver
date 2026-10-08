@@ -19,7 +19,7 @@ const SOURCES = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 const GLYPH =
 	/[←-⇿⊕-⊡⌀-⏿■-◿☀-➿⟀-⟯⤀-⥿⬀-⯿]|\p{Extended_Pictographic}/u;
 
-const VISITS = ['/', `/channel/${ART_ID}`, '/gallery', '/search?q=hello', '/people', '/control'];
+const VISITS = ['/', `/channel/${ART_ID}`, '/gallery', '/search?q=hello', '/people', '/archive'];
 
 /** The first family of an element's computed font-family, unquoted. */
 async function firstFamily(page: Page, selector: string): Promise<string> {
@@ -202,7 +202,7 @@ test.describe('with reduced motion', () => {
 				}
 			});
 		});
-		await page.goto('/control', { waitUntil: 'networkidle' });
+		await page.goto('/archive', { waitUntil: 'networkidle' });
 		await expect(page.getByRole('progressbar', { name: 'Scraping' })).toBeVisible();
 		expect(await transformAnimations(page)).toEqual([]);
 	});

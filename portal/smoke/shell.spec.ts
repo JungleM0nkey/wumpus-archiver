@@ -172,7 +172,7 @@ test('the archive-status card says the archive is idle and opens the Archive scr
 	await expect(card).toContainText('Scraped Jun 29, 2024');
 
 	await card.click();
-	await expect(page).toHaveURL('/control');
+	await expect(page).toHaveURL('/archive');
 	await expect(page.locator('main h1')).toHaveText('Archive');
 	await expect(card).toHaveAttribute('aria-current', 'page');
 });
@@ -184,7 +184,7 @@ test('the archive-status card shows a running scrape job on every screen', async
 	await expect(card).toHaveAttribute('data-state', 'running');
 	await expect(card).toContainText('Scraping');
 	await expect(card).toContainText('#general · 12 messages');
-	await expect(card).toHaveAttribute('href', '/control');
+	await expect(card).toHaveAttribute('href', '/archive');
 });
 
 // ── The scroll container ────────────────────────────────────────────────────
@@ -200,7 +200,7 @@ const SCREENS: [string, string][] = [
 	['/gallery', 'Media'],
 	['/people', 'Lurker 001'],
 	['/people/900000000000000100', 'Alice'],
-	['/control', 'Downloaded Images']
+	['/archive', 'Attachments on disk']
 ];
 
 for (const [url, text] of SCREENS) {
