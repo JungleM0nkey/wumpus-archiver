@@ -170,7 +170,7 @@ SvelteKit 3 with adapter-static — builds to `portal/build/` as a pure SPA. The
 **Architecture**:
 - `lib/api.ts` — typed fetch wrapper with all API functions
 - `lib/types.ts` — TypeScript interfaces matching backend schemas
-- `lib/components/` — reusable components (MessageCard, GalleryGrid, etc.)
+- `lib/components/` — reusable components (MessageCard, JustifiedGrid, etc.)
 - `routes/` — page components (dashboard, channels, gallery, search, users, control)
 
 **Development**: Vite dev server on `:5173` proxies `/api` to FastAPI on `:8000`.

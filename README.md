@@ -131,7 +131,7 @@ All endpoints are under `/api/`:
 | `GET /guilds/{id}/stats` | Guild statistics |
 | `GET /guilds/{id}/users` | Users in a guild |
 | `GET /guilds/{id}/gallery` | Image gallery for a guild |
-| `GET /guilds/{id}/gallery/timeline` | Timeline-grouped gallery |
+| `GET /guilds/{id}/gallery/timeline` | The gallery timeline behind the Media screen: attachments grouped by month, filtered by `content_type` (image, gif, video, media), `channel_id` and `author_id` |
 | `GET /channels/{id}/messages` | Paginated messages |
 | `GET /channels/{id}/gallery` | Channel image gallery |
 | `GET /search` | Full-text message search |
@@ -154,9 +154,8 @@ first guild when absent), and every page shows that guild.
 | `/` | Overview | Guild stats |
 | `/channels` | Browse | Channel list with message counts |
 | `/channel/[id]` | Browse | Message browser for a channel |
-| `/channel/[id]/gallery` | Browse | Image gallery for a channel |
 | `/timeline` | Browse | Channel reader beside a channel list |
-| `/gallery` | Media | Guild-wide image gallery |
+| `/media` | Media | Images, GIFs and videos in justified rows under month headers, filtered by type, channel and sort in the URL (`/gallery` and `/channel/[id]/gallery` redirect here) |
 | `/search` | Search | Full-text search with filters |
 | `/people` | People | Authors as a table, sortable by messages, name or recent activity, searchable by name (`/users` redirects here) |
 | `/people/[id]` | People | A profile: stat tiles, a 52-week activity heatmap, top channels, reactions received, recent messages (`/users/[id]` redirects here) |
