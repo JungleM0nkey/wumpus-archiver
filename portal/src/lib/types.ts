@@ -99,6 +99,25 @@ export interface SearchResponse {
 	total: number;
 	/** The search query; null when the read is an author's messages with no query. */
 	query: string | null;
+	/** Whether more results follow in the sort; pass the last result's id as `cursor`. */
+	has_more: boolean;
+	/** The matches' counts per channel, author and month; null unless asked for. */
+	facets: SearchFacets | null;
+}
+
+export interface SearchFacets {
+	/** The busiest channels first, at most ten. */
+	channels: { id: string; name: string; count: number }[];
+	/** The busiest authors first, at most ten. */
+	authors: {
+		id: string;
+		username: string;
+		display_name: string;
+		avatar_url: string | null;
+		count: number;
+	}[];
+	/** Every month holding a match, oldest first; `start` is its first day, YYYY-MM-DD. */
+	months: { start: string; count: number }[];
 }
 
 export interface TopChannel {

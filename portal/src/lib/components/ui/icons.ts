@@ -50,6 +50,14 @@ import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 import Users from '@lucide/svelte/icons/users';
 import Volume2 from '@lucide/svelte/icons/volume-2';
 import X from '@lucide/svelte/icons/x';
+// #64 Search: filter chips and result rows.
+import Calendar from '@lucide/svelte/icons/calendar';
+import File from '@lucide/svelte/icons/file';
+import Image from '@lucide/svelte/icons/image';
+import Link from '@lucide/svelte/icons/link';
+import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
+import UserIcon from '@lucide/svelte/icons/user';
+import Video from '@lucide/svelte/icons/video';
 
 export const icons = {
 	activity: Activity,
@@ -98,7 +106,15 @@ export const icons = {
 	'triangle-alert': TriangleAlert,
 	users: Users,
 	voice: Volume2,
-	x: X
+	x: X,
+	// #64 Search
+	calendar: Calendar,
+	file: File,
+	image: Image,
+	link: Link,
+	refine: SlidersHorizontal,
+	user: UserIcon,
+	video: Video
 } satisfies Record<string, Component<LucideProps>>;
 
 export type IconName = keyof typeof icons;

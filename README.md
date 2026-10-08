@@ -155,7 +155,7 @@ first guild when absent), and every page shows that guild.
 | `/browse` | Browse | Opens the guild's most active channel (`/channels` and `/timeline` redirect here) |
 | `/browse/[channel]` | Browse | A channel's messages beside the channel pane; `?message=<id>` opens it on one message (`/channel/[id]` and `/timeline?channel=` redirect here) |
 | `/media` | Media | Images, GIFs and videos in justified rows under month headers, filtered by type, channel and sort in the URL (`/gallery` and `/channel/[id]/gallery` redirect here) |
-| `/search` | Search | Full-text search with filters |
+| `/search` | Search | Messages holding every term, narrowed by filter chips typed into the query (`in:`, `from:`, `has:`, `after:`, `before:`); highlighted snippets open in context in Browse, a refine rail counts channels, people and months and adds their chips, and the query and sort live in the URL |
 | `/people` | People | Authors as a table, sortable by messages, name or recent activity, searchable by name (`/users` redirects here) |
 | `/people/[id]` | People | A profile: stat tiles, a 52-week activity heatmap, top channels, reactions received, recent messages (`/users/[id]` redirects here) |
 | `/archive` | Archive screen (sidebar footer) | Scrape control: run a scrape, the live scrape job, attachments on disk, job history (`/control` redirects here) |

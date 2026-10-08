@@ -67,14 +67,40 @@ export async function getMessages(
 	return fetchJSON<MessageListResponse>(`/channels/${channelId}/messages${qs ? `?${qs}` : ''}`);
 }
 
+/**
+ * Messages holding every term of `query`, under the filters. `query` may be empty when
+ * a channel, author, `has` or date filter is given. `after` is an inclusive day and
+ * `before` an exclusive one (YYYY-MM-DD, UTC); `cursor` is the last result of the
+ * previous page.
+ */
 export async function searchMessages(
 	query: string,
-	opts: { guild_id?: string | number; channel_id?: string | number; limit?: number } = {}
+	opts: {
+		guild_id?: string | number;
+		channel_id?: string | number;
+		limit?: number;
+		author_id?: string | number;
+		has?: 'file' | 'image' | 'video' | 'link';
+		after?: string;
+		before?: string;
+		sort?: 'newest' | 'oldest';
+		cursor?: string;
+		/** Also count the matches per channel, author and month. */
+		facets?: boolean;
+	} = {}
 ): Promise<SearchResponse> {
-	const params = new URLSearchParams({ q: query });
+	const params = new URLSearchParams();
+	if (query) params.set('q', query);
 	if (opts.guild_id) params.set('guild_id', String(opts.guild_id));
 	if (opts.channel_id) params.set('channel_id', String(opts.channel_id));
 	if (opts.limit) params.set('limit', String(opts.limit));
+	if (opts.author_id) params.set('author_id', String(opts.author_id));
+	if (opts.has) params.set('has', opts.has);
+	if (opts.after) params.set('after', opts.after);
+	if (opts.before) params.set('before', opts.before);
+	if (opts.sort) params.set('sort', opts.sort);
+	if (opts.cursor) params.set('cursor', opts.cursor);
+	if (opts.facets) params.set('facets', 'true');
 	return fetchJSON<SearchResponse>(`/search?${params.toString()}`);
 }
 
