@@ -4,7 +4,8 @@ Two guilds. The first, "Smoke Test Guild", has two categories, four text channel
 regular authors and a dozen messages spread over two months, including a reply,
 reactions and local attachments (two images and a text file). Beside them, enough
 one-message authors ("lurkers", all in #lobby) that the People screen fills three
-pages. The second, "Night Owls", is smaller and shares nothing with the first: its own
+pages, and two more in #lobby whose order by name is not their order by messages
+(#65). The second, "Night Owls", is smaller and shares nothing with the first: its own
 category, two channels, two authors, five messages and one local image, so the suite
 can tell which guild a screen shows. Ids are Discord-sized snowflakes, past
 JavaScript's safe integer range, so the portal is exercised with ids it must keep as
@@ -103,6 +104,20 @@ _FIRST_LURKER_MESSAGE_ID = 900000000000003000
 _LURKERS_FROM = 21 * 24 * 60
 """Minutes after START of the first lurker's message, between the regular messages."""
 
+# ── #65 People and Profile ────────────────────────────────────────────────────
+# Two authors in #lobby whose order by name differs from their order by messages, so
+# sorting the People table reorders it: Zara posts three messages and sorts last by
+# name; "aaron", a lowercase global name, posts two and sorts first, ignoring case.
+SORTED_APART: list[tuple[int, str, str, int]] = [
+    (900000000000000120, "zara", "Zara", 3),
+    (900000000000000121, "aaron.k", "aaron", 2),
+]
+"""(user id, username, global name, messages)."""
+SORTED_APART_MESSAGES = sum(messages for *_, messages in SORTED_APART)
+_FIRST_SORTED_APART_MESSAGE_ID = 900000000000006500
+_SORTED_APART_FROM = 22 * 24 * 60
+"""Minutes after START of their first message, a day after the lurkers'."""
+
 
 NIGHT_START = datetime(2024, 7, 1, 21, 0)
 """The second guild's first message's time."""
@@ -175,7 +190,7 @@ async def seed_smoke_archive(database: Database) -> None:
     """Write the smoke archive's rows into a connected ``database`` that holds the schema."""
     last = START + timedelta(minutes=_MESSAGES[-1][2])
     counts = Counter(channel_id for channel_id, *_ in _MESSAGES)
-    counts[LOBBY_ID] = LURKERS
+    counts[LOBBY_ID] = LURKERS + SORTED_APART_MESSAGES
 
     async with database.session() as session:
         session.add(
@@ -282,6 +297,7 @@ async def seed_smoke_archive(database: Database) -> None:
                     scraped_at=last,
                 )
             )
+        _add_sorted_apart(session, scraped_at=last)
         for index, reactions in _REACTIONS.items():
             for emoji, count in reactions:
                 session.add(
@@ -305,6 +321,29 @@ async def seed_smoke_archive(database: Database) -> None:
                     download_status="downloaded",
                 )
             )
+
+
+def _add_sorted_apart(session: AsyncSession, *, scraped_at: datetime) -> None:
+    """Add the #65 authors whose order by name is not their order by messages."""
+    message_id = _FIRST_SORTED_APART_MESSAGE_ID
+    for user_id, username, global_name, messages in SORTED_APART:
+        session.add(User(id=user_id, username=username, global_name=global_name))
+        for n in range(messages):
+            content = f"{global_name} checks in, {n + 1} of {messages}."
+            session.add(
+                Message(
+                    id=message_id,
+                    channel_id=LOBBY_ID,
+                    author_id=user_id,
+                    content=content,
+                    clean_content=content,
+                    created_at=START
+                    + timedelta(minutes=_SORTED_APART_FROM)
+                    + timedelta(minutes=message_id - _FIRST_SORTED_APART_MESSAGE_ID),
+                    scraped_at=scraped_at,
+                )
+            )
+            message_id += 1
 
 
 def _add_night_guild(session: AsyncSession) -> None:

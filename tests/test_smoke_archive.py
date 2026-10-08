@@ -16,6 +16,8 @@ from tests.smoke_archive import (
     GUILD_ID,
     LURKERS,
     NIGHT_GUILD_ID,
+    SORTED_APART,
+    SORTED_APART_MESSAGES,
     seed_smoke_archive,
     write_attachments,
     write_smoke_archive,
@@ -40,7 +42,8 @@ async def test_one_guild_with_categories_two_authors_and_the_lurkers(client: Asy
     assert [c["name"] for c in guild["channels"] if c["type"] == 4] == ["Text Channels", "Media"]
     stats = (await client.get(f"/api/guilds/{GUILD_ID}/stats")).json()
     totals = (stats["total_messages"], stats["total_users"], stats["total_attachments"])
-    assert totals == (12 + LURKERS, 2 + LURKERS, 4)
+    authors = 2 + LURKERS + len(SORTED_APART)
+    assert totals == (12 + LURKERS + SORTED_APART_MESSAGES, authors, 4)
 
 
 async def test_a_second_guild_shares_nothing_with_the_first(client: AsyncClient) -> None:
@@ -78,7 +81,23 @@ async def test_the_people_screen_has_a_third_page(client: AsyncClient) -> None:
     """The People screen pages 50 authors at a time; its smoke test clicks Load more twice."""
     params = {"offset": 100, "limit": 50}
     page = (await client.get(f"/api/guilds/{GUILD_ID}/users", params=params)).json()
-    assert (len(page["users"]), page["total"], page["has_more"]) == (20, 120, False)
+    assert (len(page["users"]), page["total"], page["has_more"]) == (22, 122, False)
+
+
+@pytest.mark.parametrize(
+    ("sort", "first"),
+    [
+        ("messages", ["Alice", "Bob", "Zara", "aaron", "Lurker 001"]),
+        ("name", ["aaron", "Alice", "Bob", "Lurker 001", "Lurker 002"]),
+    ],
+)
+async def test_people_sorted_by_name_and_by_messages_differ(
+    client: AsyncClient, sort: str, first: list[str]
+) -> None:
+    """The People smoke test sorts both ways and sees the table reorder."""
+    params = {"sort": sort, "limit": 5}
+    users = (await client.get(f"/api/guilds/{GUILD_ID}/users", params=params)).json()["users"]
+    assert [u["display_name"] for u in users] == first
 
 
 async def test_messages_carry_replies_reactions_and_local_attachments(client: AsyncClient) -> None:
