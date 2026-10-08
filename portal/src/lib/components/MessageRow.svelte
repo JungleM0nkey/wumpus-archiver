@@ -4,13 +4,15 @@
 	same author's next message within the group's window (feed.ts), shows only its
 	content, with its time in the gutter on hover. A reply shows who and what it answers
 	above its header, linking there. On hover or keyboard focus a cluster of actions
-	rises in the corner: copy a link to the message, open it in context. The row prints
-	no ids.
+	rises in the corner: copy a link to the message, open it in context. Its images,
+	GIFs and videos open in the Lightbox (`onopen`); any other file is a link to it. The
+	row prints no ids.
 -->
 <script lang="ts">
+	import { isMedia, mediaKind } from '#lib/media.ts';
 	import { channelHref } from '#lib/routes.ts';
 	import { withGuild } from '#lib/shell.svelte.ts';
-	import type { Message, MessageReference } from '#lib/types.ts';
+	import type { Attachment, Message, MessageReference } from '#lib/types.ts';
 	import Avatar from './ui/Avatar.svelte';
 	import Badge from './ui/Badge.svelte';
 	import Icon from './ui/Icon.svelte';
@@ -22,7 +24,8 @@
 		highlighted = false,
 		flash = false,
 		tabindex = -1,
-		onreference
+		onreference,
+		onopen
 	}: {
 		message: Message;
 		/** Whether the row continues the group of the header above it. */
@@ -41,6 +44,8 @@
 		 * event to handle it in place (the message is loaded); otherwise the link opens it.
 		 */
 		onreference?: (reference: MessageReference, event: MouseEvent) => void;
+		/** One of the message's media was chosen; `tile` is its element, for the Lightbox. */
+		onopen: (attachment: Attachment, tile: HTMLElement) => void;
 	} = $props();
 
 	const authorName = $derived(
@@ -76,9 +81,7 @@
 		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 	}
 
-	function isImageType(ct: string | null): boolean {
-		return !!ct && ct.startsWith('image/');
-	}
+	const kindLabel = { image: 'Image', gif: 'GIF', video: 'Video' } as const;
 
 	interface Embed {
 		title?: string;
@@ -183,15 +186,37 @@
 		{#if message.attachments.length > 0}
 			<div class="attachments">
 				{#each message.attachments as att (att.id)}
-					{#if isImageType(att.content_type)}
-						<a href={att.url} target="_blank" rel="noopener noreferrer" class="attachment-img-link">
-							<img
-								class="attachment-img"
-								src={att.proxy_url || att.url}
-								alt={att.filename}
-								loading="lazy"
-							/>
-						</a>
+					{#if isMedia(att)}
+						{@const kind = mediaKind(att)}
+						<button
+							type="button"
+							class="attachment-media"
+							data-attachment-id={att.id}
+							aria-label="{kindLabel[kind]}: {att.filename}"
+							onclick={(event) => onopen(att, event.currentTarget)}
+						>
+							{#if kind === 'video'}
+								<video
+									class="attachment-img"
+									src={att.proxy_url || att.url}
+									preload="metadata"
+									muted
+									playsinline
+									tabindex="-1"
+								></video>
+								<span class="kind-badge"><Icon name="play" size={14} /> Video</span>
+							{:else}
+								<img
+									class="attachment-img"
+									src={att.proxy_url || att.url}
+									alt={att.filename}
+									loading="lazy"
+								/>
+								{#if kind === 'gif'}
+									<span class="kind-badge">GIF</span>
+								{/if}
+							{/if}
+						</button>
 					{:else}
 						<a href={att.url} target="_blank" rel="noopener noreferrer" class="attachment-file">
 							<Icon name="paperclip" />
@@ -418,19 +443,30 @@
 	}
 
 	/* ── Attachments, embeds, reactions ── */
+	/* Each attachment keeps its own height, rather than stretching to the tallest. */
 	.attachments {
 		display: flex;
 		flex-wrap: wrap;
+		align-items: flex-start;
 		gap: var(--space-2);
 		margin-top: var(--space-2);
 	}
 
-	.attachment-img-link {
+	/* An image, GIF or video, which opens in the Lightbox. */
+	.attachment-media {
+		position: relative;
 		display: block;
+		padding: 0;
 		border-radius: var(--radius-sm);
 		overflow: hidden;
 		border: 1px solid var(--border-subtle);
 		max-width: min(400px, 100%);
+		cursor: zoom-in;
+		transition: border-color var(--duration-micro) var(--ease-out-quint);
+	}
+
+	.attachment-media:hover {
+		border-color: var(--border-default);
 	}
 
 	.attachment-img {
@@ -439,6 +475,25 @@
 		max-height: 300px;
 		object-fit: contain;
 		background: var(--bg-canvas);
+	}
+
+	video.attachment-img {
+		pointer-events: none;
+	}
+
+	.kind-badge {
+		position: absolute;
+		top: var(--space-1);
+		left: var(--space-1);
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		height: 18px;
+		padding: 0 6px;
+		border-radius: var(--radius-xs);
+		background: rgba(0, 0, 0, 0.66);
+		color: #fff;
+		font: var(--type-label-xs);
 	}
 
 	.attachment-file {

@@ -8,7 +8,8 @@
 	closes it and returns focus to the tile it opened from. The top bar carries the
 	author and a counter; the left and right arrow keys and buttons step through the
 	attachments, as does the filmstrip along the bottom; the file's details sit beside
-	the media. "Open in conversation" opens the attachment's message in Browse.
+	the media. "Open in conversation" opens the attachment's message in Browse; a screen
+	that already shows that message (Browse's feed) can handle the link in place.
 
 	Motion: the media zooms from its tile and back (a view transition), while the scrim
 	fades in and the chrome follows 80ms later. Without the View Transitions API, and
@@ -27,7 +28,8 @@
 	let {
 		attachments,
 		total,
-		onnearend
+		onnearend,
+		onconversation
 	}: {
 		/** The attachments the screen has loaded, in its order. */
 		attachments: GalleryAttachment[];
@@ -35,6 +37,11 @@
 		total?: number;
 		/** Stepping came near the last loaded attachment: a screen that pages loads the next page. */
 		onnearend?: () => void;
+		/**
+		 * "Open in conversation" was followed for `attachment`. Call `preventDefault` on the
+		 * event to handle it in place, as by `close(tile)`; otherwise the link opens Browse.
+		 */
+		onconversation?: (attachment: GalleryAttachment, event: MouseEvent) => void;
 	} = $props();
 
 	/** The name the zooming media takes for the view transition. */
@@ -103,14 +110,18 @@
 		if (index >= attachments.length - NEAR_END) onnearend?.();
 	}
 
-	/** Close, zooming back to the tile it opened from when it still shows that attachment. */
-	export async function close(): Promise<void> {
+	/**
+	 * Close, zooming back to the tile it opened from when it still shows that attachment,
+	 * and giving that tile the focus. Given `to`, the tile of the attachment on show, it
+	 * zooms back to and focuses `to` instead.
+	 */
+	export async function close(to?: HTMLElement): Promise<void> {
 		// The dialog is open, and takes keys, before its zoom in ends: an Esc then closes
 		// it once the zoom is done, rather than being lost.
 		while (busy) await busy.catch(() => {});
 		if (currentId === null) return;
-		const tile = openerTile();
-		const back = tile && currentId === openerId ? mediaIn(tile) : null;
+		const tile = to ?? openerTile();
+		const back = tile && (to || currentId === openerId) ? mediaIn(tile) : null;
 		busy = transition(back ? (media ?? null) : null, async () => {
 			currentId = null;
 			await tick();
@@ -297,7 +308,11 @@
 			<span class="counter mono" aria-live="polite">{index + 1} of {count.toLocaleString()}</span>
 			<div class="actions">
 				{#if current.channel_id}
-					<a class="conversation" href={channelHref(current.channel_id, { message: current.message_id })}>
+					<a
+						class="conversation"
+						href={channelHref(current.channel_id, { message: current.message_id })}
+						onclick={(event) => current && onconversation?.(current, event)}
+					>
 						<Icon name="message" size={14} /> Open in conversation
 					</a>
 				{/if}

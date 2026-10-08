@@ -108,7 +108,7 @@ The portal page that shows attachments across a guild, fed by the gallery timeli
 _Avoid_: gallery (the endpoint family), images page
 
 **Lightbox**:
-The dialog that shows one attachment large, over the Media screen or Browse's Media tab, with a filmstrip of the others loaded beside it.
+The dialog that shows one attachment large, over the Media screen, Browse's Media tab or the media in Browse's feed, with a filmstrip of the others loaded beside it.
 _Avoid_: viewer, modal, image popup
 
 **People screen**:

@@ -1,9 +1,11 @@
 // How Browse's reader lays out its feed (audit #16): the messages of each day under a
 // date divider, and consecutive messages by one author under one header while they
 // follow it within GROUP_WINDOW_MS. The rows after a header are its continuations,
-// which show no avatar, name or time of their own.
+// which show no avatar, name or time of their own. The feed's media open in the
+// Lightbox, which steps through them in feed order (feedMedia).
 
-import type { Message } from './types';
+import { isMedia } from './media';
+import type { GalleryAttachment, Message } from './types';
 
 /** How long after a group's header the same author's messages still join the group. */
 export const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -70,4 +72,22 @@ export function feedDays(messages: Message[]): FeedDay[] {
 /** The month a message was posted in, YYYY-MM, as the archive's activity counts it (UTC). */
 export function messageMonth(message: Message): string {
 	return message.created_at.slice(0, 7);
+}
+
+/**
+ * The media attachments (images, GIFs, videos) of `messages`, in feed order, as the
+ * Lightbox shows them: each with its message's author and time, in channel
+ * `channelName`.
+ */
+export function feedMedia(messages: Message[], channelName: string | null = null): GalleryAttachment[] {
+	return messages.flatMap((message) =>
+		message.attachments.filter(isMedia).map((attachment) => ({
+			...attachment,
+			created_at: message.created_at,
+			author_name: message.author?.display_name || message.author?.username || null,
+			author_avatar_url: message.author?.avatar_url ?? null,
+			channel_id: message.channel_id,
+			channel_name: channelName
+		}))
+	);
 }

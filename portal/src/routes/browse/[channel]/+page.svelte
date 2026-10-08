@@ -11,10 +11,12 @@
 	//
 	// Beside the feed, the jump rail (#61) lists the channel's months; picking one reads
 	// the page around that month's first message and puts it at the top of the view. A
-	// reply's link scrolls to the message it answers when it is loaded. On the Messages
-	// tab, J and K move the keyboard focus from message to message, and G then L goes to
-	// the newest; these keys are the reader's own and do nothing while typing in a field.
-	// They go through the shell's key registry (keyboard.svelte.ts), so `?` lists them.
+	// reply's link scrolls to the message it answers when it is loaded. The feed's images
+	// and videos open in the Lightbox (#72), over the media of the loaded messages. On
+	// the Messages tab, J and K move the keyboard focus from message to message, and G
+	// then L goes to the newest; these keys are the reader's own and do nothing while
+	// typing in a field or while the Lightbox is open. They go through the shell's key
+	// registry (keyboard.svelte.ts), so `?` lists them.
 	import { onMount, tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -573,7 +575,9 @@
 						flash={flashId}
 						{focusable}
 						busy={loadingOlder || loadingNewer}
+						channelName={channel?.name ?? null}
 						onreference={followReference}
+						onnearend={() => void loadNewer()}
 					/>
 
 					{#if error}

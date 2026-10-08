@@ -29,6 +29,7 @@
 		destinationShortcut,
 		isPaletteShortcut,
 		isTyping,
+		modalOpen,
 		overlays,
 		runViewKey,
 		searchInView
@@ -199,7 +200,7 @@
 			void goto(withGuild(destination.href));
 			return;
 		}
-		if (overlays.any || event.metaKey || event.ctrlKey || event.altKey) return;
+		if (overlays.any || modalOpen() || event.metaKey || event.ctrlKey || event.altKey) return;
 
 		const field = event.target;
 		if (event.key === 'Escape' && isTyping(field)) {

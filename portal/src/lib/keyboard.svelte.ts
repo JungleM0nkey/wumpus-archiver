@@ -10,8 +10,9 @@
 //
 // A screen's own keys go through this registry too: `useViewKeys` registers them while
 // the screen is mounted, the shell's one keydown handler runs them (never while typing,
-// with a modifier, or while a dialog is open), and `?` lists them under the screen's
-// heading. Browse's reader registers J, K and "G then L" this way.
+// with a modifier, or while a dialog is open: the shell's own or a screen's, such as the
+// Lightbox), and `?` lists them under the screen's heading. Browse's reader registers J,
+// K and "G then L" this way.
 import { untrack } from 'svelte';
 import { goto } from '$app/navigation';
 import { APPLE, DESTINATIONS, withGuild } from './shell.svelte';
@@ -174,6 +175,14 @@ export function runViewKey(event: KeyboardEvent): boolean {
 	event.preventDefault();
 	single.run();
 	return true;
+}
+
+/**
+ * Whether a modal dialog is open, such as the Lightbox: the page behind it is inert,
+ * so the shell's keys without a modifier, and the screen's, wait until it closes.
+ */
+export function modalOpen(): boolean {
+	return document.querySelector('dialog:modal') !== null;
 }
 
 /** Whether `target` takes typed text, so a key without a modifier belongs to it. */

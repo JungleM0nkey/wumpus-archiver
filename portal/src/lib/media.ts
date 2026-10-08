@@ -15,6 +15,12 @@ export function mediaKind(attachment: Pick<GalleryAttachment, 'content_type'>): 
 	return 'image';
 }
 
+/** Whether an attachment is media the Lightbox shows (an image, a GIF or a video), not a file. */
+export function isMedia(attachment: Pick<GalleryAttachment, 'content_type'>): boolean {
+	const type = attachment.content_type ?? '';
+	return type.startsWith('image/') || type.startsWith('video/');
+}
+
 /** The aspect ratio a tile takes when an attachment's size is neither recorded nor measured yet. */
 export const FALLBACK_ASPECT = 1;
 
