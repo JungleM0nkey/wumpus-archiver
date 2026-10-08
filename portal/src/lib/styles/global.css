@@ -191,10 +191,13 @@ select {
 	color: inherit;
 }
 
-/* Timestamps, ids and counts: mono with tabular numerals. */
+/*
+ * Timestamps, ids and counts: mono with tabular numerals. A utility, so it wins over
+ * a component's `font` shorthand (which would reset both).
+ */
 .mono {
-	font-family: var(--font-mono);
-	font-variant-numeric: tabular-nums;
+	font-family: var(--font-mono) !important;
+	font-variant-numeric: tabular-nums !important;
 	letter-spacing: 0;
 }
 
