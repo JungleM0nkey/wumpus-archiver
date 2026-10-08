@@ -81,10 +81,10 @@
 <div class="search-page">
 	<header class="search-header">
 		<div class="search-header-content">
-			<h1 class="search-title serif">Search<span class="dot">.</span></h1>
+			<h1 class="search-title">Search</h1>
 			<p class="search-sub">
 				Find messages across the entire archive.
-				<span class="mono" style="color: var(--text-faint);">AI semantic search coming soon.</span>
+				<span class="mono" style="color: var(--text-tertiary);">AI semantic search coming soon.</span>
 			</p>
 
 			<div class="search-input-area">
@@ -140,21 +140,21 @@
 			<div class="center-state">
 				<div class="empty-icon">⌕</div>
 				<span>No results found for "<strong>{query}</strong>"</span>
-				<span class="mono" style="font-size: 13px; color: var(--text-muted);">
+				<span class="mono" style="font-size: 13px; color: var(--text-tertiary);">
 					Try different keywords or remove filters
 				</span>
 			</div>
 		{:else if !searched}
 			<div class="center-state">
 				<div class="empty-icon">⌕</div>
-				<span class="mono" style="color: var(--text-muted);">
+				<span class="mono" style="color: var(--text-tertiary);">
 					Enter a search query above
 				</span>
 			</div>
 		{:else}
 			<div class="results-list">
 				{#each results as result, i (result.message.id)}
-					<div class="result-item fade-in" style="animation-delay: {i * 30}ms">
+					<div class="result-item enter" style="--i: {i}">
 						<div class="result-context">
 							<span class="badge">#{result.channel_name}</span>
 						</div>
@@ -176,13 +176,13 @@
 
 	.search-header {
 		background: var(--bg-surface);
-		border-bottom: 1px solid var(--border);
-		padding: var(--sp-8) var(--sp-6) var(--sp-5);
+		border-bottom: 1px solid var(--border-subtle);
+		padding: var(--space-8) var(--space-6) var(--space-5);
 		flex-shrink: 0;
 	}
 
 	.search-header-content {
-		max-width: var(--max-content);
+		max-width: var(--size-reader-max);
 		margin: 0 auto;
 	}
 
@@ -190,38 +190,37 @@
 		font-size: 32px;
 		font-weight: 700;
 		letter-spacing: -0.03em;
-		margin-bottom: var(--sp-2);
+		margin-bottom: var(--space-2);
 	}
 
-	.dot { color: var(--accent); }
 
 	.search-sub {
 		font-size: 14px;
 		color: var(--text-secondary);
-		margin-bottom: var(--sp-5);
+		margin-bottom: var(--space-5);
 	}
 
 	.search-input-area {
 		max-width: 640px;
-		margin-bottom: var(--sp-4);
+		margin-bottom: var(--space-4);
 	}
 
 	.filters {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-4);
+		gap: var(--space-4);
 		flex-wrap: wrap;
 	}
 
 	.filter-group {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 	}
 
 	.filter-label {
 		font-size: 11px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
@@ -231,9 +230,9 @@
 		font-size: 13px;
 		color: var(--text-primary);
 		background: var(--bg-raised);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		padding: var(--sp-1) var(--sp-3);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-xs);
+		padding: var(--space-1) var(--space-3);
 		cursor: pointer;
 	}
 
@@ -244,10 +243,10 @@
 
 	.clear-filters-btn {
 		font-size: 12px;
-		color: var(--text-muted);
-		padding: var(--sp-1) var(--sp-2);
-		border-radius: var(--radius-sm);
-		transition: all 0.12s var(--ease-out);
+		color: var(--text-tertiary);
+		padding: var(--space-1) var(--space-2);
+		border-radius: var(--radius-xs);
+		transition: all var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.clear-filters-btn:hover {
@@ -257,57 +256,57 @@
 
 	.result-count {
 		font-size: 12px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		margin-left: auto;
 	}
 
 	.search-results {
 		flex: 1;
 		overflow-y: auto;
-		padding: var(--sp-6);
+		padding: var(--space-6);
 	}
 
 	.results-list {
-		max-width: var(--max-content);
+		max-width: var(--size-reader-max);
 		margin: 0 auto;
 		display: flex;
 		flex-direction: column;
-		gap: var(--sp-4);
+		gap: var(--space-4);
 	}
 
 	.result-item {
 		display: flex;
 		flex-direction: column;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 	}
 
 	.result-context {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 	}
 
 	.center-state {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-16) 0;
+		gap: var(--space-3);
+		padding: var(--space-16) 0;
 		color: var(--text-secondary);
 		text-align: center;
 	}
 
-	.center-state.error { color: var(--error); }
+	.center-state.error { color: var(--danger); }
 
 	.empty-icon {
 		font-size: 48px;
-		color: var(--text-faint);
-		margin-bottom: var(--sp-2);
+		color: var(--text-tertiary);
+		margin-bottom: var(--space-2);
 	}
 
 	.spinner {
 		width: 20px; height: 20px;
-		border: 2px solid var(--border);
+		border: 2px solid var(--border-subtle);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;

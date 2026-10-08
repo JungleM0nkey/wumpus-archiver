@@ -116,19 +116,19 @@
 	.gallery-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-		gap: var(--sp-2);
+		gap: var(--space-2);
 	}
 
 	.gallery-thumb {
 		position: relative;
 		aspect-ratio: 1;
 		overflow: hidden;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--border);
+		border-radius: var(--radius-xs);
+		border: 1px solid var(--border-subtle);
 		background: var(--bg-raised);
 		cursor: pointer;
 		padding: 0;
-		transition: all 0.15s var(--ease-out);
+		transition: all var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.gallery-thumb:hover {
@@ -159,13 +159,13 @@
 		bottom: 0;
 		left: 0;
 		right: 0;
-		padding: var(--sp-4) var(--sp-2) var(--sp-2);
+		padding: var(--space-4) var(--space-2) var(--space-2);
 		background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
 		opacity: 0;
-		transition: opacity 0.15s;
+		transition: opacity var(--duration-micro);
 	}
 
 	.gallery-thumb:hover .thumb-overlay {
@@ -189,8 +189,8 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-16) 0;
+		gap: var(--space-3);
+		padding: var(--space-16) 0;
 		color: var(--text-secondary);
 	}
 
@@ -202,22 +202,22 @@
 	.load-more {
 		display: flex;
 		justify-content: center;
-		padding: var(--sp-6) 0;
+		padding: var(--space-6) 0;
 	}
 
 	.load-more-btn {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 		font-family: var(--font-mono);
 		font-size: 13px;
 		color: var(--text-secondary);
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		padding: var(--sp-2) var(--sp-5);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		padding: var(--space-2) var(--space-5);
 		cursor: pointer;
-		transition: all 0.15s var(--ease-out);
+		transition: all var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.load-more-btn:hover:not(:disabled) {
@@ -232,7 +232,7 @@
 
 	.spinner {
 		width: 14px; height: 14px;
-		border: 2px solid var(--border);
+		border: 2px solid var(--border-subtle);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;

@@ -52,7 +52,7 @@
 
 <div class="channels-page">
 	<header class="page-header">
-		<h1 class="serif">Channels<span class="dot">.</span></h1>
+		<h1>Channels</h1>
 		<p class="header-sub">
 			{#if guild}
 				Browse all archived channels in <strong>{guild.name}</strong>
@@ -112,23 +112,22 @@
 
 <style>
 	.channels-page {
-		padding: var(--sp-8) var(--sp-6);
-		max-width: var(--max-content);
+		padding: var(--space-8) var(--space-6);
+		max-width: var(--size-reader-max);
 		margin: 0 auto;
 	}
 
 	.page-header {
-		margin-bottom: var(--sp-8);
+		margin-bottom: var(--space-8);
 	}
 
 	.page-header h1 {
 		font-size: 32px;
 		font-weight: 700;
 		letter-spacing: -0.03em;
-		margin-bottom: var(--sp-2);
+		margin-bottom: var(--space-2);
 	}
 
-	.dot { color: var(--accent); }
 
 	.header-sub {
 		font-size: 14px;
@@ -138,18 +137,18 @@
 	.channels-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-		gap: var(--sp-4);
+		gap: var(--space-4);
 	}
 
 	.channel-card {
 		display: block;
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		padding: var(--sp-5);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		padding: var(--space-5);
 		text-decoration: none;
 		color: inherit;
-		transition: all 0.15s var(--ease-out);
+		transition: all var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.channel-card:hover {
@@ -161,14 +160,14 @@
 	.channel-header {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
-		margin-bottom: var(--sp-3);
+		gap: var(--space-2);
+		margin-bottom: var(--space-3);
 	}
 
 	.channel-hash {
 		font-size: 22px;
 		font-weight: 700;
-		color: var(--text-faint);
+		color: var(--text-tertiary);
 	}
 
 	.channel-name {
@@ -179,8 +178,8 @@
 
 	.channel-topic {
 		font-size: 13px;
-		color: var(--text-muted);
-		margin-bottom: var(--sp-4);
+		color: var(--text-tertiary);
+		margin-bottom: var(--space-4);
 		line-height: 1.5;
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
@@ -197,7 +196,7 @@
 		background: var(--bg-hover);
 		border-radius: 2px;
 		overflow: hidden;
-		margin-bottom: var(--sp-2);
+		margin-bottom: var(--space-2);
 	}
 
 	.stat-bar-fill {
@@ -205,7 +204,7 @@
 		background: var(--accent);
 		border-radius: 2px;
 		min-width: 2px;
-		transition: width 0.3s var(--ease-out);
+		transition: width var(--duration-medium) var(--ease-out-quint);
 	}
 
 	.stat-row {
@@ -221,23 +220,23 @@
 
 	.stat-date {
 		font-size: 11px;
-		color: var(--text-faint);
+		color: var(--text-tertiary);
 	}
 
 	.center-state {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-16) 0;
+		gap: var(--space-3);
+		padding: var(--space-16) 0;
 		color: var(--text-secondary);
 	}
 
-	.center-state.error { color: var(--error); }
+	.center-state.error { color: var(--danger); }
 
 	.spinner {
 		width: 20px; height: 20px;
-		border: 2px solid var(--border);
+		border: 2px solid var(--border-subtle);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;

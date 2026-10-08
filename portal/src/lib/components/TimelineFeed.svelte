@@ -35,12 +35,12 @@
 </script>
 
 {#if title}
-	<h2 class="feed-title serif">{title}</h2>
+	<h2 class="feed-title">{title}</h2>
 {/if}
 
 <div class="timeline-feed">
 	{#each grouped as group, gi (group.date)}
-		<div class="date-group fade-in" style="animation-delay: {gi * 50}ms">
+		<div class="date-group enter" style="--i: {gi}">
 			<div class="date-divider">
 				<div class="date-line"></div>
 				<span class="date-label mono">{group.date}</span>
@@ -61,37 +61,37 @@
 		font-size: 22px;
 		font-weight: 600;
 		color: var(--text-primary);
-		margin-bottom: var(--sp-6);
+		margin-bottom: var(--space-6);
 	}
 
 	.timeline-feed {
 		display: flex;
 		flex-direction: column;
-		gap: var(--sp-6);
+		gap: var(--space-6);
 	}
 
 	.date-group {
 		display: flex;
 		flex-direction: column;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 	}
 
 	.date-divider {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-4);
-		padding: var(--sp-1) 0;
+		gap: var(--space-4);
+		padding: var(--space-1) 0;
 	}
 
 	.date-line {
 		flex: 1;
 		height: 1px;
-		background: var(--border);
+		background: var(--border-subtle);
 	}
 
 	.date-label {
 		font-size: 12px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		white-space: nowrap;
 		letter-spacing: 0.02em;
 	}
@@ -99,6 +99,6 @@
 	.messages-group {
 		display: flex;
 		flex-direction: column;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 	}
 </style>

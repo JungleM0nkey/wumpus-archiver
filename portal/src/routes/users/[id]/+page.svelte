@@ -91,7 +91,7 @@
 		<div class="center-state error">⚠ {error}</div>
 	{:else if profile}
 		<!-- Hero header -->
-		<header class="profile-hero fade-in">
+		<header class="profile-hero enter">
 			<a href="/users" class="back-link mono">← All Users</a>
 			<div class="hero-row">
 				{#if profile.avatar_url}
@@ -106,8 +106,8 @@
 					</div>
 				{/if}
 				<div class="hero-info">
-					<h1 class="hero-name serif">
-						{profile.display_name || profile.username}<span class="dot">.</span>
+					<h1 class="hero-name">
+						{profile.display_name || profile.username}
 					</h1>
 					<div class="hero-meta">
 						<span class="mono">@{profile.username}</span>
@@ -124,7 +124,7 @@
 		</header>
 
 		<!-- Key stats -->
-		<section class="section fade-in" style="animation-delay: 50ms">
+		<section class="section enter">
 			<h2 class="section-title">
 				<span class="section-icon">◈</span>
 				Overview
@@ -138,7 +138,7 @@
 		</section>
 
 		<!-- Timeline line -->
-		<section class="section fade-in" style="animation-delay: 100ms">
+		<section class="section enter">
 			<div class="timeline-summary">
 				<div class="timeline-item">
 					<span class="timeline-label">First Message</span>
@@ -161,7 +161,7 @@
 
 		<!-- Activity chart -->
 		{#if profile.monthly_activity.length > 0}
-			<section class="section fade-in" style="animation-delay: 150ms">
+			<section class="section enter">
 				<h2 class="section-title">
 					<span class="section-icon">▤</span>
 					Monthly Activity
@@ -182,7 +182,7 @@
 
 		<!-- Top channels -->
 		{#if profile.top_channels.length > 0}
-			<section class="section fade-in" style="animation-delay: 200ms">
+			<section class="section enter">
 				<h2 class="section-title">
 					<span class="section-icon">≡</span>
 					Top Channels
@@ -190,7 +190,7 @@
 				<div class="bar-chart">
 					{#each profile.top_channels as ch, i}
 						{@const maxCount = profile.top_channels[0].message_count}
-						<a href="/channel/{ch.channel_id}" class="bar-row" style="animation-delay: {i * 30}ms">
+						<a href="/channel/{ch.channel_id}" class="bar-row" style="--i: {i}">
 							<span class="bar-label truncate">#{ch.channel_name}</span>
 							<div class="bar-track">
 								<div
@@ -207,7 +207,7 @@
 
 		<!-- Top reactions received -->
 		{#if profile.top_reactions_received.length > 0}
-			<section class="section fade-in" style="animation-delay: 250ms">
+			<section class="section enter">
 				<h2 class="section-title">
 					<span class="section-icon">♥</span>
 					Top Reactions Received
@@ -224,7 +224,7 @@
 		{/if}
 
 		<!-- Recent messages toggle -->
-		<section class="section fade-in" style="animation-delay: 300ms">
+		<section class="section enter">
 			<h2 class="section-title">
 				<span class="section-icon">✉</span>
 				Recent Messages
@@ -240,7 +240,7 @@
 			</h2>
 
 			{#if messagesError}
-				<p class="mono" style="color: var(--error); font-size: 13px;">⚠ {messagesError}</p>
+				<p class="mono" style="color: var(--danger); font-size: 13px;">⚠ {messagesError}</p>
 			{/if}
 			{#if showMessages && recentMessages.length > 0}
 				<div class="messages-list">
@@ -249,7 +249,7 @@
 					{/each}
 				</div>
 			{:else if showMessages}
-				<p class="mono" style="color: var(--text-muted); font-size: 13px;">
+				<p class="mono" style="color: var(--text-tertiary); font-size: 13px;">
 					No recent messages found.
 				</p>
 			{/if}
@@ -259,32 +259,32 @@
 
 <style>
 	.profile-page {
-		max-width: var(--max-content);
+		max-width: var(--size-reader-max);
 		margin: 0 auto;
-		padding: var(--sp-8) var(--sp-6);
+		padding: var(--space-8) var(--space-6);
 	}
 
 	/* Hero */
 	.profile-hero {
-		margin-bottom: var(--sp-10);
+		margin-bottom: var(--space-10);
 	}
 
 	.back-link {
 		display: inline-block;
 		font-size: 13px;
-		color: var(--text-muted);
-		margin-bottom: var(--sp-4);
-		transition: color 0.15s var(--ease-out);
+		color: var(--text-tertiary);
+		margin-bottom: var(--space-4);
+		transition: color var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.back-link:hover {
-		color: var(--accent-text);
+		color: var(--accent);
 	}
 
 	.hero-row {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-6);
+		gap: var(--space-6);
 	}
 
 	.hero-avatar {
@@ -292,7 +292,7 @@
 		height: 80px;
 		border-radius: 50%;
 		object-fit: cover;
-		border: 3px solid var(--border-strong);
+		border: 3px solid var(--border-default);
 		flex-shrink: 0;
 	}
 
@@ -315,16 +315,15 @@
 		font-weight: 700;
 		letter-spacing: -0.04em;
 		line-height: 1.1;
-		margin-bottom: var(--sp-2);
+		margin-bottom: var(--space-2);
 		color: var(--text-primary);
 	}
 
-	.dot { color: var(--accent); }
 
 	.hero-meta {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 		font-size: 14px;
 		color: var(--text-secondary);
 		flex-wrap: wrap;
@@ -332,25 +331,25 @@
 
 	.id-badge {
 		font-size: 11px;
-		color: var(--text-faint);
+		color: var(--text-tertiary);
 		padding: 1px 6px;
 		background: var(--bg-raised);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-xs);
 	}
 
 	/* Sections */
 	.section {
-		margin-bottom: var(--sp-10);
+		margin-bottom: var(--space-10);
 	}
 
 	.section-title {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 		font-size: 16px;
 		font-weight: 600;
 		color: var(--text-primary);
-		margin-bottom: var(--sp-5);
+		margin-bottom: var(--space-5);
 	}
 
 	.section-icon { color: var(--accent); font-size: 14px; }
@@ -358,18 +357,18 @@
 	.stats-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-		gap: var(--sp-4);
+		gap: var(--space-4);
 	}
 
 	/* Timeline summary */
 	.timeline-summary {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-4);
-		padding: var(--sp-5);
+		gap: var(--space-4);
+		padding: var(--space-5);
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
 		flex-wrap: wrap;
 	}
 
@@ -381,7 +380,7 @@
 
 	.timeline-label {
 		font-size: 11px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
@@ -395,37 +394,37 @@
 		flex: 1;
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 		min-width: 100px;
 	}
 
 	.timeline-line {
 		flex: 1;
 		height: 1px;
-		background: var(--border-strong);
+		background: var(--border-default);
 	}
 
 	.timeline-days {
 		font-size: 12px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		white-space: nowrap;
 	}
 
 	.timeline-extra {
 		width: 100%;
-		padding-top: var(--sp-2);
-		margin-top: var(--sp-2);
-		border-top: 1px solid var(--border);
+		padding-top: var(--space-2);
+		margin-top: var(--space-2);
+		border-top: 1px solid var(--border-subtle);
 		font-size: 13px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 	}
 
 	/* Activity chart */
 	.activity-chart {
-		padding: var(--sp-4);
+		padding: var(--space-4);
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
 	}
 
 	.chart-bars {
@@ -433,7 +432,7 @@
 		align-items: flex-end;
 		gap: 3px;
 		height: 140px;
-		padding-bottom: var(--sp-5);
+		padding-bottom: var(--space-5);
 	}
 
 	.chart-col {
@@ -449,9 +448,9 @@
 	.chart-bar {
 		width: 100%;
 		max-width: 32px;
-		background: linear-gradient(180deg, var(--accent), var(--accent-dim));
+		background: linear-gradient(180deg, var(--accent), var(--accent-strong));
 		border-radius: 3px 3px 0 0;
-		transition: height 0.4s var(--ease-out);
+		transition: height var(--duration-large) var(--ease-out-quint);
 		min-height: 2px;
 	}
 
@@ -462,8 +461,8 @@
 
 	.chart-label {
 		font-size: 9px;
-		color: var(--text-faint);
-		margin-top: var(--sp-1);
+		color: var(--text-tertiary);
+		margin-top: var(--space-1);
 		writing-mode: vertical-lr;
 		transform: rotate(180deg);
 		white-space: nowrap;
@@ -473,18 +472,19 @@
 	.bar-chart {
 		display: flex;
 		flex-direction: column;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 	}
 
 	.bar-row {
 		display: grid;
 		grid-template-columns: 160px 1fr 80px;
 		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-2) var(--sp-3);
-		border-radius: var(--radius-md);
-		transition: background 0.15s var(--ease-out);
-		animation: fadeIn 0.3s var(--ease-out) both;
+		gap: var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius-sm);
+		transition: background var(--duration-micro) var(--ease-out-quint);
+		animation: enter var(--duration-medium) var(--ease-out-quint) both;
+		animation-delay: calc(min(var(--i, 0), var(--stagger-max)) * var(--stagger));
 		text-decoration: none;
 		color: inherit;
 	}
@@ -502,33 +502,33 @@
 
 	.bar-fill {
 		height: 100%;
-		background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+		background: linear-gradient(90deg, var(--accent-strong), var(--accent));
 		border-radius: 4px;
-		transition: width 0.5s var(--ease-out);
+		transition: width var(--duration-large) var(--ease-out-quint);
 	}
 
-	.bar-value { font-size: 13px; color: var(--text-muted); text-align: right; }
+	.bar-value { font-size: 13px; color: var(--text-tertiary); text-align: right; }
 
 	/* Reactions */
 	.reactions-grid {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 	}
 
 	.reaction-chip {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
-		padding: var(--sp-2) var(--sp-3);
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		transition: border-color 0.15s var(--ease-out);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		transition: border-color var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.reaction-chip:hover {
-		border-color: var(--border-strong);
+		border-color: var(--border-default);
 	}
 
 	.reaction-emoji {
@@ -543,48 +543,48 @@
 	/* Messages */
 	.toggle-btn {
 		margin-left: auto;
-		padding: var(--sp-1) var(--sp-3);
+		padding: var(--space-1) var(--space-3);
 		font-size: 12px;
 		font-weight: 500;
-		color: var(--accent-text);
-		background: var(--accent-glow);
-		border: 1px solid var(--border-accent);
-		border-radius: var(--radius-sm);
+		color: var(--accent);
+		background: var(--accent-muted);
+		border: 1px solid var(--accent-glow);
+		border-radius: var(--radius-xs);
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
-		transition: all 0.15s var(--ease-out);
+		gap: var(--space-2);
+		transition: all var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.toggle-btn:hover {
 		background: var(--accent);
-		color: var(--bg-base);
+		color: var(--bg-canvas);
 	}
 
 	.messages-list {
 		display: flex;
 		flex-direction: column;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 	}
 
 	/* States */
 	.center-state {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 		justify-content: center;
-		padding: var(--sp-16) 0;
-		color: var(--text-muted);
+		padding: var(--space-16) 0;
+		color: var(--text-tertiary);
 	}
 
 	.center-state.error {
-		color: var(--error);
+		color: var(--danger);
 	}
 
 	.spinner {
 		width: 20px;
 		height: 20px;
-		border: 2px solid var(--border);
+		border: 2px solid var(--border-subtle);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;

@@ -1,4 +1,7 @@
 <script lang="ts">
+	// The portal self-hosts its two typefaces, so it loads no fonts from the network.
+	import '@fontsource-variable/instrument-sans';
+	import '@fontsource-variable/jetbrains-mono';
 	import '../lib/styles/global.css';
 	import Nav from '../lib/components/Nav.svelte';
 

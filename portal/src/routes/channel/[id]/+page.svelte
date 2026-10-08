@@ -80,7 +80,7 @@
 			<a href="/channel/{channelId}/gallery" class="gallery-link">🖼 View Gallery</a>
 		{:else if loading}
 			<div class="channel-title-row">
-				<h1 class="mono" style="color: var(--text-muted);">Loading...</h1>
+				<h1 class="mono" style="color: var(--text-tertiary);">Loading...</h1>
 			</div>
 		{/if}
 	</header>
@@ -132,18 +132,18 @@
 
 	.channel-header {
 		background: var(--bg-surface);
-		border-bottom: 1px solid var(--border);
-		padding: var(--sp-5) var(--sp-6) var(--sp-4);
+		border-bottom: 1px solid var(--border-subtle);
+		padding: var(--space-5) var(--space-6) var(--space-4);
 		flex-shrink: 0;
 	}
 
 	.back-link {
 		display: inline-block;
 		font-size: 12px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		text-decoration: none;
-		margin-bottom: var(--sp-3);
-		transition: color 0.12s;
+		margin-bottom: var(--space-3);
+		transition: color var(--duration-micro);
 	}
 
 	.back-link:hover {
@@ -153,13 +153,13 @@
 	.channel-title-row {
 		display: flex;
 		align-items: baseline;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 	}
 
 	.hash {
 		font-size: 28px;
 		font-weight: 700;
-		color: var(--text-faint);
+		color: var(--text-tertiary);
 	}
 
 	.channel-title-row h1 {
@@ -171,29 +171,29 @@
 	.channel-topic {
 		font-size: 14px;
 		color: var(--text-secondary);
-		margin-top: var(--sp-2);
+		margin-top: var(--space-2);
 		line-height: 1.5;
 	}
 
 	.channel-meta {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 		font-size: 12px;
-		color: var(--text-muted);
-		margin-top: var(--sp-3);
+		color: var(--text-tertiary);
+		margin-top: var(--space-3);
 	}
 
-	.sep { color: var(--text-faint); }
+	.sep { color: var(--text-tertiary); }
 
 	.gallery-link {
 		display: inline-block;
-		margin-top: var(--sp-3);
+		margin-top: var(--space-3);
 		font-size: 13px;
 		color: var(--accent);
 		text-decoration: none;
 		font-weight: 500;
-		transition: opacity 0.12s;
+		transition: opacity var(--duration-micro);
 	}
 
 	.gallery-link:hover { opacity: 0.8; }
@@ -202,36 +202,36 @@
 	.message-area {
 		flex: 1;
 		overflow-y: auto;
-		padding: var(--sp-6);
+		padding: var(--space-6);
 		display: flex;
 		flex-direction: column;
 	}
 
 	.feed-container {
 		width: 100%;
-		max-width: var(--max-content);
+		max-width: var(--size-reader-max);
 		margin: auto auto 0;
 	}
 
 	.load-more {
 		display: flex;
 		justify-content: center;
-		padding: var(--sp-6) 0;
+		padding: var(--space-6) 0;
 	}
 
 	.load-more-btn {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 		font-family: var(--font-mono);
 		font-size: 13px;
 		color: var(--text-secondary);
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
-		padding: var(--sp-2) var(--sp-5);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		padding: var(--space-2) var(--space-5);
 		cursor: pointer;
-		transition: all 0.15s var(--ease-out);
+		transition: all var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.load-more-btn:hover:not(:disabled) {
@@ -247,29 +247,29 @@
 	.end-marker {
 		text-align: center;
 		font-size: 12px;
-		color: var(--text-faint);
-		padding: var(--sp-8) 0;
+		color: var(--text-tertiary);
+		padding: var(--space-8) 0;
 	}
 
 	.center-state {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-16) 0;
+		gap: var(--space-3);
+		padding: var(--space-16) 0;
 		color: var(--text-secondary);
 	}
 
-	.center-state.error { color: var(--error); }
+	.center-state.error { color: var(--danger); }
 
 	.empty-icon {
 		font-size: 48px;
-		color: var(--text-faint);
+		color: var(--text-tertiary);
 	}
 
 	.spinner {
 		width: 20px; height: 20px;
-		border: 2px solid var(--border);
+		border: 2px solid var(--border-subtle);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;

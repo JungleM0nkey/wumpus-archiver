@@ -93,7 +93,7 @@
 	<header class="page-header">
 		<div class="header-top">
 			<div>
-				<h1 class="serif">Users<span class="dot">.</span></h1>
+				<h1>Users</h1>
 				<p class="header-sub">
 					{#if guild}
 						{total.toLocaleString()} contributors in <strong>{guild.name}</strong>
@@ -153,9 +153,9 @@
 			{#each users as user, i (user.id)}
 				{@const pct = (user.message_count / getMaxCount()) * 100}
 				<a
-					class="user-row fade-in"
+					class="user-row enter"
 					href="/users/{user.id}"
-					style="animation-delay: {Math.min(i, 20) * 25}ms"
+					style="--i: {i}"
 				>
 					<div class="user-identity">
 						<span class="user-rank mono">#{i + 1}</span>
@@ -215,20 +215,20 @@
 
 <style>
 	.users-page {
-		max-width: var(--max-content);
+		max-width: var(--size-reader-max);
 		margin: 0 auto;
-		padding: var(--sp-8) var(--sp-6);
+		padding: var(--space-8) var(--space-6);
 	}
 
 	.page-header {
-		margin-bottom: var(--sp-8);
+		margin-bottom: var(--space-8);
 	}
 
 	.header-top {
 		display: flex;
 		justify-content: space-between;
 		align-items: flex-start;
-		margin-bottom: var(--sp-5);
+		margin-bottom: var(--space-5);
 	}
 
 	h1 {
@@ -236,11 +236,10 @@
 		font-weight: 700;
 		letter-spacing: -0.04em;
 		line-height: 1;
-		margin-bottom: var(--sp-2);
+		margin-bottom: var(--space-2);
 		color: var(--text-primary);
 	}
 
-	.dot { color: var(--accent); }
 
 	.header-sub {
 		font-size: 15px;
@@ -249,7 +248,7 @@
 
 	.controls {
 		display: flex;
-		gap: var(--sp-4);
+		gap: var(--space-4);
 		align-items: center;
 		flex-wrap: wrap;
 	}
@@ -262,20 +261,20 @@
 
 	.sort-group {
 		display: flex;
-		gap: var(--sp-1);
+		gap: var(--space-1);
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
 		padding: 3px;
 	}
 
 	.sort-btn {
-		padding: var(--sp-1) var(--sp-3);
+		padding: var(--space-1) var(--space-3);
 		font-size: 13px;
 		font-weight: 500;
-		color: var(--text-muted);
-		border-radius: var(--radius-sm);
-		transition: all 0.15s var(--ease-out);
+		color: var(--text-tertiary);
+		border-radius: var(--radius-xs);
+		transition: all var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.sort-btn:hover {
@@ -284,8 +283,8 @@
 	}
 
 	.sort-btn.active {
-		color: var(--accent-text);
-		background: var(--accent-glow);
+		color: var(--accent);
+		background: var(--accent-muted);
 	}
 
 	.user-list {
@@ -298,12 +297,12 @@
 		display: grid;
 		grid-template-columns: 1fr 200px 160px;
 		align-items: center;
-		gap: var(--sp-4);
-		padding: var(--sp-3) var(--sp-4);
-		border-radius: var(--radius-md);
+		gap: var(--space-4);
+		padding: var(--space-3) var(--space-4);
+		border-radius: var(--radius-sm);
 		text-decoration: none;
 		color: inherit;
-		transition: background 0.15s var(--ease-out);
+		transition: background var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.user-row:hover {
@@ -314,7 +313,7 @@
 	.user-identity {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 		min-width: 0;
 	}
 
@@ -322,7 +321,7 @@
 		width: 36px;
 		text-align: center;
 		font-size: 12px;
-		color: var(--text-faint);
+		color: var(--text-tertiary);
 		flex-shrink: 0;
 	}
 
@@ -339,7 +338,7 @@
 		align-items: center;
 		justify-content: center;
 		background: var(--bg-overlay);
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		font-weight: 600;
 		font-size: 14px;
 	}
@@ -347,7 +346,7 @@
 	.user-names {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 		min-width: 0;
 	}
 
@@ -362,7 +361,7 @@
 
 	.user-handle {
 		font-size: 12px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		white-space: nowrap;
 	}
 
@@ -381,9 +380,9 @@
 
 	.stat-bar-fill {
 		height: 100%;
-		background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+		background: linear-gradient(90deg, var(--accent-strong), var(--accent));
 		border-radius: 3px;
-		transition: width 0.5s var(--ease-out);
+		transition: width var(--duration-large) var(--ease-out-quint);
 	}
 
 	.user-meta {
@@ -401,33 +400,33 @@
 
 	.user-dates {
 		font-size: 11px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		white-space: nowrap;
 	}
 
 	.load-more {
 		display: flex;
 		justify-content: center;
-		padding: var(--sp-8) 0;
+		padding: var(--space-8) 0;
 	}
 
 	.load-more-btn {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
-		padding: var(--sp-2) var(--sp-6);
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-6);
 		font-size: 14px;
 		font-weight: 500;
-		color: var(--accent-text);
-		background: var(--accent-glow);
-		border: 1px solid var(--border-accent);
-		border-radius: var(--radius-md);
-		transition: all 0.15s var(--ease-out);
+		color: var(--accent);
+		background: var(--accent-muted);
+		border: 1px solid var(--accent-glow);
+		border-radius: var(--radius-sm);
+		transition: all var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.load-more-btn:hover:not(:disabled) {
 		background: var(--accent);
-		color: var(--bg-base);
+		color: var(--bg-canvas);
 	}
 
 	.load-more-btn:disabled {
@@ -438,20 +437,20 @@
 	.center-state {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 		justify-content: center;
-		padding: var(--sp-16) 0;
-		color: var(--text-muted);
+		padding: var(--space-16) 0;
+		color: var(--text-tertiary);
 	}
 
 	.center-state.error {
-		color: var(--error);
+		color: var(--danger);
 	}
 
 	.spinner {
 		width: 20px;
 		height: 20px;
-		border: 2px solid var(--border);
+		border: 2px solid var(--border-subtle);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;

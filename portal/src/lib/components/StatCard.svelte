@@ -26,22 +26,22 @@
 <style>
 	.stat-card {
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		padding: var(--sp-5);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		padding: var(--space-5);
 		display: flex;
 		flex-direction: column;
-		gap: var(--sp-1);
-		transition: border-color 0.2s var(--ease-out);
+		gap: var(--space-1);
+		transition: border-color var(--duration-small) var(--ease-out-quint);
 	}
 
 	.stat-card:hover {
-		border-color: var(--border-strong);
+		border-color: var(--border-default);
 	}
 
 	.stat-icon {
 		font-size: 20px;
-		margin-bottom: var(--sp-1);
+		margin-bottom: var(--space-1);
 	}
 
 	.stat-value {
@@ -63,6 +63,6 @@
 
 	.stat-sub {
 		font-size: 11px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 	}
 </style>

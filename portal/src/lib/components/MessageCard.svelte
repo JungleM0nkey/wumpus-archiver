@@ -136,15 +136,14 @@
 <style>
 	.message-card {
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		padding: var(--sp-5);
-		transition: border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		padding: var(--space-5);
+		transition: border-color var(--duration-small) var(--ease-out-quint), box-shadow var(--duration-small) var(--ease-out-quint);
 	}
 
 	.message-card:hover {
-		border-color: var(--border-strong);
-		box-shadow: var(--shadow-sm);
+		border-color: var(--border-default);
 	}
 
 	.message-card.pinned {
@@ -155,14 +154,14 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: var(--sp-3);
-		margin-bottom: var(--sp-3);
+		gap: var(--space-3);
+		margin-bottom: var(--space-3);
 	}
 
 	.author-info {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 	}
 
 	.avatar {
@@ -181,13 +180,13 @@
 		color: var(--text-secondary);
 		font-weight: 600;
 		font-size: 14px;
-		border: 1px solid var(--border);
+		border: 1px solid var(--border-subtle);
 	}
 
 	.author-meta {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 	}
 
 	.author-name {
@@ -199,13 +198,13 @@
 	.card-meta {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 		flex-shrink: 0;
 	}
 
 	.timestamp {
 		font-size: 12px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 	}
 
 	.pin-icon {
@@ -213,7 +212,7 @@
 	}
 
 	.card-body {
-		margin-bottom: var(--sp-3);
+		margin-bottom: var(--space-3);
 	}
 
 	.content {
@@ -227,15 +226,15 @@
 	.attachments {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--sp-2);
-		margin-bottom: var(--sp-3);
+		gap: var(--space-2);
+		margin-bottom: var(--space-3);
 	}
 
 	.attachment-img-link {
 		display: block;
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-sm);
 		overflow: hidden;
-		border: 1px solid var(--border);
+		border: 1px solid var(--border-subtle);
 		max-width: 400px;
 	}
 
@@ -244,51 +243,51 @@
 		max-width: 100%;
 		max-height: 300px;
 		object-fit: contain;
-		background: var(--bg-base);
+		background: var(--bg-canvas);
 	}
 
 	.attachment-file {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--sp-2);
-		padding: var(--sp-2) var(--sp-3);
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
 		background: var(--bg-raised);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
 		font-size: 13px;
 		color: var(--text-secondary);
 		text-decoration: none;
 		max-width: 300px;
-		transition: border-color 0.15s var(--ease-out);
+		transition: border-color var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.attachment-file:hover {
-		border-color: var(--border-strong);
+		border-color: var(--border-default);
 		text-decoration: none;
 	}
 
 	.file-name { color: var(--text-primary); }
-	.file-size { font-size: 11px; color: var(--text-muted); }
+	.file-size { font-size: 11px; color: var(--text-tertiary); }
 
 	.embeds {
 		display: flex;
 		flex-direction: column;
-		gap: var(--sp-2);
-		margin-bottom: var(--sp-3);
+		gap: var(--space-2);
+		margin-bottom: var(--space-3);
 	}
 
 	.embed-card {
-		border-left: 3px solid var(--accent-dim);
-		padding: var(--sp-2) var(--sp-3);
+		border-left: 3px solid var(--accent-strong);
+		padding: var(--space-2) var(--space-3);
 		background: var(--bg-raised);
-		border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+		border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
 	}
 
 	.embed-title {
 		font-weight: 600;
 		font-size: 13px;
-		color: var(--accent-text);
-		margin-bottom: var(--sp-1);
+		color: var(--accent);
+		margin-bottom: var(--space-1);
 	}
 
 	.embed-desc {
@@ -300,36 +299,36 @@
 	.reactions {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--sp-1);
-		margin-bottom: var(--sp-3);
+		gap: var(--space-1);
+		margin-bottom: var(--space-3);
 	}
 
 	.reaction-badge {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--sp-1);
+		gap: var(--space-1);
 		padding: 2px 8px;
 		background: var(--bg-raised);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-xs);
 		font-size: 13px;
 	}
 
 	.reaction-count {
 		font-size: 11px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 	}
 
 	.card-footer {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
-		padding-top: var(--sp-2);
-		border-top: 1px solid var(--border);
+		gap: var(--space-2);
+		padding-top: var(--space-2);
+		border-top: 1px solid var(--border-subtle);
 	}
 
 	.msg-id {
 		font-size: 11px;
-		color: var(--text-faint);
+		color: var(--text-tertiary);
 	}
 </style>

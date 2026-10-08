@@ -1,78 +1,119 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap');
+/*
+ * The portal's design tokens and base styles (docs/UI_UX_PROPOSAL.md, sections 3 and 5).
+ *
+ * Token names follow the proposal's Figma variables: `bg/canvas` is `--bg-canvas`,
+ * `space/4` is `--space-4`, `radius/md` is `--radius-md`, `duration/micro` is
+ * `--duration-micro`. Components read these tokens and never raw values, so this file
+ * is the single source of truth for colour, type, spacing, radius, size and motion.
+ *
+ * The typefaces are self-hosted from npm (imported by the root layout), so the portal
+ * loads no fonts from the network.
+ */
 
 :root {
-	/* Archive-dark palette — ink-black with warm paper tones */
-	--bg-base: #0c0c0f;
-	--bg-surface: #141418;
-	--bg-raised: #1c1c22;
-	--bg-overlay: #24242c;
-	--bg-hover: rgba(255, 255, 255, 0.04);
-	--bg-active: rgba(255, 255, 255, 0.07);
+	color-scheme: dark;
 
-	/* Accent: warm amber — archival, like aged paper under light */
-	--accent: #e8a838;
-	--accent-dim: #c4882a;
-	--accent-glow: rgba(232, 168, 56, 0.12);
-	--accent-text: #f0c060;
+	/* ── Colour · Theme / Dark ─────────────────────────────────────────── */
+	--bg-canvas: #0a0a0c;
+	--bg-surface: #0f0f12;
+	--bg-raised: #141418;
+	--bg-overlay: #1a1a1f;
+	--bg-inset: #202027;
+	--bg-hover: rgba(255, 255, 255, 0.05);
+	--bg-active: rgba(255, 255, 255, 0.08);
 
-	/* Semantic */
-	--success: #4ade80;
-	--warning: #fbbf24;
-	--error: #f87171;
-	--info: #60a5fa;
+	--border-subtle: rgba(255, 255, 255, 0.07);
+	--border-default: rgba(255, 255, 255, 0.12);
+	--border-strong: rgba(255, 255, 255, 0.22);
 
-	/* Text hierarchy */
-	--text-primary: #e8e4de;
-	--text-secondary: #9e9a92;
-	--text-muted: #5c5952;
-	--text-faint: #3a3832;
+	--text-primary: #efede8;
+	--text-secondary: #8f8f9b;
+	--text-tertiary: #6b6b78;
 
-	/* Borders */
-	--border: rgba(255, 255, 255, 0.06);
-	--border-strong: rgba(255, 255, 255, 0.12);
-	--border-accent: rgba(232, 168, 56, 0.2);
+	--accent: #f0b254;
+	--accent-strong: #e59a2d;
+	--accent-muted: rgba(240, 178, 84, 0.12);
+	--accent-glow: rgba(240, 178, 84, 0.22);
 
-	/* Shadows */
-	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-	--shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-	--shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+	--success: #5bd38a;
+	--danger: #f0665c;
+	--warning: #f2c14e;
+	--info: #7eb2f5;
 
-	/* Typography */
-	--font-sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
-	--font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-	--font-serif: 'Source Serif 4', Georgia, serif;
+	/* Text on an accent fill. */
+	--on-accent: var(--bg-canvas);
 
-	/* Spacing scale */
-	--sp-1: 4px;
-	--sp-2: 8px;
-	--sp-3: 12px;
-	--sp-4: 16px;
-	--sp-5: 20px;
-	--sp-6: 24px;
-	--sp-8: 32px;
-	--sp-10: 40px;
-	--sp-12: 48px;
-	--sp-16: 64px;
+	/* Shadows exist only for floating elements (lightbox, popovers). */
+	--shadow-floating: 0 12px 40px rgba(0, 0, 0, 0.55);
 
-	/* Radii */
-	--radius-sm: 4px;
-	--radius-md: 8px;
-	--radius-lg: 12px;
-	--radius-xl: 16px;
+	/* ── Typography ────────────────────────────────────────────────────── */
+	--font-sans: 'Instrument Sans Variable', 'Instrument Sans', system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
 
-	/* Layout */
-	--nav-height: 56px;
-	--sidebar-width: 280px;
-	--max-content: 960px;
+	/* Each style is a `font` shorthand: weight size/line-height family. */
+	--type-display-xl: 600 44px/48px var(--font-sans);
+	--type-display-lg: 600 32px/38px var(--font-sans);
+	--type-heading-lg: 600 22px/28px var(--font-sans);
+	--type-heading-md: 600 17px/24px var(--font-sans);
+	--type-heading-sm: 600 15px/20px var(--font-sans);
+	--type-body-md: 400 14px/22px var(--font-sans);
+	--type-body-sm: 400 13px/18px var(--font-sans);
+	--type-label-md: 500 13px/16px var(--font-sans);
+	--type-label-sm: 500 12px/16px var(--font-sans);
+	--type-label-xs: 500 11px/14px var(--font-sans);
+	--type-caption: 500 11px/14px var(--font-sans);
+	--type-mono-md: 400 13px/18px var(--font-mono);
+	--type-mono-sm: 400 11px/14px var(--font-mono);
+	--type-mono-num-lg: 500 28px/32px var(--font-mono);
+	--type-mono-num-xl: 500 40px/44px var(--font-mono);
 
-	/* Scrollbar */
-	--scrollbar-track: transparent;
-	--scrollbar-thumb: rgba(255, 255, 255, 0.08);
-	--scrollbar-thumb-hover: rgba(255, 255, 255, 0.14);
+	--tracking-display-xl: -0.025em;
+	--tracking-display-lg: -0.02em;
+	--tracking-caption: 0.06em;
 
-	/* Transitions */
-	--ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+	/* ── Spacing · space/1…16 ──────────────────────────────────────────── */
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 20px;
+	--space-6: 24px;
+	--space-8: 32px;
+	--space-10: 40px;
+	--space-12: 48px;
+	--space-16: 64px;
+
+	/* ── Radius · radius/xs…xl, full ───────────────────────────────────── */
+	--radius-xs: 4px;
+	--radius-sm: 6px;
+	--radius-md: 10px;
+	--radius-lg: 14px;
+	--radius-xl: 20px;
+	--radius-full: 999px;
+
+	/* ── Size ──────────────────────────────────────────────────────────── */
+	--size-sidebar: 240px;
+	--size-rail: 64px;
+	--size-topbar: 56px;
+	--size-reader-max: 880px;
+
+	/* ── Motion ────────────────────────────────────────────────────────── */
+	--duration-micro: 120ms;
+	--duration-small: 180ms;
+	--duration-medium: 240ms;
+	--duration-large: 320ms;
+	--duration-shimmer: 1.4s;
+
+	--ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
 	--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+	/* First paint of lists and stat tiles only: 30 ms apart, at most 8 items. */
+	--stagger: 30ms;
+	--stagger-max: 8;
+
+	/* The distance something rises as it enters. */
+	--enter-rise: 8px;
 }
 
 * {
@@ -81,35 +122,55 @@
 	box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
 	height: 100%;
-	font-family: var(--font-sans);
-	background: var(--bg-base);
+	font: var(--type-body-md);
+	background: var(--bg-canvas);
 	color: var(--text-primary);
-	font-size: 15px;
-	line-height: 1.6;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 	overflow: hidden;
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--scrollbar-track); }
-::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+::-webkit-scrollbar-thumb {
+	background: var(--border-subtle);
+	border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+	background: var(--border-default);
+}
 
 ::selection {
 	background: var(--accent);
-	color: var(--bg-base);
+	color: var(--on-accent);
+}
+
+/* Keyboard focus only: a 2px accent-glow ring. */
+:focus-visible {
+	outline: 2px solid var(--accent-glow);
+	outline-offset: 2px;
+}
+:focus:not(:focus-visible) {
+	outline: none;
 }
 
 a {
-	color: var(--accent-text);
+	color: var(--accent);
 	text-decoration: none;
-	transition: color 0.15s var(--ease-out);
+	transition: color var(--duration-micro) var(--ease-out-quint);
 }
-a:hover { color: var(--accent); }
+a:hover {
+	color: var(--accent-strong);
+}
 
 button {
 	font-family: inherit;
@@ -120,69 +181,167 @@ button {
 	font-size: inherit;
 }
 
-input, textarea {
+input,
+textarea,
+select {
 	font-family: inherit;
 	font-size: inherit;
 	border: none;
-	outline: none;
 	background: none;
 	color: inherit;
 }
 
-/* Mono accent text */
+/* Timestamps, ids and counts: mono with tabular numerals. */
 .mono {
 	font-family: var(--font-mono);
-	font-size: 0.85em;
-	letter-spacing: -0.02em;
+	font-variant-numeric: tabular-nums;
+	letter-spacing: 0;
 }
 
-/* Serif headings */
-.serif {
-	font-family: var(--font-serif);
-}
-
-/* Badge utility */
-.badge {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--sp-1);
-	padding: 2px 8px;
-	font-family: var(--font-mono);
-	font-size: 11px;
-	font-weight: 500;
-	letter-spacing: 0.02em;
-	border-radius: var(--radius-sm);
-	background: var(--bg-overlay);
-	color: var(--text-secondary);
-	border: 1px solid var(--border);
-	white-space: nowrap;
-}
-
-.badge.accent {
-	background: var(--accent-glow);
-	color: var(--accent-text);
-	border-color: var(--border-accent);
-}
-
-/* Truncate */
 .truncate {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-/* Fade-in animation */
-@keyframes fadeIn {
-	from { opacity: 0; transform: translateY(8px); }
-	to { opacity: 1; transform: translateY(0); }
+/* Transient: replaced by the Badge component. */
+.badge {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	padding: 2px 8px;
+	font: var(--type-label-xs);
+	border-radius: var(--radius-xs);
+	background: var(--bg-overlay);
+	color: var(--text-secondary);
+	border: 1px solid var(--border-subtle);
+	white-space: nowrap;
 }
 
-@keyframes fadeInScale {
-	from { opacity: 0; transform: scale(0.96); }
-	to { opacity: 1; transform: scale(1); }
+.badge.accent {
+	background: var(--accent-muted);
+	color: var(--accent);
+	border-color: var(--accent-glow);
 }
 
-.fade-in {
-	animation: fadeIn 0.4s var(--ease-out) both;
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
 }
 
+/* ── Motion ──────────────────────────────────────────────────────────────
+ * Every animation is one of these keyframes, so reduced motion can redefine them
+ * below. Components name them directly (`animation: enter …`).
+ */
+
+/* Content entering: an 8px rise with a fade. */
+@keyframes enter {
+	from {
+		opacity: 0;
+		transform: translateY(var(--enter-rise));
+	}
+}
+
+/* Floating elements (lightbox, palette) entering: scale 0.98 → 1 with a fade. */
+@keyframes scale-in {
+	from {
+		opacity: 0;
+		transform: scale(0.98);
+	}
+}
+
+@keyframes fade-in {
+	from {
+		opacity: 0;
+	}
+}
+
+/* An indeterminate progress bar's fill sweeping across its track. */
+@keyframes sweep {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(250%);
+	}
+}
+
+/* Skeleton shimmer: a highlight moving across the placeholder. */
+@keyframes shimmer {
+	from {
+		background-position: 100% 0;
+	}
+	to {
+		background-position: -100% 0;
+	}
+}
+
+@keyframes pulse {
+	50% {
+		opacity: 0.45;
+	}
+}
+
+/*
+ * `.enter` children rise in on first paint, staggered by their `--i` (0-based index,
+ * capped at --stagger-max).
+ */
+.enter {
+	animation: enter var(--duration-medium) var(--ease-out-quint) both;
+	animation-delay: calc(min(var(--i, 0), var(--stagger-max)) * var(--stagger));
+}
+
+/*
+ * Reduced motion: every animation collapses to a cross-fade. The moving keyframes are
+ * redefined without their transforms, nothing transitions a transform or a size, and
+ * the shimmer and sweep become a gentle opacity pulse.
+ */
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--stagger: 0ms;
+		--enter-rise: 0px;
+	}
+
+	@keyframes enter {
+		from {
+			opacity: 0;
+		}
+	}
+
+	@keyframes scale-in {
+		from {
+			opacity: 0;
+		}
+	}
+
+	@keyframes sweep {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.4;
+		}
+	}
+
+	@keyframes shimmer {
+		50% {
+			opacity: 0.6;
+		}
+	}
+
+	*,
+	*::before,
+	*::after {
+		transition-property: color, background-color, border-color, outline-color, opacity, box-shadow,
+			fill, stroke !important;
+		scroll-behavior: auto !important;
+	}
+}

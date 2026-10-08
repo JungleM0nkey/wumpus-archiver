@@ -44,8 +44,8 @@
 <div class="dashboard">
 	<header class="hero">
 		<div class="hero-content">
-			<h1 class="hero-title serif">
-				Archive<span class="hero-dot">.</span>
+			<h1 class="hero-title">
+				Archive
 			</h1>
 			<p class="hero-sub">Browse, search, and explore your Discord server history.</p>
 			<div class="hero-search">
@@ -66,13 +66,13 @@
 	{:else if error}
 		<div class="error-state">
 			<p>⚠ {error}</p>
-			<p class="mono" style="font-size: 13px; color: var(--text-muted);">
+			<p class="mono" style="font-size: 13px; color: var(--text-tertiary);">
 				Make sure the API server is running: wumpus-archiver serve archive.db
 			</p>
 		</div>
 	{:else}
 		{#if stats}
-			<section class="section fade-in">
+			<section class="section enter">
 				<h2 class="section-title">
 					<span class="section-icon">◈</span>
 					Overview
@@ -90,7 +90,7 @@
 		{/if}
 
 		{#if stats && stats.top_channels.length > 0}
-			<section class="section fade-in" style="animation-delay: 100ms">
+			<section class="section enter">
 				<h2 class="section-title">
 					<span class="section-icon">▤</span>
 					Most Active Channels
@@ -98,7 +98,7 @@
 				<div class="bar-chart">
 					{#each stats.top_channels as ch, i (ch.id)}
 						{@const maxCount = stats!.top_channels[0].message_count}
-						<a href="/channel/{ch.id}" class="bar-row" style="animation-delay: {i * 40}ms">
+						<a href="/channel/{ch.id}" class="bar-row" style="--i: {i}">
 							<span class="bar-label truncate">#{ch.name}</span>
 							<div class="bar-track">
 								<div
@@ -114,7 +114,7 @@
 		{/if}
 
 		{#if stats && stats.top_users.length > 0}
-			<section class="section fade-in" style="animation-delay: 200ms">
+			<section class="section enter">
 				<h2 class="section-title">
 					<span class="section-icon">◉</span>
 					Top Contributors
@@ -142,7 +142,7 @@
 		{/if}
 
 		{#if guilds[0]}
-			<section class="section fade-in" style="animation-delay: 300ms">
+			<section class="section enter">
 				<h2 class="section-title">
 					<span class="section-icon">⟐</span>
 					Archive Info
@@ -172,12 +172,12 @@
 
 <style>
 	.dashboard {
-		max-width: var(--max-content);
+		max-width: var(--size-reader-max);
 		margin: 0 auto;
-		padding: var(--sp-8) var(--sp-6);
+		padding: var(--space-8) var(--space-6);
 	}
 
-	.hero { margin-bottom: var(--sp-10); }
+	.hero { margin-bottom: var(--space-10); }
 
 	.hero-content { max-width: 640px; }
 
@@ -186,31 +186,30 @@
 		font-weight: 700;
 		letter-spacing: -0.04em;
 		line-height: 1;
-		margin-bottom: var(--sp-3);
+		margin-bottom: var(--space-3);
 		color: var(--text-primary);
 	}
 
-	.hero-dot { color: var(--accent); }
 
 	.hero-sub {
 		font-size: 16px;
 		color: var(--text-secondary);
-		margin-bottom: var(--sp-6);
+		margin-bottom: var(--space-6);
 		line-height: 1.5;
 	}
 
 	.hero-search { max-width: 560px; }
 
-	.section { margin-bottom: var(--sp-10); }
+	.section { margin-bottom: var(--space-10); }
 
 	.section-title {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 		font-size: 16px;
 		font-weight: 600;
 		color: var(--text-primary);
-		margin-bottom: var(--sp-5);
+		margin-bottom: var(--space-5);
 	}
 
 	.section-icon { color: var(--accent); font-size: 14px; }
@@ -218,24 +217,25 @@
 	.stats-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-		gap: var(--sp-4);
+		gap: var(--space-4);
 	}
 
 	.bar-chart {
 		display: flex;
 		flex-direction: column;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 	}
 
 	.bar-row {
 		display: grid;
 		grid-template-columns: 160px 1fr 80px;
 		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-2) var(--sp-3);
-		border-radius: var(--radius-md);
-		transition: background 0.15s var(--ease-out);
-		animation: fadeIn 0.3s var(--ease-out) both;
+		gap: var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius-sm);
+		transition: background var(--duration-micro) var(--ease-out-quint);
+		animation: enter var(--duration-medium) var(--ease-out-quint) both;
+		animation-delay: calc(min(var(--i, 0), var(--stagger-max)) * var(--stagger));
 		text-decoration: none;
 		color: inherit;
 	}
@@ -253,33 +253,33 @@
 
 	.bar-fill {
 		height: 100%;
-		background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+		background: linear-gradient(90deg, var(--accent-strong), var(--accent));
 		border-radius: 4px;
-		transition: width 0.5s var(--ease-out);
+		transition: width var(--duration-large) var(--ease-out-quint);
 	}
 
-	.bar-value { font-size: 13px; color: var(--text-muted); text-align: right; }
+	.bar-value { font-size: 13px; color: var(--text-tertiary); text-align: right; }
 
 	.contributors-grid {
 		display: flex;
 		flex-direction: column;
-		gap: var(--sp-1);
+		gap: var(--space-1);
 	}
 
 	.contributor-card {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-3) var(--sp-4);
-		border-radius: var(--radius-md);
-		transition: background 0.15s var(--ease-out);
+		gap: var(--space-3);
+		padding: var(--space-3) var(--space-4);
+		border-radius: var(--radius-sm);
+		transition: background var(--duration-micro) var(--ease-out-quint);
 		text-decoration: none;
 		color: inherit;
 	}
 
 	.contributor-card:hover { background: var(--bg-hover); text-decoration: none; }
 
-	.contributor-rank { font-size: 13px; color: var(--text-faint); width: 28px; text-align: center; }
+	.contributor-rank { font-size: 13px; color: var(--text-tertiary); width: 28px; text-align: center; }
 
 	.contributor-avatar {
 		width: 32px;
@@ -294,7 +294,7 @@
 		align-items: center;
 		justify-content: center;
 		background: var(--bg-overlay);
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		font-weight: 600;
 		font-size: 13px;
 	}
@@ -303,28 +303,28 @@
 
 	.contributor-name { font-size: 14px; font-weight: 500; color: var(--text-primary); }
 
-	.contributor-handle { font-size: 12px; color: var(--text-muted); }
+	.contributor-handle { font-size: 12px; color: var(--text-tertiary); }
 
 	.contributor-count { font-size: 13px; color: var(--text-secondary); }
 
 	.meta-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-		gap: var(--sp-3);
+		gap: var(--space-3);
 	}
 
 	.meta-item {
-		padding: var(--sp-4);
+		padding: var(--space-4);
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
 		display: flex;
 		flex-direction: column;
-		gap: var(--sp-1);
+		gap: var(--space-1);
 	}
 
 	.meta-label {
-		font-size: 12px; color: var(--text-muted);
+		font-size: 12px; color: var(--text-tertiary);
 		text-transform: uppercase; letter-spacing: 0.05em;
 	}
 
@@ -333,15 +333,15 @@
 	.loading-state {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 		justify-content: center;
-		padding: var(--sp-16) 0;
-		color: var(--text-muted);
+		padding: var(--space-16) 0;
+		color: var(--text-tertiary);
 	}
 
 	.spinner {
 		width: 20px; height: 20px;
-		border: 2px solid var(--border);
+		border: 2px solid var(--border-subtle);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
@@ -351,7 +351,7 @@
 
 	.error-state {
 		text-align: center;
-		padding: var(--sp-16) 0;
-		color: var(--error);
+		padding: var(--space-16) 0;
+		color: var(--danger);
 	}
 </style>

@@ -185,10 +185,10 @@
 
 	/* Sidebar */
 	.filter-sidebar {
-		width: var(--sidebar-width);
+		width: var(--size-sidebar);
 		flex-shrink: 0;
 		background: var(--bg-surface);
-		border-right: 1px solid var(--border);
+		border-right: 1px solid var(--border-subtle);
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
@@ -198,8 +198,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--sp-4) var(--sp-4);
-		border-bottom: 1px solid var(--border);
+		padding: var(--space-4) var(--space-4);
+		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.sidebar-title {
@@ -213,19 +213,19 @@
 	.channel-list {
 		flex: 1;
 		overflow-y: auto;
-		padding: var(--sp-2);
+		padding: var(--space-2);
 	}
 
 	.channel-item {
 		width: 100%;
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
-		padding: var(--sp-2) var(--sp-3);
-		border-radius: var(--radius-md);
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius-sm);
 		font-size: 14px;
 		color: var(--text-secondary);
-		transition: all 0.12s var(--ease-out);
+		transition: all var(--duration-micro) var(--ease-out-quint);
 		text-align: left;
 	}
 
@@ -235,13 +235,13 @@
 	}
 
 	.channel-item.active {
-		background: var(--accent-glow);
-		color: var(--accent-text);
+		background: var(--accent-muted);
+		color: var(--accent);
 	}
 
 	.channel-icon { flex-shrink: 0; font-size: 13px; opacity: 0.7; }
 	.channel-name { flex: 1; min-width: 0; }
-	.channel-count { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+	.channel-count { font-size: 11px; color: var(--text-tertiary); flex-shrink: 0; }
 
 	/* Main */
 	.timeline-main {
@@ -256,8 +256,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--sp-4) var(--sp-6);
-		border-bottom: 1px solid var(--border);
+		padding: var(--space-4) var(--space-6);
+		border-bottom: 1px solid var(--border-subtle);
 		background: var(--bg-surface);
 		flex-shrink: 0;
 	}
@@ -267,23 +267,23 @@
 		font-weight: 600;
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 	}
 
-	.header-hash { color: var(--text-muted); font-size: 16px; }
+	.header-hash { color: var(--text-tertiary); font-size: 16px; }
 
 	.header-topic {
 		font-size: 13px;
-		color: var(--text-muted);
-		margin-top: var(--sp-1);
+		color: var(--text-tertiary);
+		margin-top: var(--space-1);
 	}
 
 	/* The feed sits at the bottom while it is shorter than the area, as a chat does. */
 	.timeline-content {
 		flex: 1;
 		overflow-y: auto;
-		padding: var(--sp-6);
-		max-width: var(--max-content);
+		padding: var(--space-6);
+		max-width: var(--size-reader-max);
 		width: 100%;
 		margin: 0 auto;
 		display: flex;
@@ -298,34 +298,34 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-16) 0;
-		color: var(--text-muted);
+		gap: var(--space-3);
+		padding: var(--space-16) 0;
+		color: var(--text-tertiary);
 	}
 
-	.center-state.error { color: var(--error); }
+	.center-state.error { color: var(--danger); }
 
 	.load-more {
 		display: flex;
 		justify-content: center;
-		padding: var(--sp-6) 0;
+		padding: var(--space-6) 0;
 	}
 
 	.load-more-btn {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
-		padding: var(--sp-2) var(--sp-5);
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-5);
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
 		font-size: 14px;
 		color: var(--text-secondary);
-		transition: all 0.15s var(--ease-out);
+		transition: all var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.load-more-btn:hover:not(:disabled) {
-		border-color: var(--border-strong);
+		border-color: var(--border-default);
 		color: var(--text-primary);
 	}
 
@@ -336,7 +336,7 @@
 
 	.spinner {
 		width: 20px; height: 20px;
-		border: 2px solid var(--border);
+		border: 2px solid var(--border-subtle);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
@@ -344,7 +344,7 @@
 
 	.spinner-sm {
 		width: 14px; height: 14px;
-		border: 2px solid var(--border);
+		border: 2px solid var(--border-subtle);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;

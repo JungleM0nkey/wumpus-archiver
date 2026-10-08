@@ -147,11 +147,11 @@
 	function statusColor(s: string): string {
 		switch (s) {
 			case 'completed': return 'var(--success)';
-			case 'failed': return 'var(--error)';
+			case 'failed': return 'var(--danger)';
 			case 'cancelled': return 'var(--warning)';
 			case 'scraping':
 			case 'connecting': return 'var(--accent)';
-			default: return 'var(--text-muted)';
+			default: return 'var(--text-tertiary)';
 		}
 	}
 
@@ -183,8 +183,8 @@
 
 <div class="control-panel">
 	<header class="panel-header">
-		<h1 class="panel-title serif">
-			Control<span class="dot">.</span>
+		<h1 class="panel-title">
+			Control
 		</h1>
 		<p class="panel-sub">Run and monitor Discord server scrapes from here.</p>
 	</header>
@@ -201,7 +201,7 @@
 	{:else}
 		<!-- Token Warning -->
 		{#if !hasToken}
-			<div class="alert alert-warning fade-in">
+			<div class="alert alert-warning enter">
 				<span class="alert-icon">⚠</span>
 				<div>
 					<strong>No Discord bot token configured.</strong>
@@ -211,7 +211,7 @@
 		{/if}
 
 		{#if !controlEnabled}
-			<div class="alert alert-warning fade-in">
+			<div class="alert alert-warning enter">
 				<span class="alert-icon">⚠</span>
 				<div>
 					<strong>Scrape control is disabled.</strong>
@@ -222,7 +222,7 @@
 
 		<div class="panel-grid">
 			<!-- Start Scrape Card -->
-			<section class="card start-card fade-in">
+			<section class="card start-card enter">
 				<div class="card-header">
 					<h2 class="card-title">
 						<span class="card-icon">▶</span>
@@ -290,7 +290,7 @@
 			</section>
 
 			<!-- Live Status Card -->
-			<section class="card status-card fade-in" style="animation-delay: 0.05s">
+			<section class="card status-card enter">
 				<div class="card-header">
 					<h2 class="card-title">
 						<span class="card-icon">◉</span>
@@ -304,7 +304,7 @@
 							{statusIcon(currentJob.status)} {currentJob.status}
 						</span>
 					{:else}
-						<span class="status-badge" style="color: var(--text-muted)">
+						<span class="status-badge" style="color: var(--text-tertiary)">
 							· idle
 						</span>
 					{/if}
@@ -352,7 +352,7 @@
 						{/if}
 
 						{#if currentJob.error_message}
-							<div class="inline-error" style="margin-top: var(--sp-3)">
+							<div class="inline-error" style="margin-top: var(--space-3)">
 								{currentJob.error_message}
 							</div>
 						{/if}
@@ -379,7 +379,7 @@
 
 		<!-- Download Stats -->
 		{#if dlStats}
-			<section class="downloads-section fade-in" style="animation-delay: 0.08s">
+			<section class="downloads-section enter">
 				<h2 class="section-title">
 					<span class="section-icon">⬇</span>
 					Downloaded Images
@@ -452,7 +452,7 @@
 											<td>#{ch.channel_name}</td>
 											<td class="mono">{ch.downloaded.toLocaleString()}</td>
 											<td class="mono">{ch.pending > 0 ? ch.pending.toLocaleString() : '—'}</td>
-											<td class="mono" style:color={ch.failed > 0 ? 'var(--error)' : undefined}>{ch.failed > 0 ? ch.failed.toLocaleString() : '—'}</td>
+											<td class="mono" style:color={ch.failed > 0 ? 'var(--danger)' : undefined}>{ch.failed > 0 ? ch.failed.toLocaleString() : '—'}</td>
 											<td class="mono">{ch.total_images.toLocaleString()}</td>
 											<td class="mono">{formatBytes(ch.downloaded_bytes)}</td>
 											<td>
@@ -472,14 +472,14 @@
 		{/if}
 
 		<!-- History -->
-		<section class="history-section fade-in" style="animation-delay: 0.1s">
+		<section class="history-section enter">
 			<h2 class="section-title">
 				<span class="section-icon">▤</span>
 				Scrape History
 			</h2>
 			{#if history.length === 0}
 				<div class="empty-history">
-					<p class="mono" style="color: var(--text-muted)">No completed jobs yet.</p>
+					<p class="mono" style="color: var(--text-tertiary)">No completed jobs yet.</p>
 				</div>
 			{:else}
 				<div class="history-table-wrap">
@@ -525,12 +525,12 @@
 	.control-panel {
 		max-width: 1200px;
 		margin: 0 auto;
-		padding: var(--sp-8) var(--sp-6);
+		padding: var(--space-8) var(--space-6);
 	}
 
 	/* Header */
 	.panel-header {
-		margin-bottom: var(--sp-8);
+		margin-bottom: var(--space-8);
 	}
 
 	.panel-title {
@@ -540,12 +540,9 @@
 		line-height: 1.1;
 	}
 
-	.dot {
-		color: var(--accent);
-	}
 
 	.panel-sub {
-		margin-top: var(--sp-2);
+		margin-top: var(--space-2);
 		color: var(--text-secondary);
 		font-size: 15px;
 	}
@@ -554,10 +551,10 @@
 	.alert {
 		display: flex;
 		align-items: flex-start;
-		gap: var(--sp-3);
-		padding: var(--sp-4) var(--sp-5);
-		border-radius: var(--radius-lg);
-		margin-bottom: var(--sp-6);
+		gap: var(--space-3);
+		padding: var(--space-4) var(--space-5);
+		border-radius: var(--radius-md);
+		margin-bottom: var(--space-6);
 		font-size: 14px;
 		line-height: 1.5;
 	}
@@ -575,7 +572,7 @@
 	}
 
 	.alert p {
-		margin-top: var(--sp-1);
+		margin-top: var(--space-1);
 		color: var(--text-secondary);
 	}
 
@@ -584,15 +581,15 @@
 		font-size: 13px;
 		padding: 1px 5px;
 		background: var(--bg-overlay);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-xs);
 	}
 
 	/* Grid */
 	.panel-grid {
 		display: grid;
 		grid-template-columns: 1fr 1.4fr;
-		gap: var(--sp-6);
-		margin-bottom: var(--sp-8);
+		gap: var(--space-6);
+		margin-bottom: var(--space-8);
 	}
 
 	@media (max-width: 768px) {
@@ -604,8 +601,8 @@
 	/* Cards */
 	.card {
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
 		overflow: hidden;
 	}
 
@@ -613,8 +610,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--sp-4) var(--sp-5);
-		border-bottom: 1px solid var(--border);
+		padding: var(--space-4) var(--space-5);
+		border-bottom: 1px solid var(--border-subtle);
 	}
 
 	.card-title {
@@ -622,7 +619,7 @@
 		font-weight: 600;
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 	}
 
 	.card-icon {
@@ -631,12 +628,12 @@
 	}
 
 	.card-body {
-		padding: var(--sp-5);
+		padding: var(--space-5);
 	}
 
 	/* Form */
 	.form-group {
-		margin-bottom: var(--sp-4);
+		margin-bottom: var(--space-4);
 	}
 
 	.form-label {
@@ -646,26 +643,26 @@
 		color: var(--text-secondary);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
-		margin-bottom: var(--sp-1);
+		margin-bottom: var(--space-1);
 	}
 
 	.form-select,
 	.form-input {
 		width: 100%;
-		padding: var(--sp-2) var(--sp-3);
+		padding: var(--space-2) var(--space-3);
 		font-family: var(--font-mono);
 		font-size: 14px;
 		background: var(--bg-raised);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
 		color: var(--text-primary);
-		transition: border-color 0.15s var(--ease-out);
+		transition: border-color var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.form-select:focus,
 	.form-input:focus {
 		outline: none;
-		border-color: var(--accent-dim);
+		border-color: var(--accent-strong);
 	}
 
 	.form-select:disabled,
@@ -680,36 +677,36 @@
 	}
 
 	.form-hint {
-		margin-top: var(--sp-1);
+		margin-top: var(--space-1);
 		font-size: 12px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 	}
 
 	.inline-error {
 		font-size: 13px;
-		color: var(--error);
-		padding: var(--sp-2) var(--sp-3);
+		color: var(--danger);
+		padding: var(--space-2) var(--space-3);
 		background: rgba(248, 113, 113, 0.08);
-		border-radius: var(--radius-sm);
-		margin-bottom: var(--sp-3);
+		border-radius: var(--radius-xs);
+		margin-bottom: var(--space-3);
 	}
 
 	.card-actions {
-		margin-top: var(--sp-4);
+		margin-top: var(--space-4);
 		display: flex;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 	}
 
 	/* Buttons */
 	.btn {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--sp-2);
-		padding: var(--sp-2) var(--sp-5);
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-5);
 		font-size: 14px;
 		font-weight: 600;
-		border-radius: var(--radius-md);
-		transition: all 0.15s var(--ease-out);
+		border-radius: var(--radius-sm);
+		transition: all var(--duration-micro) var(--ease-out-quint);
 		cursor: pointer;
 	}
 
@@ -720,16 +717,16 @@
 
 	.btn-primary {
 		background: var(--accent);
-		color: var(--bg-base);
+		color: var(--bg-canvas);
 	}
 
 	.btn-primary:hover:not(:disabled) {
-		background: var(--accent-dim);
+		background: var(--accent-strong);
 	}
 
 	.btn-danger {
 		background: rgba(248, 113, 113, 0.15);
-		color: var(--error);
+		color: var(--danger);
 		border: 1px solid rgba(248, 113, 113, 0.3);
 	}
 
@@ -746,14 +743,14 @@
 		letter-spacing: 0.04em;
 		display: flex;
 		align-items: center;
-		gap: var(--sp-1);
+		gap: var(--space-1);
 	}
 
 	.status-grid {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: var(--sp-3);
-		margin-bottom: var(--sp-5);
+		gap: var(--space-3);
+		margin-bottom: var(--space-5);
 	}
 
 	.status-item {
@@ -765,7 +762,7 @@
 	.status-label {
 		font-size: 11px;
 		font-weight: 500;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 	}
@@ -782,11 +779,11 @@
 	.progress-stats {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
-		gap: var(--sp-4);
-		padding: var(--sp-4);
+		gap: var(--space-4);
+		padding: var(--space-4);
 		background: var(--bg-raised);
-		border-radius: var(--radius-md);
-		margin-bottom: var(--sp-4);
+		border-radius: var(--radius-sm);
+		margin-bottom: var(--space-4);
 	}
 
 	.progress-stat {
@@ -797,13 +794,13 @@
 		font-family: var(--font-mono);
 		font-size: 22px;
 		font-weight: 700;
-		color: var(--accent-text);
+		color: var(--accent);
 		line-height: 1.2;
 	}
 
 	.progress-label {
 		font-size: 11px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		margin-top: 2px;
@@ -832,41 +829,41 @@
 
 	/* Error Details */
 	.error-details {
-		margin-top: var(--sp-3);
+		margin-top: var(--space-3);
 		font-size: 13px;
 	}
 
 	.error-details summary {
 		cursor: pointer;
 		color: var(--warning);
-		padding: var(--sp-2);
+		padding: var(--space-2);
 	}
 
 	.error-list {
 		list-style: none;
-		padding: var(--sp-2) var(--sp-3);
+		padding: var(--space-2) var(--space-3);
 		max-height: 200px;
 		overflow-y: auto;
 	}
 
 	.error-list li {
-		padding: var(--sp-1) 0;
+		padding: var(--space-1) 0;
 		color: var(--text-secondary);
-		border-bottom: 1px solid var(--border);
+		border-bottom: 1px solid var(--border-subtle);
 		font-size: 12px;
 	}
 
 	/* Empty State */
 	.empty-status {
 		text-align: center;
-		padding: var(--sp-8) var(--sp-4);
-		color: var(--text-muted);
+		padding: var(--space-8) var(--space-4);
+		color: var(--text-tertiary);
 	}
 
 	.empty-icon {
 		font-size: 36px;
 		display: block;
-		margin-bottom: var(--sp-3);
+		margin-bottom: var(--space-3);
 		opacity: 0.4;
 	}
 
@@ -875,15 +872,15 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-16) 0;
-		color: var(--text-muted);
+		gap: var(--space-3);
+		padding: var(--space-16) 0;
+		color: var(--text-tertiary);
 	}
 
 	.spinner {
 		width: 24px;
 		height: 24px;
-		border: 2px solid var(--border-strong);
+		border: 2px solid var(--border-default);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
@@ -895,13 +892,13 @@
 
 	.error-state {
 		text-align: center;
-		padding: var(--sp-16) 0;
-		color: var(--error);
+		padding: var(--space-16) 0;
+		color: var(--danger);
 	}
 
 	/* History Section */
 	.history-section {
-		margin-top: var(--sp-2);
+		margin-top: var(--space-2);
 	}
 
 	.section-title {
@@ -909,8 +906,8 @@
 		font-weight: 600;
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
-		margin-bottom: var(--sp-4);
+		gap: var(--space-2);
+		margin-bottom: var(--space-4);
 	}
 
 	.section-icon {
@@ -918,14 +915,14 @@
 	}
 
 	.empty-history {
-		padding: var(--sp-6);
+		padding: var(--space-6);
 		text-align: center;
 	}
 
 	.history-table-wrap {
 		overflow-x: auto;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
 		background: var(--bg-surface);
 	}
 
@@ -937,20 +934,20 @@
 
 	.history-table th {
 		text-align: left;
-		padding: var(--sp-3) var(--sp-4);
+		padding: var(--space-3) var(--space-4);
 		font-size: 11px;
 		font-weight: 600;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
-		border-bottom: 1px solid var(--border);
+		border-bottom: 1px solid var(--border-subtle);
 		background: var(--bg-raised);
 		white-space: nowrap;
 	}
 
 	.history-table td {
-		padding: var(--sp-3) var(--sp-4);
-		border-bottom: 1px solid var(--border);
+		padding: var(--space-3) var(--space-4);
+		border-bottom: 1px solid var(--border-subtle);
 		white-space: nowrap;
 	}
 
@@ -973,25 +970,25 @@
 
 	/* Downloads Section */
 	.downloads-section {
-		margin-bottom: var(--sp-8);
+		margin-bottom: var(--space-8);
 	}
 
 	.dl-overview {
 		background: var(--bg-surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		padding: var(--sp-5);
-		margin-bottom: var(--sp-4);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		padding: var(--space-5);
+		margin-bottom: var(--space-4);
 	}
 
 	.dl-summary-grid {
 		display: grid;
 		grid-template-columns: repeat(4, 1fr);
-		gap: var(--sp-4);
-		padding: var(--sp-4);
+		gap: var(--space-4);
+		padding: var(--space-4);
 		background: var(--bg-raised);
-		border-radius: var(--radius-md);
-		margin-bottom: var(--sp-4);
+		border-radius: var(--radius-sm);
+		margin-bottom: var(--space-4);
 	}
 
 	@media (max-width: 600px) {
@@ -1008,13 +1005,13 @@
 		font-family: var(--font-mono);
 		font-size: 22px;
 		font-weight: 700;
-		color: var(--accent-text);
+		color: var(--accent);
 		line-height: 1.2;
 	}
 
 	.dl-stat-label {
 		font-size: 11px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		margin-top: 2px;
@@ -1025,21 +1022,21 @@
 		background: var(--bg-raised);
 		border-radius: 3px;
 		overflow: hidden;
-		margin-bottom: var(--sp-3);
+		margin-bottom: var(--space-3);
 	}
 
 	.dl-progress-fill {
 		height: 100%;
 		background: var(--accent);
 		border-radius: 3px;
-		transition: width 0.4s var(--ease-out);
+		transition: width var(--duration-large) var(--ease-out-quint);
 		min-width: 2px;
 	}
 
 	.dl-breakdown {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 	}
 
 	.dl-tag {
@@ -1048,7 +1045,7 @@
 		gap: 4px;
 		padding: 2px 10px;
 		font-size: 12px;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-xs);
 		font-weight: 500;
 	}
 
@@ -1059,7 +1056,7 @@
 
 	.dl-tag-failed {
 		background: rgba(248, 113, 113, 0.1);
-		color: var(--error);
+		color: var(--danger);
 	}
 
 	.dl-tag-skipped {
@@ -1078,14 +1075,14 @@
 	}
 
 	.dl-channels-details {
-		margin-top: var(--sp-2);
+		margin-top: var(--space-2);
 		font-size: 13px;
 	}
 
 	.dl-channels-details summary {
 		cursor: pointer;
 		color: var(--text-secondary);
-		padding: var(--sp-2) 0;
+		padding: var(--space-2) 0;
 		font-size: 13px;
 		user-select: none;
 	}
@@ -1095,10 +1092,10 @@
 	}
 
 	.dl-channels-table-wrap {
-		margin-top: var(--sp-3);
+		margin-top: var(--space-3);
 		overflow-x: auto;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
 		background: var(--bg-surface);
 		max-height: 400px;
 		overflow-y: auto;
@@ -1107,7 +1104,7 @@
 	.dl-cell-bar {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 		min-width: 80px;
 	}
 
@@ -1122,7 +1119,7 @@
 	.dl-cell-pct {
 		font-family: var(--font-mono);
 		font-size: 11px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		min-width: 32px;
 		text-align: right;
 	}

@@ -69,11 +69,11 @@
 		<a href="/channel/{channelId}" class="back-link mono">← #{channel?.name ?? 'channel'}</a>
 		{#if channel}
 			<div class="header-title-row">
-				<h1 class="serif">Gallery<span class="dot">.</span></h1>
+				<h1>Gallery</h1>
 				<span class="channel-label">#{channel.name}</span>
 			</div>
 		{:else}
-			<h1 class="serif">Gallery<span class="dot">.</span></h1>
+			<h1>Gallery</h1>
 		{/if}
 		<div class="header-meta mono">
 			{#if total > 0}
@@ -113,18 +113,18 @@
 
 	.gallery-header {
 		background: var(--bg-surface);
-		border-bottom: 1px solid var(--border);
-		padding: var(--sp-5) var(--sp-6) var(--sp-4);
+		border-bottom: 1px solid var(--border-subtle);
+		padding: var(--space-5) var(--space-6) var(--space-4);
 		flex-shrink: 0;
 	}
 
 	.back-link {
 		display: inline-block;
 		font-size: 12px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		text-decoration: none;
-		margin-bottom: var(--sp-3);
-		transition: color 0.12s;
+		margin-bottom: var(--space-3);
+		transition: color var(--duration-micro);
 	}
 
 	.back-link:hover { color: var(--accent); }
@@ -132,7 +132,7 @@
 	.header-title-row {
 		display: flex;
 		align-items: baseline;
-		gap: var(--sp-3);
+		gap: var(--space-3);
 	}
 
 	.header-title-row h1 {
@@ -141,45 +141,44 @@
 		letter-spacing: -0.03em;
 	}
 
-	.dot { color: var(--accent); }
 
 	.channel-label {
 		font-size: 14px;
-		color: var(--text-muted);
+		color: var(--text-tertiary);
 		font-weight: 500;
 	}
 
 	.header-meta {
 		display: flex;
 		align-items: center;
-		gap: var(--sp-2);
+		gap: var(--space-2);
 		font-size: 12px;
-		color: var(--text-muted);
-		margin-top: var(--sp-2);
+		color: var(--text-tertiary);
+		margin-top: var(--space-2);
 	}
 
-	.sep { color: var(--text-faint); }
+	.sep { color: var(--text-tertiary); }
 
 	.gallery-body {
 		flex: 1;
 		overflow-y: auto;
-		padding: var(--sp-5) var(--sp-6);
+		padding: var(--space-5) var(--space-6);
 	}
 
 	.center-state {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: var(--sp-3);
-		padding: var(--sp-16) 0;
+		gap: var(--space-3);
+		padding: var(--space-16) 0;
 		color: var(--text-secondary);
 	}
 
-	.center-state.error { color: var(--error); }
+	.center-state.error { color: var(--danger); }
 
 	.spinner {
 		width: 20px; height: 20px;
-		border: 2px solid var(--border);
+		border: 2px solid var(--border-subtle);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
