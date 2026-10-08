@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import SplitResult, urlsplit
 
-from pydantic import Field, SecretStr, ValidationError, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Origins allowed to call the API cross-origin unless CORS_ORIGINS overrides them:
@@ -47,6 +47,18 @@ def parse_cors_origins(value: str) -> list[str]:
     else:
         items = text.split(",")
     return [origin.strip().rstrip("/") for origin in items if origin.strip()]
+
+
+def _blank_secret_is_none(value: object) -> object:
+    """Map an empty or whitespace-only secret to ``None``; leave anything else as given.
+
+    The one place the "blank means unset" rule lives for settings: the API auth
+    token in ``Settings`` and the bot token in ``ServeSettings`` both use it.
+    """
+    raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+    if isinstance(raw, str) and not raw.strip():
+        return None
+    return value
 
 
 # Hosts for which a plain-http bridge URL is tolerated (local development only).
@@ -182,14 +194,15 @@ class Settings(BaseSettings):
 
     @field_validator("discord_bot_token")
     @classmethod
-    def validate_token_not_blank(cls, v: SecretStr) -> SecretStr:
+    def validate_token_not_blank(cls, v: SecretStr | None) -> SecretStr | None:
         """Reject an empty or whitespace-only bot token.
 
         A blank value usually comes from a placeholder in .env or an unset shell
         variable; accepting it would let a scrape reach the Discord gateway with
-        no credential and hang there.
+        no credential and hang there. (``None`` only reaches this in
+        ``ServeSettings``, where a blank token has already become ``None``.)
         """
-        if not v.get_secret_value().strip():
+        if v is not None and not v.get_secret_value().strip():
             raise ValueError("DISCORD_BOT_TOKEN must not be empty")
         return v
 
@@ -209,12 +222,11 @@ class Settings(BaseSettings):
     @field_validator("api_auth_token", mode="before")
     @classmethod
     def blank_auth_token_is_none(cls, v: object) -> object:
-        """Treat an empty or whitespace-only API auth token as unset."""
+        """Treat an empty or whitespace-only API auth token as unset; strip any other."""
+        v = _blank_secret_is_none(v)
         if isinstance(v, SecretStr):
             v = v.get_secret_value()
-        if isinstance(v, str):
-            return v.strip() or None
-        return v
+        return v.strip() if isinstance(v, str) else v
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -280,21 +292,21 @@ def get_settings() -> Settings:
     return Settings()  # type: ignore[call-arg]
 
 
-def optional_bot_token() -> str | None:
-    """The bot token from the environment or ``.env``, or ``None``.
+class ServeSettings(Settings):
+    """Settings for the commands that serve the portal (``serve``, the dev module).
 
-    ``None`` means no usable token: the variable is unset, empty or whitespace.
-    This is the only way composition roots (``serve``, the dev module) decide
-    whether scrape control is enabled; the API itself never reads settings.
-
-    Raises:
-        ValidationError: If settings are invalid for any other reason (for
-            example a bad ``API_PORT``), so a misconfiguration is reported
-            rather than silently read as "no token".
+    The same fields and validation as ``Settings``, except that the bot token is
+    optional: unset, empty or whitespace loads as ``None``, which leaves scrape
+    control read-only. Any other invalid value still raises, so a misconfiguration
+    is reported rather than silently read as "no token".
     """
-    try:
-        return Settings().discord_bot_token.get_secret_value()  # type: ignore[call-arg]
-    except ValidationError as exc:
-        if all(error["loc"] == ("DISCORD_BOT_TOKEN",) for error in exc.errors()):
-            return None
-        raise
+
+    discord_bot_token: SecretStr | None = Field(  # type: ignore[assignment]
+        default=None, validation_alias="DISCORD_BOT_TOKEN"
+    )
+
+    @field_validator("discord_bot_token", mode="before")
+    @classmethod
+    def blank_bot_token_is_none(cls, v: object) -> object:
+        """Treat an empty or whitespace-only bot token as unset; keep any other as given."""
+        return _blank_secret_is_none(v)

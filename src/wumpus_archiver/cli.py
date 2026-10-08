@@ -174,35 +174,32 @@ def serve(
     import uvicorn
 
     from wumpus_archiver.api.app import create_app
-    from wumpus_archiver.compose import (
-        api_security_from_settings,
-        portal_build_dir,
-        scrape_from_settings,
-    )
+    from wumpus_archiver.compose import portal_build_dir, scrape_control, serve_config
+
+    # serve is the composition root: it resolves every path, the bot token, the API
+    # token and the CORS origins once, and hands the factory values it never has to
+    # look for itself. Settings come first, so bad config fails before a portal build.
+    try:
+        config = serve_config()
+    except ValidationError as e:
+        click.echo(f"Error: Failed to load settings: {e}", err=True)
+        sys.exit(1)
 
     if build_portal:
         _build_portal_static()
 
-    # serve is the composition root: it resolves every path, the bot token, the API
-    # token and the CORS origins once, and hands the factory values it never has to
-    # look for itself.
     db_path = database.resolve()
     db = Database(f"sqlite+aiosqlite:///{db_path}")  # unconnected: the app's lifespan owns it
     att_path = attachments_dir.resolve() if attachments_dir.is_dir() else None
     portal = portal_build_dir()
-    try:
-        scrape = scrape_from_settings(db)
-    except ValidationError as e:
-        click.echo(f"Error: Failed to load settings: {e}", err=True)
-        sys.exit(1)
-    api_auth_token, cors_origins = api_security_from_settings()
+    scrape = scrape_control(db, config.bot_token)
     app = create_app(
         db,
         attachments_dir=att_path,
         portal_build=portal,
         scrape=scrape,
-        api_auth_token=api_auth_token,
-        cors_origins=cors_origins,
+        api_auth_token=config.api_auth_token,
+        cors_origins=config.cors_origins,
     )
 
     click.echo(f"Starting portal at http://{host}:{port}")
@@ -579,17 +576,17 @@ def _write_dev_app_module(db_path: Path, attachments_path: Path | None) -> None:
 from pathlib import Path
 
 from wumpus_archiver.api.app import create_app
-from wumpus_archiver.compose import api_security_from_settings, scrape_from_settings
+from wumpus_archiver.compose import scrape_control, serve_config
 from wumpus_archiver.storage.database import Database
 
 _db = Database({db_url!r})
-_api_auth_token, _cors_origins = api_security_from_settings()
+_config = serve_config()
 app = create_app(
     _db,
 {att_line}
-    scrape=scrape_from_settings(_db),
-    api_auth_token=_api_auth_token,
-    cors_origins=_cors_origins,
+    scrape=scrape_control(_db, _config.bot_token),
+    api_auth_token=_config.api_auth_token,
+    cors_origins=_config.cors_origins,
 )
 '''
     # Python source is UTF-8 by default; don't depend on the locale encoding for non-ASCII paths.

@@ -83,15 +83,26 @@ async def test_guild_stats(client: AsyncClient) -> None:
 
 
 def _counts_messages(statement: str) -> bool:
-    """Whether a statement counts rows of ``messages``: ``count(*)`` over it as the outer FROM."""
-    select_list, _, rest = statement.partition("FROM ")
-    return "count(*)" in select_list and rest.startswith("messages")
+    """Whether a statement counts rows of ``messages``: ``count(*)`` over it as the outer FROM.
+
+    The outer FROM is the first one outside parentheses, so a scalar subquery in the
+    select list is not mistaken for it.
+    """
+    depth = 0
+    for at, char in enumerate(statement):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif depth == 0 and statement.startswith("FROM ", at):
+            return "count(*)" in statement[:at] and statement.startswith("FROM messages", at)
+    return False
 
 
 async def test_guild_stats_reads_each_total_once(
     client: AsyncClient, statements: list[str]
 ) -> None:
-    """Guild, channels, summary, attachments, top channels and top users: nothing thrown away."""
+    """Guild, channels, totals, attachments, top channels and top users: nothing thrown away."""
     response = await client.get("/api/guilds/1/stats")
     assert response.status_code == 200
     assert len(statements) == 6
@@ -116,3 +127,15 @@ async def test_more_than_ten_authors_add_the_top_users_count(
     payload = response.json()
     assert (payload["total_users"], len(payload["top_users"])) == (12, 10)
     assert len(statements) == 7
+
+
+async def test_total_users_counts_authors_without_a_users_row(
+    client: AsyncClient, database: Database
+) -> None:
+    """``total_users`` counts distinct non-null author ids, as before; ``top_users`` needs a row."""
+    async with database.session() as session:
+        session.add(Message(id=6, channel_id=11, author_id=999, created_at=WHEN, scraped_at=WHEN))
+        session.add(Message(id=7, channel_id=11, author_id=None, created_at=WHEN, scraped_at=WHEN))
+    payload = (await client.get("/api/guilds/1/stats")).json()
+    assert (payload["total_messages"], payload["total_users"]) == (6, 3)
+    assert [user["id"] for user in payload["top_users"]] == ["100", "101"]

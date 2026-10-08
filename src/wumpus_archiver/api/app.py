@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -159,10 +159,13 @@ def _mount_portal(app: FastAPI, portal_root: Path) -> None:
             name="portal_assets",
         )
 
-    # Serve robots.txt and other root-level static files
+    # robots.txt is a 404 rather than the SPA entry point when the build has none.
     @app.get("/robots.txt", include_in_schema=False)
     async def robots_txt() -> FileResponse:
-        return FileResponse(str(portal_root / "robots.txt"))
+        robots = _resolve_portal_file(portal_root, "robots.txt")
+        if robots is None:
+            raise HTTPException(status_code=404)
+        return FileResponse(str(robots))
 
     # SPA fallback: serve index.html for all unmatched routes
     @app.get("/{full_path:path}", include_in_schema=False)

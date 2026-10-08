@@ -8,67 +8,60 @@ the factory itself never reads. Nothing under ``wumpus_archiver.api`` imports
 this module.
 """
 
-import logging
-import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import SecretStr
 
 from wumpus_archiver.api.scrape_control import ReadOnlyScrape, ScrapeControl
-from wumpus_archiver.config import (
-    DEFAULT_CORS_ORIGINS,
-    Settings,
-    optional_bot_token,
-    parse_cors_origins,
-)
+from wumpus_archiver.config import ServeSettings
 from wumpus_archiver.storage.database import Database
 
-logger = logging.getLogger(__name__)
 
+@dataclass(frozen=True)
+class ServeConfig:
+    """What the composition roots read from settings, loaded once.
 
-def scrape_from_settings(database: Database) -> ScrapeControl:
-    """Scrape control for ``database``: enabled if a bot token is configured, else read-only.
+    Both tokens are ``SecretStr`` so a repr of this never shows them.
 
-    The token comes from ``DISCORD_BOT_TOKEN`` in the environment or ``.env`` in
-    the working directory; unset or blank means read-only.
+    Attributes:
+        bot_token: The bot token, or ``None`` when unset or blank (read-only scrape control).
+        api_auth_token: The token guarding scrape start/cancel, or ``None`` when unset
+            or blank (both disabled).
+        cors_origins: Browser origins allowed to call the API cross-origin.
     """
-    token = optional_bot_token()
-    if token is None:
+
+    bot_token: SecretStr | None
+    api_auth_token: SecretStr | None
+    cors_origins: tuple[str, ...]
+
+
+def serve_config() -> ServeConfig:
+    """The bot token, API auth token and CORS origins, from the environment or ``.env``.
+
+    One ``ServeSettings`` load answers all three, so they always come from the
+    same configuration. Startup fails closed: a missing or blank token disables
+    what it guards, and any invalid setting raises instead of being guessed around.
+
+    Raises:
+        ValidationError: If any setting is invalid (for example a bad ``API_PORT``
+            or an unparseable ``CORS_ORIGINS``).
+    """
+    settings = ServeSettings()
+    return ServeConfig(
+        bot_token=settings.discord_bot_token,
+        api_auth_token=settings.api_auth_token,
+        cors_origins=tuple(settings.cors_origins),
+    )
+
+
+def scrape_control(database: Database, bot_token: SecretStr | None) -> ScrapeControl:
+    """Scrape control for ``database``: enabled with a bot token, else read-only."""
+    if bot_token is None:
         return ReadOnlyScrape()
     from wumpus_archiver.api.scrape_manager import ScrapeJobManager  # noqa: PLC0415
 
-    return ScrapeJobManager(database, token)
-
-
-def api_security_from_settings() -> tuple[SecretStr | None, list[str]]:
-    """The API auth token and the allowed CORS origins, from the environment or ``.env``.
-
-    ``Settings()`` requires ``DISCORD_BOT_TOKEN``, which a read-only portal deployment
-    may not have, so a placeholder bot token is supplied: only the API fields are read.
-    If settings still cannot be loaded, the raw environment variables are read instead.
-    An unset or blank token leaves scrape start/cancel disabled, and an unparseable
-    ``CORS_ORIGINS`` allows no cross-origin requests: both fail closed.
-
-    Returns:
-        The API auth token (``None`` when unset) and the allowed CORS origins.
-    """
-    try:
-        settings = Settings(discord_bot_token=SecretStr("unused"))
-        return settings.api_auth_token, list(settings.cors_origins)
-    except Exception:
-        logger.warning("Could not load settings; reading API_AUTH_TOKEN/CORS_ORIGINS from env")
-
-    raw_token = os.environ.get("API_AUTH_TOKEN", "").strip()
-    token = SecretStr(raw_token) if raw_token else None
-    raw_origins = os.environ.get("CORS_ORIGINS")
-    if raw_origins is None:
-        return token, list(DEFAULT_CORS_ORIGINS)
-    try:
-        return token, parse_cors_origins(raw_origins)
-    except ValueError:
-        # Fail closed: an unparseable allow-list must not widen cross-origin access
-        logger.warning("Invalid CORS_ORIGINS; no cross-origin requests will be allowed")
-        return token, []
+    return ScrapeJobManager(database, bot_token.get_secret_value())
 
 
 def portal_build_dir() -> Path | None:
@@ -85,4 +78,4 @@ def portal_build_dir() -> Path | None:
     return None
 
 
-__all__ = ["api_security_from_settings", "portal_build_dir", "scrape_from_settings"]
+__all__ = ["ServeConfig", "portal_build_dir", "scrape_control", "serve_config"]

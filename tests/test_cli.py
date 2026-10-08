@@ -164,6 +164,23 @@ class TestCLI:
         assert "Failed to load settings" in result.output
         assert "Port must be between" in result.output
 
+    def test_serve_reports_invalid_settings_before_building_the_portal(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        db_file = tmp_path / "test.db"
+        db_file.touch()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("API_PORT", "70000")
+        monkeypatch.setattr(
+            "wumpus_archiver.cli._build_portal_static",
+            lambda: pytest.fail("the portal must not be built over invalid settings"),
+        )
+
+        result = CliRunner().invoke(cli, ["serve", "--build-portal", str(db_file)])
+
+        assert result.exit_code == 1
+        assert "Failed to load settings" in result.output
+
     def test_serve_starts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test serve command starts the portal."""
         db_file = tmp_path / "test.db"

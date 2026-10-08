@@ -156,6 +156,23 @@ class TestSpaServing:
         assert response.status_code == 200
         assert response.text == ROBOTS
 
+    async def test_missing_robots_txt_is_404(
+        self, client: httpx.AsyncClient, site: SimpleNamespace
+    ) -> None:
+        (site.build / "robots.txt").unlink()
+        response = await client.get("/robots.txt")
+        assert response.status_code == 404
+        assert INDEX_HTML not in response.text
+
+    async def test_robots_txt_symlinked_outside_is_not_served(
+        self, client: httpx.AsyncClient, site: SimpleNamespace
+    ) -> None:
+        (site.build / "robots.txt").unlink()
+        _symlink(site.build / "robots.txt", site.secret)
+        response = await client.get("/robots.txt")
+        assert SECRET not in response.text
+        assert response.status_code == 404
+
     @pytest.mark.parametrize("path", ["/archive/channels/123", "/does-not-exist.js", "/img"])
     async def test_unknown_route_and_directory_fall_back_to_index(
         self, client: httpx.AsyncClient, path: str
