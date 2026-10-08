@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { searchMessages, getGuild } from '#lib/api.ts';
+	import { channelHref } from '#lib/routes.ts';
 	import { shell } from '#lib/shell.svelte.ts';
 	import type { SearchResult, Channel } from '#lib/types.ts';
 	import MessageCard from '#lib/components/MessageCard.svelte';
@@ -154,7 +155,13 @@
 					{#each results as result, i (result.message.id)}
 						<div class="result-item enter" style:--i={i}>
 							<div class="result-context">
-								<Badge icon="hash">{result.channel_name}</Badge>
+								<a
+									class="result-channel"
+									href={channelHref(result.message.channel_id, { message: result.message.id })}
+									title="Open in context"
+								>
+									<Badge icon="hash">{result.channel_name}</Badge>
+								</a>
 							</div>
 							<MessageCard message={result.message} />
 						</div>
@@ -266,5 +273,16 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+	}
+
+	/* The channel badge opens the message in Browse. */
+	.result-channel {
+		display: inline-flex;
+		border-radius: var(--radius-full);
+		transition: opacity var(--duration-micro) var(--ease-out-quint);
+	}
+
+	.result-channel:hover {
+		opacity: 0.8;
 	}
 </style>

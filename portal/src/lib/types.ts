@@ -80,6 +80,8 @@ export interface MessageListResponse {
 	has_more: boolean;
 	before_id: string | null;
 	after_id: string | null;
+	/** Whether newer messages remain: set on a page read `around` a message, else null. */
+	has_newer: boolean | null;
 }
 
 export interface GuildDetail extends Guild {

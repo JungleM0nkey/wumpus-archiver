@@ -5,9 +5,12 @@
 	let {
 		messages,
 		title = '',
+		highlight = null
 	}: {
 		messages: Message[];
 		title?: string;
+		/** The id of the message to mark, the one a link opened the reader on. */
+		highlight?: string | null;
 	} = $props();
 
 	// Group messages by date
@@ -50,7 +53,7 @@
 
 			<div class="messages-group">
 				{#each group.messages as msg (msg.id)}
-					<MessageCard message={msg} />
+					<MessageCard message={msg} highlighted={msg.id === highlight} />
 				{/each}
 			</div>
 		</div>

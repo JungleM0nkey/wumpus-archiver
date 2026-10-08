@@ -3,7 +3,14 @@
 	import Badge from './ui/Badge.svelte';
 	import Icon from './ui/Icon.svelte';
 
-	let { message }: { message: Message } = $props();
+	let {
+		message,
+		highlighted = false
+	}: {
+		message: Message;
+		/** Marks the message a link opened the reader on. */
+		highlighted?: boolean;
+	} = $props();
 
 	function formatTime(iso: string): string {
 		const d = new Date(iso);
@@ -36,7 +43,13 @@
 	});
 </script>
 
-<article class="message-card" class:pinned={message.pinned}>
+<article
+	class="message-card"
+	class:pinned={message.pinned}
+	class:highlighted
+	data-message-id={message.id}
+	aria-current={highlighted ? 'true' : undefined}
+>
 	<div class="card-header">
 		<div class="author-info">
 			{#if message.author?.avatar_url}
@@ -154,6 +167,13 @@
 
 	.message-card.pinned {
 		border-left: 2px solid var(--accent);
+	}
+
+	/* The message a link opened the reader on. */
+	.message-card.highlighted,
+	.message-card.highlighted:hover {
+		background: var(--accent-muted);
+		border-color: var(--accent);
 	}
 
 	.card-header {

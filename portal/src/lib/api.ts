@@ -50,12 +50,19 @@ export async function getGuild(guildId: string | number): Promise<GuildDetail> {
 
 export async function getMessages(
 	channelId: string | number,
-	opts: { before?: string | number; after?: string | number; limit?: number } = {}
+	opts: {
+		before?: string | number;
+		after?: string | number;
+		limit?: number;
+		/** The page around this message, holding it; not with `before` or `after`. */
+		around?: string | number;
+	} = {}
 ): Promise<MessageListResponse> {
 	const params = new URLSearchParams();
 	if (opts.before) params.set('before', String(opts.before));
 	if (opts.after) params.set('after', String(opts.after));
 	if (opts.limit) params.set('limit', String(opts.limit));
+	if (opts.around) params.set('around', String(opts.around));
 	const qs = params.toString();
 	return fetchJSON<MessageListResponse>(`/channels/${channelId}/messages${qs ? `?${qs}` : ''}`);
 }

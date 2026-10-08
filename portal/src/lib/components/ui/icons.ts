@@ -5,6 +5,7 @@ import type { Component } from 'svelte';
 import type { LucideProps } from '@lucide/svelte';
 import Activity from '@lucide/svelte/icons/activity';
 import Archive from '@lucide/svelte/icons/archive';
+import ArrowDown from '@lucide/svelte/icons/arrow-down';
 import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 import Ban from '@lucide/svelte/icons/ban';
@@ -53,6 +54,7 @@ import X from '@lucide/svelte/icons/x';
 export const icons = {
 	activity: Activity,
 	archive: Archive,
+	'arrow-down': ArrowDown,
 	'arrow-left': ArrowLeft,
 	'arrow-up-right': ArrowUpRight,
 	ban: Ban,

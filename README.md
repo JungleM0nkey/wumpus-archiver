@@ -132,7 +132,7 @@ All endpoints are under `/api/`:
 | `GET /guilds/{id}/users` | Users in a guild |
 | `GET /guilds/{id}/gallery` | Image gallery for a guild |
 | `GET /guilds/{id}/gallery/timeline` | The gallery timeline behind the Media screen: attachments grouped by month, filtered by `content_type` (image, gif, video, media), `channel_id` and `author_id` |
-| `GET /channels/{id}/messages` | Paginated messages |
+| `GET /channels/{id}/messages` | Paginated messages, newest first (`before`, `after`, `around` cursors) |
 | `GET /channels/{id}/gallery` | Channel image gallery |
 | `GET /search` | Full-text message search |
 | `GET /users/{id}/profile` | User profile with stats |
@@ -152,9 +152,8 @@ first guild when absent), and every page shows that guild.
 | Route | Destination | Description |
 |---|---|---|
 | `/` | Overview | Guild stats |
-| `/channels` | Browse | Channel list with message counts |
-| `/channel/[id]` | Browse | Message browser for a channel |
-| `/timeline` | Browse | Channel reader beside a channel list |
+| `/browse` | Browse | Opens the guild's most active channel (`/channels` and `/timeline` redirect here) |
+| `/browse/[channel]` | Browse | A channel's messages beside the channel pane; `?message=<id>` opens it on one message (`/channel/[id]` and `/timeline?channel=` redirect here) |
 | `/media` | Media | Images, GIFs and videos in justified rows under month headers, filtered by type, channel and sort in the URL (`/gallery` and `/channel/[id]/gallery` redirect here) |
 | `/search` | Search | Full-text search with filters |
 | `/people` | People | Authors as a table, sortable by messages, name or recent activity, searchable by name (`/users` redirects here) |

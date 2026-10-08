@@ -27,10 +27,10 @@
 	const destinations: Destination[] = [
 		{ href: '/', label: 'Overview', icon: 'dashboard', owns: (p) => p === '/' },
 		{
-			href: '/channels',
+			href: '/browse',
 			label: 'Browse',
 			icon: 'hash',
-			owns: (p) => /^\/(channels|channel|timeline)(\/|$)/.test(p)
+			owns: (p) => /^\/browse(\/|$)/.test(p)
 		},
 		{ href: '/media', label: 'Media', icon: 'images', owns: (p) => /^\/media(\/|$)/.test(p) },
 		{ href: '/search', label: 'Search', icon: 'search', owns: (p) => /^\/search(\/|$)/.test(p) },

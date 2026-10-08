@@ -41,7 +41,7 @@ export const SCROLLER_ID = 'shell-scroller';
  * back to when the guild changes: what they show is not in the other guild.
  */
 const GUILD_BOUND: [RegExp, string][] = [
-	[/^\/channel\/[^/]+(\/.*)?$/, '/channels'],
+	[/^\/browse\/[^/]+$/, '/browse'],
 	[/^\/people\/[^/]+$/, '/people']
 ];
 
