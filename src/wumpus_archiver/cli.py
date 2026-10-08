@@ -6,7 +6,7 @@ import sys
 from datetime import UTC, datetime
 from importlib.metadata import version as pkg_version
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import click
 from pydantic import ValidationError
@@ -14,6 +14,9 @@ from pydantic import ValidationError
 from wumpus_archiver.bot.scraper import ArchiverBot
 from wumpus_archiver.config import Settings
 from wumpus_archiver.storage.database import Database
+
+if TYPE_CHECKING:
+    from wumpus_archiver.compose import ServeConfig
 
 
 @click.group()
@@ -174,16 +177,12 @@ def serve(
     import uvicorn
 
     from wumpus_archiver.api.app import create_app
-    from wumpus_archiver.compose import portal_build_dir, scrape_control, serve_config
+    from wumpus_archiver.compose import portal_build_dir, scrape_control
 
     # serve is the composition root: it resolves every path, the bot token, the API
     # token and the CORS origins once, and hands the factory values it never has to
     # look for itself. Settings come first, so bad config fails before a portal build.
-    try:
-        config = serve_config()
-    except ValidationError as e:
-        click.echo(f"Error: Failed to load settings: {e}", err=True)
-        sys.exit(1)
+    config = _load_serve_config()
 
     if build_portal:
         _build_portal_static()
@@ -245,6 +244,71 @@ def _warn_if_not_loopback(host: str) -> None:
     )
 
 
+def _load_serve_config() -> "ServeConfig":
+    """The settings ``serve`` and ``dev`` start from, or exit 1 if they cannot be loaded.
+
+    Both roots report a misconfiguration the same way: an invalid setting, or a ``.env``
+    that cannot be read or decoded, prints "Failed to load settings" and exits.
+
+    Raises:
+        SystemExit: If the settings cannot be loaded.
+    """
+    from wumpus_archiver.compose import serve_config
+
+    try:
+        return serve_config()
+    except (ValidationError, OSError, UnicodeError) as e:
+        click.echo(f"Error: Failed to load settings: {e}", err=True)
+        sys.exit(1)
+
+
+def _portal_install_command(portal_dir: Path) -> str | None:
+    """The npm command that brings the portal's ``node_modules`` up to date, or ``None``.
+
+    npm records each install in ``node_modules/.package-lock.json``, written just after
+    the lockfile, so a lockfile newer than that record changed since the last install
+    (a pull, a merge, a branch switch) and the tree is rebuilt with ``ci``. npm decides
+    what the lockfile means; this only compares times. A tree with no such record (made
+    by another package manager, or with ``package-lock=false``) is left alone rather than
+    wiped on every start. Without a lockfile, only a missing ``node_modules`` installs.
+    """
+    node_modules = portal_dir / "node_modules"
+    lockfile = portal_dir / "package-lock.json"
+    has_lockfile = lockfile.is_file()
+    if not node_modules.is_dir():
+        return "ci" if has_lockfile else "install"
+    if not has_lockfile:
+        return None
+    try:
+        installed_at = (node_modules / ".package-lock.json").stat().st_mtime_ns
+    except OSError:
+        return None
+    return "ci" if lockfile.stat().st_mtime_ns > installed_at else None
+
+
+def _ensure_portal_dependencies(npm: str, portal_dir: Path) -> None:
+    """Install the portal's dependencies when ``node_modules`` is missing or stale.
+
+    Raises:
+        SystemExit: If the install fails.
+    """
+    import subprocess
+
+    command = _portal_install_command(portal_dir)
+    if command is None:
+        return
+    click.echo("Installing portal dependencies...")
+    result = subprocess.run(
+        [npm, command],
+        cwd=str(portal_dir),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        click.echo(f"Error installing portal dependencies:\n{result.stderr}", err=True)
+        sys.exit(1)
+
+
 def _build_portal_static() -> None:
     """Build the SvelteKit portal into static files.
 
@@ -262,19 +326,7 @@ def _build_portal_static() -> None:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    # Install dependencies if needed
-    node_modules = portal_dir / "node_modules"
-    if not node_modules.exists():
-        click.echo("Installing portal dependencies...")
-        result = subprocess.run(
-            [npm, "install"],
-            cwd=str(portal_dir),
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            click.echo(f"Error installing portal dependencies:\n{result.stderr}", err=True)
-            sys.exit(1)
+    _ensure_portal_dependencies(npm, portal_dir)
 
     click.echo("Building portal...")
     result = subprocess.run(
@@ -475,6 +527,10 @@ def dev(
         run_concurrently,
     )
 
+    # Like serve, bad config stops dev before anything starts. The backend loads the
+    # settings again in its own process; this load only checks them.
+    _load_serve_config()
+
     # Resolve paths
     db_path = database.resolve()
     # Like serve: only an existing directory is handed to the factory, which raises otherwise.
@@ -488,21 +544,7 @@ def dev(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    # Check that portal dependencies are installed
-    node_modules = portal_dir / "node_modules"
-    if not node_modules.exists():
-        click.echo("Installing portal dependencies...")
-        import subprocess
-
-        result = subprocess.run(
-            [npm, "install"],
-            cwd=str(portal_dir),
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            click.echo(f"Error installing dependencies: {result.stderr}", err=True)
-            sys.exit(1)
+    _ensure_portal_dependencies(npm, portal_dir)
 
     # Build CLI args for the backend
     backend_cmd = [
