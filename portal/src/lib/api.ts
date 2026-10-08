@@ -13,7 +13,8 @@ import type {
 	ScrapeJob,
 	DownloadStatsResponse,
 	UserListResponse,
-	UserProfile
+	UserProfile,
+	GuildActivity
 } from './types';
 
 const API_BASE = '/api';
@@ -211,4 +212,14 @@ export async function getUserProfile(
 
 export async function getDownloadStats(): Promise<DownloadStatsResponse> {
 	return fetchJSON<DownloadStatsResponse>('/downloads/stats');
+}
+
+// --- Guild activity ---
+
+export async function getGuildActivity(
+	guildId: string | number,
+	opts: { period?: 'month' | 'week' } = {}
+): Promise<GuildActivity> {
+	const qs = opts.period ? `?period=${opts.period}` : '';
+	return fetchJSON<GuildActivity>(`/guilds/${guildId}/activity${qs}`);
 }

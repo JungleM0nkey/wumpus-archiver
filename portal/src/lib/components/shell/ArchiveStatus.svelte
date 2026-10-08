@@ -7,6 +7,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { POLL_MS, scrapeStatus } from '#lib/scrape-status.svelte.ts';
+	import { ARCHIVE_HREF, isArchivePath } from '#lib/routes.ts';
 	import { shell, withGuild } from '#lib/shell.svelte.ts';
 	import Icon from '../ui/Icon.svelte';
 	import { tooltip } from '../ui/tooltip.ts';
@@ -48,7 +49,7 @@
 		return phase === 'unknown' ? 'Open the Archive screen' : '';
 	});
 	const summary = $derived(`${title}${detail ? ` · ${detail}` : ''}`);
-	const here = $derived(page.url.pathname.startsWith('/archive'));
+	const here = $derived(isArchivePath(page.url.pathname));
 
 	function formatDate(iso: string): string {
 		return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -56,7 +57,7 @@
 </script>
 
 <a
-	href={withGuild('/archive')}
+	href={withGuild(ARCHIVE_HREF)}
 	class="status-card"
 	class:here
 	data-state={phase}

@@ -12,3 +12,11 @@ export function channelHref(channelId: string, opts: { message?: string } = {}):
 	const href = `/channel/${encodeURIComponent(channelId)}`;
 	return opts.message ? `${href}?message=${encodeURIComponent(opts.message)}` : href;
 }
+
+/** The Archive screen, where scrape control and local attachments live. */
+export const ARCHIVE_HREF = '/archive';
+
+/** Whether `path` is the Archive screen. */
+export function isArchivePath(path: string): boolean {
+	return path === ARCHIVE_HREF || path.startsWith(`${ARCHIVE_HREF}/`);
+}

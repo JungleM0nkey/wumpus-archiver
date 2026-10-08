@@ -121,6 +121,8 @@ export interface Stats {
 	total_attachments: number;
 	top_channels: TopChannel[];
 	top_users: TopUser[];
+	/** The change since the last completed scrape job started; null when none completed. */
+	since_last_scrape: SinceLastScrape | null;
 }
 
 // Discord channel types
@@ -302,4 +304,28 @@ export interface DownloadStatsResponse {
 	downloaded_bytes: number;
 	attachments_dir: string | null;
 	channels: DownloadChannelStats[];
+}
+
+// --- Overview (#67) ---
+
+/** How each stats total changed since the guild's last completed scrape job started (ADR 0004). */
+export interface SinceLastScrape {
+	started_at: string;
+	completed_at: string;
+	messages: number;
+	channels: number;
+	authors: number;
+	attachments: number;
+}
+
+/** Messages in one calendar month or ISO week; `start` is its first day, YYYY-MM-DD. */
+export interface ActivityBucket {
+	start: string;
+	messages: number;
+}
+
+/** A guild's activity: only the periods holding messages, oldest first. */
+export interface GuildActivity {
+	period: 'month' | 'week';
+	buckets: ActivityBucket[];
 }
