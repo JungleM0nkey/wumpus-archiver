@@ -31,5 +31,3 @@
 		overflow-x: hidden;
 	}
 </style>
-
-{@render children()}

@@ -1,4 +1,5 @@
-// Every portal route opens over the smoke archive without errors and shows content.
+// Every portal route opens over the smoke archive without errors, shows content and
+// issues each of its API calls once.
 //
 // Later tickets add their own scenarios beside this file; a new route adds a row to
 // ROUTES, which the last test checks against the routes in src/routes.
@@ -49,6 +50,13 @@ for (const visit of ROUTES) {
 		`${visit.route} loads without errors`,
 		{ annotation: { type: ROUTE_ANNOTATION, description: visit.route } },
 		async ({ page }) => {
+			const apiCalls: string[] = [];
+			page.on('request', (request) => {
+				const url = new URL(request.url());
+				if (url.pathname.startsWith('/api/')) {
+					apiCalls.push(`${request.method()} ${url.pathname}${url.search}`);
+				}
+			});
 			await page.goto(visit.url, { waitUntil: 'networkidle' });
 			const main = page.locator('main');
 			await expect(main.getByText(visit.shows, { exact: false }).first()).toBeVisible();
@@ -57,6 +65,9 @@ for (const visit of ROUTES) {
 				await visit.act(page);
 				await page.waitForLoadState('networkidle');
 			}
+			expect(apiCalls.length, 'the route calls the API').toBeGreaterThan(0);
+			const repeated = apiCalls.filter((call, i) => apiCalls.indexOf(call) !== i);
+			expect(repeated, `${visit.route} issues each API call once`).toEqual([]);
 		}
 	);
 }
