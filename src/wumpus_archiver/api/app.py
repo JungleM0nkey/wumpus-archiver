@@ -44,8 +44,10 @@ def create_app(
 
     Routes are mounted in this order, and the order is part of the contract:
     CORS, ``/attachments``, the ``/api`` router, then the portal (``/_app``,
-    ``/robots.txt`` and the SPA fallback last), so every defined ``/api`` route
-    wins over the fallback.
+    then the SPA fallback last), so every defined ``/api`` route wins over the
+    fallback. The fallback serves a build file when one matches, a 404 for any
+    other path whose last segment has a file extension, and ``index.html`` for
+    the rest.
 
     Args:
         database: The archive to serve.
@@ -159,24 +161,28 @@ def _mount_portal(app: FastAPI, portal_root: Path) -> None:
             name="portal_assets",
         )
 
-    # robots.txt is a 404 rather than the SPA entry point when the build has none.
-    @app.get("/robots.txt", include_in_schema=False)
-    async def robots_txt() -> FileResponse:
-        robots = _resolve_portal_file(portal_root, "robots.txt")
-        if robots is None:
-            raise HTTPException(status_code=404)
-        return FileResponse(str(robots))
-
-    # SPA fallback: serve index.html for all unmatched routes
+    # SPA fallback: a build file if there is one, a 404 for any other path that names a
+    # file, and index.html for everything else (the portal's own routes).
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str) -> FileResponse:
-        # Try serving exact file first (e.g. favicon.ico), but never anything
-        # that resolves outside the build directory.
+        # Never anything that resolves outside the build directory.
         file_path = _resolve_portal_file(portal_root, full_path)
         if file_path is not None:
             return FileResponse(str(file_path))
-        # Fallback to index.html for SPA routing
+        if _names_a_file(full_path):
+            raise HTTPException(status_code=404)
         return FileResponse(str(index_html))
+
+
+def _names_a_file(requested: str) -> bool:
+    """Whether a request path names a file rather than a portal route.
+
+    It does when its last segment has an extension (``favicon.ico``, ``robots.txt``). A
+    portal route never does: its segments are names and numeric ids. A leading dot alone
+    (``.env``) is not an extension, so such a path stays a route.
+    """
+    last_segment = requested.rsplit("/", 1)[-1]
+    return os.path.splitext(last_segment)[1] != ""
 
 
 # ``Path.resolve()`` is quadratic in the number of path segments and runs on the event loop,

@@ -91,6 +91,22 @@ def _symlink(link: Path, target: Path) -> None:
         pytest.skip("symlinks are not supported here")
 
 
+def _assert_not_found(status: int, body: str | bytes) -> None:
+    """A path that names no file in the build: a 404 with neither the secret nor the index."""
+    text = body.decode() if isinstance(body, bytes) else body
+    assert SECRET not in text
+    assert INDEX_HTML not in text
+    assert status == 404
+
+
+def _assert_index(status: int, body: str | bytes) -> None:
+    """A path that is a portal route: the SPA entry point, and never the secret."""
+    text = body.decode() if isinstance(body, bytes) else body
+    assert SECRET not in text
+    assert status == 200
+    assert text == INDEX_HTML
+
+
 async def _asgi_get(app: Any, decoded_path: str) -> tuple[int, bytes]:
     """Send a GET straight to the ASGI app with an already URL-decoded ``path``.
 
@@ -173,11 +189,40 @@ class TestSpaServing:
         assert SECRET not in response.text
         assert response.status_code == 404
 
-    @pytest.mark.parametrize("path", ["/archive/channels/123", "/does-not-exist.js", "/img"])
+    @pytest.mark.parametrize(
+        "path", ["/archive/channels/123", "/channel/123", "/users/42", "/img", "/.env"]
+    )
     async def test_unknown_route_and_directory_fall_back_to_index(
         self, client: httpx.AsyncClient, path: str
     ) -> None:
+        """A path without a file extension is a portal route, so it gets the SPA entry point."""
         response = await client.get(path)
+        assert response.status_code == 200
+        assert response.text == INDEX_HTML
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/does-not-exist.js",
+            "/favicon.ico",
+            "/sitemap.xml",
+            "/.well-known/security.txt",
+            "/img/missing.svg",
+            "/_app/../missing.css",
+        ],
+    )
+    async def test_missing_file_with_an_extension_is_404(
+        self, client: httpx.AsyncClient, path: str
+    ) -> None:
+        """A path that names a file the build does not have is a 404, never the index HTML."""
+        response = await client.get(path)
+        assert response.status_code == 404
+        assert INDEX_HTML not in response.text
+
+    async def test_query_string_does_not_make_a_route_a_file(
+        self, client: httpx.AsyncClient
+    ) -> None:
+        response = await client.get("/search?q=report.pdf")
         assert response.status_code == 200
         assert response.text == INDEX_HTML
 
@@ -197,7 +242,6 @@ TRAVERSAL_PATHS = [
     pytest.param("/..%2f..%2fsecret.txt", id="mixed-dotdot-encoded-slash"),
     pytest.param("/%2e%2e/..%2fsecret.txt", id="mixed-encoded-and-literal"),
     pytest.param("/.%2e/.%2e/secret.txt", id="half-encoded-dotdot"),
-    pytest.param("/%2e%2e/%2e%2e/.env", id="dotenv"),
     pytest.param("/%2e%2e/sibling.txt", id="parent-dir-sibling"),
     pytest.param("/%2e%2e/build-evil/secret.txt", id="shared-name-prefix-sibling"),
     pytest.param("/img/%2e%2e/%2e%2e/%2e%2e/secret.txt", id="nested-then-escape"),
@@ -213,13 +257,20 @@ TRAVERSAL_PATHS = [
     # NUL bytes
     pytest.param("/%2e%2e/%2e%2e/secret.txt%00", id="nul-suffix"),
     pytest.param("/favicon.svg%00/../../secret.txt", id="nul-in-middle"),
-    pytest.param("/%00", id="nul-only"),
     pytest.param("/secret.txt%00.svg", id="nul-extension-trick"),
     # Absolute-path-looking input (pathlib: `base / "/abs"` discards `base`)
     # (full URL: a bare "//host/..." would be read by httpx as a network-path reference)
     pytest.param("http://testserver//{secret}", id="double-slash-absolute"),
     pytest.param("/%2f{secret}", id="encoded-slash-absolute"),
     pytest.param("/{secret}", id="absolute-looking-without-leading-slash"),
+]
+
+
+# Traversal attempts whose last segment has no extension: to the router they are portal
+# routes, so they get the SPA entry point (never the file they aim at).
+ROUTE_LIKE_TRAVERSAL_PATHS = [
+    pytest.param("/%2e%2e/%2e%2e/.env", id="dotenv"),
+    pytest.param("/%00", id="nul-only"),
 ]
 
 
@@ -232,16 +283,20 @@ class TestSpaPathTraversal:
     ) -> None:
         path = template.format(secret=str(site.secret).lstrip("/"))
         response = await client.get(path)
-        assert SECRET not in response.text
-        # Anything that is not a real file inside the build dir is the SPA entry point.
-        assert response.status_code == 200
-        assert response.text == INDEX_HTML
+        # Each of these names a file that is not inside the build dir: a 404.
+        _assert_not_found(response.status_code, response.text)
+
+    @pytest.mark.parametrize("path", ROUTE_LIKE_TRAVERSAL_PATHS)
+    async def test_route_like_traversal_gets_the_index(
+        self, client: httpx.AsyncClient, path: str
+    ) -> None:
+        response = await client.get(path)
+        _assert_index(response.status_code, response.text)
 
     @pytest.mark.parametrize(
         "decoded_path",
         [
             "/../../secret.txt",
-            "/../../.env",
             "/../build-evil/secret.txt",
             "/img/../../../secret.txt",
             "/a/b/../../../../secret.txt",
@@ -255,34 +310,32 @@ class TestSpaPathTraversal:
         self, app: Any, decoded_path: str
     ) -> None:
         status, body = await _asgi_get(app, decoded_path)
-        assert SECRET.encode() not in body
-        assert status == 200
-        assert body.decode() == INDEX_HTML
+        _assert_not_found(status, body)
+
+    async def test_decoded_route_like_path_gets_the_index(self, app: Any) -> None:
+        status, body = await _asgi_get(app, "/../../.env")
+        _assert_index(status, body)
 
     async def test_absolute_path_reaching_app_never_leaks_secret(
         self, app: Any, site: SimpleNamespace
     ) -> None:
         # "//abs/path" makes full_path absolute, which pathlib would join as-is.
         status, body = await _asgi_get(app, "/" + str(site.secret))
-        assert SECRET.encode() not in body
-        assert status == 200
-        assert body.decode() == INDEX_HTML
+        _assert_not_found(status, body)
 
     async def test_symlinked_file_pointing_outside_is_not_served(
         self, client: httpx.AsyncClient, site: SimpleNamespace
     ) -> None:
         _symlink(site.build / "leak.txt", site.secret)
         response = await client.get("/leak.txt")
-        assert SECRET not in response.text
-        assert response.text == INDEX_HTML
+        _assert_not_found(response.status_code, response.text)
 
     async def test_symlinked_directory_pointing_outside_is_not_served(
         self, client: httpx.AsyncClient, site: SimpleNamespace
     ) -> None:
         _symlink(site.build / "linked", site.root / "outside")
         response = await client.get("/linked/data.txt")
-        assert SECRET not in response.text
-        assert response.text == INDEX_HTML
+        _assert_not_found(response.status_code, response.text)
 
     async def test_symlink_staying_inside_build_is_still_served(
         self, client: httpx.AsyncClient, site: SimpleNamespace
@@ -437,7 +490,6 @@ class TestResolveCostIsBounded:
         [
             pytest.param("a" * (CHAR_CAP + 1), id="over-char-cap"),
             pytest.param("/".join(["a"] * (SEGMENT_CAP + 1)), id="over-segment-cap"),
-            pytest.param("missing/deeper/does-not-exist.js", id="nonexistent-file"),
             pytest.param("img", id="directory"),
         ],
     )
@@ -445,8 +497,14 @@ class TestResolveCostIsBounded:
         self, app: Any, resolve_calls: list[Path], requested: str
     ) -> None:
         status, body = await _asgi_get(app, "/" + requested)
-        assert status == 200
-        assert body.decode() == INDEX_HTML
+        _assert_index(status, body)
+        assert resolve_calls == []
+
+    async def test_missing_file_is_404_without_resolve(
+        self, app: Any, resolve_calls: list[Path]
+    ) -> None:
+        status, body = await _asgi_get(app, "/missing/deeper/does-not-exist.js")
+        _assert_not_found(status, body)
         assert resolve_calls == []
 
     async def test_existing_asset_is_still_resolved_and_served(
@@ -584,7 +642,6 @@ class TestSymlinkedBuildDirectory:
         [
             "/../sibling.txt",
             "/../secret.txt",
-            "/../.env",
             "/../portal/sibling.txt",
             "/../real-dist-evil/secret.txt",
             "/../build-evil/secret.txt",
@@ -595,9 +652,11 @@ class TestSymlinkedBuildDirectory:
     )
     async def test_traversal_never_leaks_secret(self, app: Any, decoded_path: str) -> None:
         status, body = await _asgi_get(app, decoded_path)
-        assert SECRET.encode() not in body
-        assert status == 200
-        assert body.decode() == INDEX_HTML
+        _assert_not_found(status, body)
+
+    async def test_route_like_traversal_gets_the_index(self, app: Any) -> None:
+        status, body = await _asgi_get(app, "/../.env")
+        _assert_index(status, body)
 
     @pytest.mark.parametrize(
         "path",
@@ -612,16 +671,13 @@ class TestSymlinkedBuildDirectory:
         self, client: httpx.AsyncClient, path: str
     ) -> None:
         response = await client.get(path)
-        assert SECRET not in response.text
-        assert response.status_code == 200
-        assert response.text == INDEX_HTML
+        _assert_not_found(response.status_code, response.text)
 
     async def test_absolute_path_never_leaks_secret(
         self, app: Any, linked_site: SimpleNamespace
     ) -> None:
         status, body = await _asgi_get(app, "/" + str(linked_site.secret))
-        assert SECRET.encode() not in body
-        assert body.decode() == INDEX_HTML
+        _assert_not_found(status, body)
 
     async def test_symlink_pointing_outside_is_not_served(
         self, client: httpx.AsyncClient, linked_site: SimpleNamespace
@@ -631,7 +687,8 @@ class TestSymlinkedBuildDirectory:
         for path in ("/leak.txt", "/linked/data.txt"):
             response = await client.get(path)
             assert SECRET not in response.text, path
-            assert response.text == INDEX_HTML, path
+            assert INDEX_HTML not in response.text, path
+            assert response.status_code == 404, path
 
     async def test_symlink_staying_inside_build_is_still_served(
         self, client: httpx.AsyncClient, linked_site: SimpleNamespace

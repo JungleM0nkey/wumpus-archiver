@@ -115,7 +115,9 @@ the GIF index has an owner) and the download stats' own grouped query.
 - `POST /api/scrape/start` and `/api/scrape/cancel` require `Authorization: Bearer
   <api_auth_token>` (`auth.py`); with no token handed in they return 403, failing closed
 - Mounts the attachments dir at `/attachments` when given; a missing directory raises
-- Serves the portal build as an SPA when given (`index.html` fallback); `None` means API only
+- Serves the portal build as an SPA when given; `None` means API only. A request gets the
+  matching build file if there is one, a 404 if its last segment has a file extension
+  (`/favicon.ico`, `/robots.txt`), and `index.html` otherwise (the portal's own routes)
 
 **Dependencies** (`deps.py`):
 - Handlers declare `Db`, `AttachmentsDir`, `Scrape` or `ApiAuthToken` instead of reading
