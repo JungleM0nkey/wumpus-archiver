@@ -681,7 +681,9 @@ async def top_channels(session: AsyncSession, guild_id: int, *, limit: int) -> l
 
     Categories, voice channels and threads are never listed. Ranked by
     ``Channel.message_count``, the counter the ingest maintains, not by a live count
-    of messages: whether that counter survives is a separate decision.
+    of messages: whether that counter survives is a separate decision. The scraper
+    recounts it from the archive at the end of each channel's scrape, so it is as
+    current as the channel's last scrape.
     """
     result = await session.execute(
         select(Channel.id, Channel.name, Channel.message_count)

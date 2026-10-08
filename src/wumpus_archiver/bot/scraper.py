@@ -269,14 +269,13 @@ class ArchiverBot:
             progress_callback(channel.name, stats["messages"])
 
         # Update channel metadata using tracked IDs (avoids redundant API calls)
-        if stats["messages"] > 0:
-            if first_message_id is not None:
-                db_channel.first_message_id = first_message_id
-            if last_message_id is not None:
-                db_channel.last_message_id = last_message_id
-                await channel_repo.update_message_metadata(
-                    channel.id, last_message_id, stats["messages"]
-                )
+        if first_message_id is not None:
+            db_channel.first_message_id = first_message_id
+        if last_message_id is not None:
+            db_channel.last_message_id = last_message_id
+        # Recounts the channel's archived messages, even when this scrape read none, so a
+        # re-scrape never adds messages already archived and an inflated count heals.
+        await channel_repo.update_message_metadata(channel.id, last_message_id)
 
         return stats
 

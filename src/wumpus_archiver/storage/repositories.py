@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from wumpus_archiver.models.attachment import Attachment
@@ -85,13 +85,22 @@ class ChannelRepository:
             return channel
 
     async def update_message_metadata(
-        self, channel_id: int, last_message_id: int, increment: int = 1
+        self, channel_id: int, last_message_id: int | None = None
     ) -> None:
-        """Update channel message count and last message."""
+        """Record a finished scrape of a channel: its last message, and its message count.
+
+        ``message_count`` is recounted from the messages the archive holds for the
+        channel rather than incremented by the messages the scrape read, so a re-scrape
+        cannot inflate it and a count inflated before this rule is corrected (#69).
+        """
         channel = await self.get_by_id(channel_id)
         if channel:
-            channel.last_message_id = last_message_id
-            channel.message_count += increment
+            if last_message_id is not None:
+                channel.last_message_id = last_message_id
+            archived = await self.session.execute(
+                select(func.count()).select_from(Message).where(Message.channel_id == channel_id)
+            )
+            channel.message_count = archived.scalar_one()
             channel.last_scraped_at = datetime.now(UTC)
 
 

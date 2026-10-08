@@ -1,9 +1,15 @@
 """Test adapters for the project's ports."""
 
-from datetime import UTC, datetime
-from typing import Any
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 from wumpus_archiver.api.scrape_control import JobStatus, ScrapeJob
+from wumpus_archiver.storage.database import Database
+
+if TYPE_CHECKING:
+    from wumpus_archiver.bot.scraper import ArchiverBot
 
 _ACTIVE = (JobStatus.PENDING, JobStatus.CONNECTING, JobStatus.SCRAPING)
 
@@ -73,3 +79,96 @@ class FakeScrapeControl:
         self._history.append(job)
         self.current_job = None
         return job
+
+
+class FakeDiscordChannel:
+    """A Discord text channel as ``ArchiverBot`` reads it, over a list of message ids.
+
+    ``history`` yields a message per id, newest first, as discord.py does with
+    ``oldest_first=False``. ``post`` adds messages between scrapes.
+    """
+
+    def __init__(self, guild: "FakeDiscordGuild", channel_id: int, name: str) -> None:
+        self.guild = guild
+        self.id = channel_id
+        self.name = name
+        self.type = SimpleNamespace(value=0)
+        self.topic: str | None = None
+        self.position = 0
+        self.parent_id: int | None = None
+        self.category_id: int | None = None
+        self.message_ids: list[int] = []
+
+    def post(self, *message_ids: int) -> None:
+        self.message_ids.extend(message_ids)
+
+    async def history(
+        self, *, limit: int | None = None, oldest_first: bool = False
+    ) -> AsyncIterator[Any]:
+        ids = sorted(self.message_ids, reverse=not oldest_first)[:limit]
+        for message_id in ids:
+            yield _fake_discord_message(self, message_id)
+
+    async def archived_threads(self, *, limit: int | None = None) -> AsyncIterator[Any]:
+        return
+        yield
+
+
+class FakeDiscordGuild:
+    """A Discord guild of text channels only, as ``ArchiverBot.scrape_guild`` reads it."""
+
+    def __init__(self, guild_id: int, name: str = "Fake guild") -> None:
+        self.id = guild_id
+        self.name = name
+        self.icon = None
+        self.owner_id: int | None = None
+        self.member_count = 1
+        self.text_channels: list[FakeDiscordChannel] = []
+        self.voice_channels: list[Any] = []
+        self.stage_channels: list[Any] = []
+        self.forum_channels: list[Any] = []
+        self.threads: list[Any] = []
+
+    def add_channel(self, channel_id: int, name: str, *message_ids: int) -> FakeDiscordChannel:
+        channel = FakeDiscordChannel(self, channel_id, name)
+        channel.post(*message_ids)
+        self.text_channels.append(channel)
+        return channel
+
+
+FAKE_DISCORD_AUTHOR = SimpleNamespace(
+    id=7_000, name="wumpus", discriminator="0", global_name="Wumpus", avatar=None, bot=False
+)
+
+
+def _fake_discord_message(channel: FakeDiscordChannel, message_id: int) -> Any:
+    return SimpleNamespace(
+        id=message_id,
+        channel=channel,
+        author=FAKE_DISCORD_AUTHOR,
+        content=f"message {message_id}",
+        clean_content=f"message {message_id}",
+        created_at=datetime(2024, 1, 1, tzinfo=UTC) + timedelta(minutes=message_id % 100_000),
+        edited_at=None,
+        pinned=False,
+        tts=False,
+        mention_everyone=False,
+        embeds=[],
+        reference=None,
+        attachments=[],
+        reactions=[],
+    )
+
+
+def fake_archiver_bot(database: Database, *guilds: FakeDiscordGuild) -> "ArchiverBot":
+    """A real ``ArchiverBot`` over ``database`` whose gateway client knows only ``guilds``.
+
+    Nothing connects: the bot is never started, and ``get_guild`` answers from the fakes.
+    """
+    from wumpus_archiver.bot.scraper import ArchiverBot
+
+    by_id = {guild.id: guild for guild in guilds}
+    bot = ArchiverBot.__new__(ArchiverBot)
+    bot.database = database
+    bot.client = SimpleNamespace(get_guild=by_id.get)  # type: ignore[assignment]
+    return bot

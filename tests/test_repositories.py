@@ -131,17 +131,23 @@ class TestChannelRepository:
         await session.flush()
 
         repo = ChannelRepository(session)
-        channel = Channel(id=2301, guild_id=2300, name="test", type=0)
+        # A count an earlier scrape inflated, over the three messages the archive holds.
+        channel = Channel(id=2301, guild_id=2300, name="test", type=0, message_count=50)
         await repo.upsert(channel)
+        when = datetime(2024, 1, 1)
+        session.add_all(
+            Message(id=99997 + i, channel_id=2301, created_at=when, scraped_at=when)
+            for i in range(3)
+        )
         await session.flush()
 
-        await repo.update_message_metadata(2301, last_message_id=99999, increment=50)
+        await repo.update_message_metadata(2301, last_message_id=99999)
         await session.flush()
 
         result = await repo.get_by_id(2301)
         assert result is not None
         assert result.last_message_id == 99999
-        assert result.message_count == 50
+        assert result.message_count == 3
         assert result.last_scraped_at is not None
 
 
