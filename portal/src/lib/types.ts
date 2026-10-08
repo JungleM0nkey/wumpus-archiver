@@ -95,7 +95,8 @@ export interface SearchResult {
 export interface SearchResponse {
 	results: SearchResult[];
 	total: number;
-	query: string;
+	/** The search query; null when the read is an author's messages with no query. */
+	query: string | null;
 }
 
 export interface TopChannel {

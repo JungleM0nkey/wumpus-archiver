@@ -71,6 +71,17 @@ export async function searchMessages(
 	return fetchJSON<SearchResponse>(`/search?${params.toString()}`);
 }
 
+/** The author's newest messages: a search with no query, scoped to the author. */
+export async function getAuthorMessages(
+	authorId: string | number,
+	opts: { guild_id?: string | number; limit?: number } = {}
+): Promise<SearchResponse> {
+	const params = new URLSearchParams({ author_id: String(authorId) });
+	if (opts.guild_id) params.set('guild_id', String(opts.guild_id));
+	if (opts.limit) params.set('limit', String(opts.limit));
+	return fetchJSON<SearchResponse>(`/search?${params.toString()}`);
+}
+
 export async function getStats(guildId: string | number): Promise<Stats> {
 	return fetchJSON<Stats>(`/guilds/${guildId}/stats`);
 }

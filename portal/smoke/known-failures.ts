@@ -20,14 +20,4 @@ export interface KnownFailure {
 	query?: (params: URLSearchParams) => boolean;
 }
 
-export const KNOWN_FAILURES: KnownFailure[] = [
-	{
-		ticket: '#55',
-		why: "The profile's Load Messages sends an empty-query search, which /api/search rejects",
-		route: '/users/[id]',
-		method: 'GET',
-		path: '/api/search',
-		status: 422,
-		query: (params) => params.get('q') === ''
-	}
-];
+export const KNOWN_FAILURES: KnownFailure[] = [];

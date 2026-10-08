@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { PageProps } from './$types';
-	import { getGuilds, getUserProfile, searchMessages } from '#lib/api.ts';
+	import { getAuthorMessages, getGuilds, getUserProfile } from '#lib/api.ts';
 	import type { Guild, UserProfile, Message } from '#lib/types.ts';
 	import StatCard from '#lib/components/StatCard.svelte';
 	import MessageCard from '#lib/components/MessageCard.svelte';
@@ -13,6 +13,7 @@
 	let error = $state('');
 	let showMessages = $state(false);
 	let loadingMessages = $state(false);
+	let messagesError = $state('');
 
 	let { params }: PageProps = $props();
 	const userId = $derived(params.id);
@@ -34,26 +35,17 @@
 	});
 
 	async function loadRecentMessages() {
-		if (showMessages || !profile) return;
+		if (showMessages || loadingMessages || !profile) return;
 		loadingMessages = true;
+		messagesError = '';
 		try {
-			const res = await searchMessages('', {
-				guild_id: guild?.id,
-				limit: 20,
-			});
-			// searchMessages requires a query, so we use author_id filter via direct fetch
-			const params = new URLSearchParams({ q: ' ', author_id: userId, limit: '20' });
-			if (guild) params.set('guild_id', guild.id);
-			const r = await fetch(`/api/search?${params}`);
-			if (r.ok) {
-				const data = await r.json();
-				recentMessages = data.results.map((sr: { message: Message }) => sr.message);
-			}
-		} catch {
-			// Silent fail for messages
+			const res = await getAuthorMessages(userId, { guild_id: guild?.id, limit: 20 });
+			recentMessages = res.results.map((result) => result.message);
+			showMessages = true;
+		} catch (e) {
+			messagesError = e instanceof Error ? e.message : 'Failed to load recent messages';
 		} finally {
 			loadingMessages = false;
-			showMessages = true;
 		}
 	}
 
@@ -247,6 +239,9 @@
 				</button>
 			</h2>
 
+			{#if messagesError}
+				<p class="mono" style="color: var(--error); font-size: 13px;">⚠ {messagesError}</p>
+			{/if}
 			{#if showMessages && recentMessages.length > 0}
 				<div class="messages-list">
 					{#each recentMessages as msg (msg.id)}
@@ -255,7 +250,7 @@
 				</div>
 			{:else if showMessages}
 				<p class="mono" style="color: var(--text-muted); font-size: 13px;">
-					No recent messages found with content.
+					No recent messages found.
 				</p>
 			{/if}
 		</section>
