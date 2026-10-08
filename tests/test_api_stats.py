@@ -287,3 +287,39 @@ async def test_create_tables_gives_an_older_archive_the_completed_scrapes_table(
     async with database.session() as session:
         assert await archive_reads.last_completed_scrape(session, 1) is not None
 
+
+# ── Activity ─────────────────────────────────────────────────────────────────
+
+
+async def test_guild_activity_counts_messages_per_month(
+    client: AsyncClient, database: Database
+) -> None:
+    async with database.session() as session:
+        session.add_all(
+            [
+                Message(id=40, channel_id=11, created_at=datetime(2024, 1, 31), scraped_at=WHEN),
+                Message(id=41, channel_id=11, created_at=datetime(2024, 3, 31), scraped_at=WHEN),
+                Message(id=42, channel_id=20, created_at=datetime(2023, 12, 1), scraped_at=WHEN),
+            ]
+        )
+    response = await client.get("/api/guilds/1/activity")
+    assert response.status_code == 200
+    assert response.json() == {
+        "period": "month",
+        "buckets": [
+            {"start": "2024-01-01", "messages": 1},
+            {"start": "2024-03-01", "messages": 5},
+        ],
+    }
+
+
+async def test_guild_activity_by_week(client: AsyncClient) -> None:
+    payload = (await client.get("/api/guilds/1/activity", params={"period": "week"})).json()
+    assert payload == {"period": "week", "buckets": [{"start": "2024-02-26", "messages": 4}]}
+
+
+async def test_guild_activity_of_an_unknown_guild_is_404(client: AsyncClient) -> None:
+    assert (await client.get("/api/guilds/99/activity")).status_code == 404
+    assert (
+        await client.get("/api/guilds/1/activity", params={"period": "year"})
+    ).status_code == 422

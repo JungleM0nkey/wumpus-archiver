@@ -1,7 +1,7 @@
 """Pydantic schemas for API responses."""
 
 from datetime import date, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, PlainSerializer
 
@@ -181,6 +181,20 @@ class StatsSchema(BaseModel):
     top_channels: list[dict[str, object]]
     top_users: list[dict[str, object]]
     since_last_scrape: SinceLastScrapeSchema | None = None
+
+
+class ActivityBucketSchema(BaseModel):
+    """Messages in one calendar month or ISO week, starting on ``start``."""
+
+    start: date
+    messages: int
+
+
+class ActivitySchema(BaseModel):
+    """A guild's activity: messages per period, oldest first, only periods holding messages."""
+
+    period: Literal["month", "week"]
+    buckets: list[ActivityBucketSchema]
 
 
 class GalleryAttachmentSchema(BaseModel):

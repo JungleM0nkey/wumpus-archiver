@@ -5,11 +5,13 @@ from fastapi import APIRouter
 from wumpus_archiver.api.deps import Db
 from wumpus_archiver.api.routes._helpers import raise_not_found
 from wumpus_archiver.api.schemas import (
+    ActivityBucketSchema,
+    ActivitySchema,
     SinceLastScrapeSchema,
     StatsSchema,
 )
 from wumpus_archiver.storage import archive_reads
-from wumpus_archiver.storage.archive_reads import AuthorSort, Scope
+from wumpus_archiver.storage.archive_reads import AuthorSort, Period, Scope
 
 router = APIRouter()
 
@@ -66,3 +68,18 @@ async def get_guild_stats(db: Db, guild_id: int) -> StatsSchema:
         since_last_scrape=since_last_scrape,
     )
 
+
+@router.get("/guilds/{guild_id}/activity", response_model=ActivitySchema)
+async def get_guild_activity(
+    db: Db, guild_id: int, period: Period = Period.MONTH
+) -> ActivitySchema:
+    """Messages per calendar month (or ISO week) over the whole guild, oldest first."""
+    async with db.session() as session:
+        if not await archive_reads.guild(session, guild_id):
+            raise_not_found("Guild not found")
+        buckets = await archive_reads.activity(session, Scope(guild=guild_id), period=period)
+
+    return ActivitySchema(
+        period=period.value,
+        buckets=[ActivityBucketSchema(start=b.start, messages=b.messages) for b in buckets],
+    )

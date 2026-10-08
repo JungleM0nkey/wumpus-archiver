@@ -137,6 +137,12 @@ async def test_the_most_active_channels_leave_out_the_categories(client: AsyncCl
     assert [c["name"] for c in stats["top_channels"]] == ["lobby", "general", "random", "art"]
 
 
+async def test_the_first_guild_is_active_in_two_months(client: AsyncClient) -> None:
+    """The Overview chart's smoke test counts one point per month."""
+    activity = (await client.get(f"/api/guilds/{GUILD_ID}/activity")).json()
+    assert [b["start"] for b in activity["buckets"]] == ["2024-05-01", "2024-06-01"]
+
+
 async def test_written_archive_holds_the_seed_and_its_files(tmp_path: Path) -> None:
     directory = tmp_path / "smoke"
     (directory / "stale").mkdir(parents=True)
