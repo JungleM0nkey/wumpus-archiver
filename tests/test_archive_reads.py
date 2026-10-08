@@ -719,14 +719,15 @@ class TestAuthors:
         [
             (AuthorSort.MESSAGES, Scope(), [ALICE, BOB, CAROL]),
             (AuthorSort.MESSAGES, Scope(channel=SIBLING_CHANNEL), [ALICE, BOB, CAROL]),
-            (AuthorSort.NAME, Scope(), [ALICE, CAROL, BOB]),
+            # Carol's username ties Alice's, but the shown name is her global name.
+            (AuthorSort.NAME, Scope(), [CAROL, ALICE, BOB]),
             (AuthorSort.RECENT, Scope(), [BOB, ALICE, CAROL]),
             (AuthorSort.RECENT, Scope(channel=FOREIGN_CHANNEL), [ALICE, CAROL, BOB]),
         ],
         ids=[
             "messages",
             "messages tie",
-            "name tie",
+            "name shown",
             "recent",
             "recent tie",
         ],
@@ -775,7 +776,7 @@ class TestAuthors:
     async def test_paging(self, reads: AsyncSession) -> None:
         first = await archive_reads.authors(reads, Scope(), sort=AuthorSort.NAME, limit=2)
         rest = await archive_reads.authors(reads, Scope(), sort=AuthorSort.NAME, limit=2, offset=2)
-        assert (_user_ids(first), first.total, first.has_more) == ([ALICE, CAROL], 3, True)
+        assert (_user_ids(first), first.total, first.has_more) == ([CAROL, ALICE], 3, True)
         assert (_user_ids(rest), rest.total, rest.has_more) == ([BOB], 3, False)
 
     async def test_an_unknown_sort_is_refused(self, reads: AsyncSession) -> None:

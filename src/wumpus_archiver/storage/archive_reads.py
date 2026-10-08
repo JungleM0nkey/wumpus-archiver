@@ -116,7 +116,11 @@ class AuthorRow:
 
 
 class AuthorSort(StrEnum):
-    """How ``authors()`` orders its rows. Ties are broken by user id."""
+    """How ``authors()`` orders its rows. Ties are broken by user id.
+
+    ``NAME`` orders by the name the portal shows, the global name or else the username,
+    case-insensitively.
+    """
 
     MESSAGES = "messages"
     NAME = "name"
@@ -496,7 +500,7 @@ async def authors(
     last_seen = func.max(Message.created_at)
     ordering: dict[AuthorSort, ColumnElement[Any]] = {
         AuthorSort.MESSAGES: messages.desc(),
-        AuthorSort.NAME: User.username.asc(),
+        AuthorSort.NAME: func.lower(func.coalesce(User.global_name, User.username)).asc(),
         AuthorSort.RECENT: last_seen.desc(),
     }
     rows = (

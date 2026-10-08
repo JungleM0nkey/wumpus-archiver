@@ -126,3 +126,28 @@ async def test_profile_scoped_to_a_guild(client: AsyncClient) -> None:
     assert (payload["total_messages"], payload["active_channels"]) == (4, 2)
     assert payload["total_reactions_received"] == 5
     assert [c["channel_id"] for c in payload["top_channels"]] == ["10", "11"]
+
+
+async def test_guild_users_sort_by_the_shown_name_ignoring_case(
+    client: AsyncClient, database: Database
+) -> None:
+    # The shown name is the global name, else the username. By code point "BEN" and
+    # "Zoe" would sort before "alice".
+    async with database.session() as session:
+        session.add_all(
+            [User(id=102, username="Zoe", global_name="ann"), User(id=103, username="BEN")]
+        )
+        for message_id, author_id in [(7, 102), (8, 103)]:
+            session.add(
+                Message(
+                    id=message_id,
+                    channel_id=20,
+                    author_id=author_id,
+                    content="hi",
+                    clean_content="hi",
+                    created_at=NOW,
+                    scraped_at=NOW,
+                )
+            )
+    payload = (await client.get("/api/guilds/2/users", params={"sort": "name"})).json()
+    assert [u["display_name"] for u in payload["users"]] == ["Alice", "ann", "BEN"]
