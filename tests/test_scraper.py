@@ -4,11 +4,17 @@
 after any number of scrapes (#69).
 """
 
+import asyncio
+
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select, update
 
 from tests.fakes import FakeDiscordGuild, fake_archiver_bot
+from wumpus_archiver.api.scrape_control import JobStatus
+from wumpus_archiver.api.scrape_manager import ScrapeJobManager
 from wumpus_archiver.models.channel import Channel
+from wumpus_archiver.models.completed_scrape import CompletedScrape
 from wumpus_archiver.models.message import Message
 from wumpus_archiver.storage.database import Database
 
@@ -194,3 +200,72 @@ async def test_a_rescrape_refreshes_a_channels_details_and_keeps_its_archive_met
         )
         assert stored.message_count == 5
         assert stored.last_scraped_at is not None
+
+
+# A scrape job cancelled after the scraper starts leaves no completed scrape (ADR 0004),
+# and stays cancelled; one that completes leaves exactly one.
+
+
+async def _completed_scrapes(database: Database) -> int:
+    async with database.session() as session:
+        return int(
+            await session.scalar(
+                select(func.count())
+                .select_from(CompletedScrape)
+                .where(CompletedScrape.guild_id == GUILD)
+            )
+            or 0
+        )
+
+
+def _manager_on(
+    monkeypatch: pytest.MonkeyPatch, database: Database, guild: FakeDiscordGuild
+) -> ScrapeJobManager:
+    """A scrape job manager whose jobs run the real scraper over ``guild``."""
+    import wumpus_archiver.bot.scraper as scraper
+
+    bot = fake_archiver_bot(database, guild)
+    monkeypatch.setattr(scraper, "ArchiverBot", lambda _token, _database: bot)
+    return ScrapeJobManager(database, "token")
+
+
+async def _job_ends(manager: ScrapeJobManager) -> None:
+    assert manager._task is not None
+    await asyncio.wait_for(manager._task, timeout=5)
+
+
+async def test_a_job_cancelled_mid_scrape_records_no_completed_scrape(
+    database: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cancelled while the last archived thread is read: no request follows the close,
+    so nothing in the scrape fails, yet the job did not complete."""
+    guild = _guild()
+    thread = guild.text_channels[1].archive_thread(520, "old-thread", 3_000, 3_001)
+    thread.hold = asyncio.Event()
+    manager = _manager_on(monkeypatch, database, guild)
+
+    job = manager.start_scrape(GUILD)
+    await asyncio.wait_for(thread.reached.wait(), timeout=5)
+    assert manager.cancel() is True
+    await asyncio.sleep(0)  # the cancel closes the bot's connection
+    thread.hold.set()
+    await _job_ends(manager)
+
+    assert await _completed_scrapes(database) == 0
+    assert job.status == JobStatus.CANCELLED
+    assert [(j.id, j.status) for j in manager.history] == [(job.id, JobStatus.CANCELLED)]
+
+
+async def test_a_job_that_completes_records_one_completed_scrape(
+    database: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    guild = _guild()
+    guild.text_channels[1].archive_thread(520, "old-thread", 3_000, 3_001)
+    manager = _manager_on(monkeypatch, database, guild)
+
+    job = manager.start_scrape(GUILD)
+    await _job_ends(manager)
+
+    assert job.status == JobStatus.COMPLETED
+    assert job.result is not None and job.result["messages_scraped"] == 9
+    assert await _completed_scrapes(database) == 1

@@ -28,6 +28,10 @@ from wumpus_archiver.storage.repositories import (
 )
 
 
+class ScrapeCancelledError(Exception):
+    """The bot was closed while ``scrape_guild`` ran, so the scrape did not complete."""
+
+
 class ArchiverBot:
     """Discord bot for archiving server data."""
 
@@ -42,6 +46,8 @@ class ArchiverBot:
         self.database = database
         self._ready_event = asyncio.Event()
         self._bot_task: asyncio.Task[None] | None = None
+        # Set by ``close``: a scrape still running is cancelled, not completed.
+        self._closed = False
 
         # Setup Discord intents
         intents = discord.Intents.default()
@@ -76,6 +82,10 @@ class ArchiverBot:
 
         Returns:
             Dict with scraping statistics
+
+        Raises:
+            ScrapeCancelledError: If the bot was closed before the scrape completed. The
+                channels written so far stay, but the scrape is not recorded as completed.
         """
         guild = self.client.get_guild(guild_id)
         if not guild:
@@ -163,6 +173,12 @@ class ArchiverBot:
                             print(error_msg)
             except discord.Forbidden:
                 errors.append("No permission to list archived threads")
+
+            # Closing the bot cancels the scrape (the scrape job manager's cancel does). The
+            # loops above catch what the closed connection makes fail, and may have nothing
+            # left to fail at all, so only a scrape the bot stayed open for is completed.
+            if self._closed:
+                raise ScrapeCancelledError(f"the scrape of guild {guild_id} was cancelled")
 
             # Update guild scrape metadata
             guild_repo = GuildRepository(session)
@@ -391,7 +407,8 @@ class ArchiverBot:
         await self._ready_event.wait()
 
     async def close(self) -> None:
-        """Close the bot connection."""
+        """Close the bot connection, cancelling any scrape still running."""
+        self._closed = True
         await self.client.close()
         if self._bot_task is not None:
             self._bot_task.cancel()
