@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import {
 		getGuilds,
 		getScrapeStatus,
@@ -23,7 +23,6 @@
 	let selectedGuildId = $state('');
 	let customGuildId = $state('');
 	let apiToken = $state('');
-	let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 	// Computed
 	let currentJob = $derived(status?.current_job ?? null);
@@ -40,12 +39,13 @@
 	onMount(async () => {
 		apiToken = getApiToken();
 		await loadAll();
-		// Poll for status updates every 2s
-		pollTimer = setInterval(pollStatus, 2000);
 	});
 
-	onDestroy(() => {
-		if (pollTimer) clearInterval(pollTimer);
+	// Poll the scrape job's status every 2s, only while one is running.
+	$effect(() => {
+		if (!isBusy) return;
+		const timer = setInterval(pollStatus, 2000);
+		return () => clearInterval(timer);
 	});
 
 	async function loadAll() {
@@ -70,16 +70,20 @@
 		}
 	}
 
+	/** Read the status; when the job that was running (`jobRan`) has finished, re-read history. */
+	async function refreshStatus(jobRan: boolean) {
+		status = await getScrapeStatus();
+		if (jobRan && !status.busy) {
+			const hist = await getScrapeHistory();
+			history = hist.jobs;
+		}
+	}
+
 	async function pollStatus() {
 		try {
-			status = await getScrapeStatus();
-			// Refresh history when a job finishes
-			if (status && !status.busy && history.length > 0) {
-				const hist = await getScrapeHistory();
-				history = hist.jobs;
-			}
+			await refreshStatus(isBusy);
 		} catch {
-			// Silently fail polling
+			// A failed poll is retried on the next tick
 		}
 	}
 
@@ -106,7 +110,7 @@
 		}
 		try {
 			await startScrape(gid);
-			status = await getScrapeStatus();
+			await refreshStatus(true);
 		} catch (e) {
 			actionError = describeActionError(e, 'Failed to start scrape');
 		}
@@ -116,9 +120,7 @@
 		actionError = '';
 		try {
 			await cancelScrape();
-			status = await getScrapeStatus();
-			const hist = await getScrapeHistory();
-			history = hist.jobs;
+			await refreshStatus(true);
 		} catch (e) {
 			actionError = describeActionError(e, 'Failed to cancel');
 		}
