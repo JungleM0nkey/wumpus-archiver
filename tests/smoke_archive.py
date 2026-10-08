@@ -142,15 +142,16 @@ _NIGHT_ATTACHMENTS: list[_AttachmentRow] = [
 _FIRST_NIGHT_ATTACHMENT_ID = 900000000000002100
 
 # ── The Media screen (#62) ──────────────────────────────────────────────────
-# Media on #random's messages, so the Media screen has a GIF, a video and images of
-# several shapes to lay out, badge and filter by type, over two months. They stay off
-# #art, whose attachments other smoke tests count. One image has no recorded size,
+# Media on Bob's two messages in #random, so the Media screen has a GIF, a video and
+# images of several shapes to lay out, badge and filter by type, over two months. They
+# stay off #art and Alice, whose attachments other smoke tests count. One image has
+# no recorded size,
 # as Discord sometimes leaves it, so the screen's fallback is exercised. As
 # _ATTACHMENTS, indexing _MESSAGES.
 _MEDIA_ATTACHMENTS: list[_AttachmentRow] = [
     (4, "wumpus-dance.gif", "image/gif", 160, 160),
-    (5, "tall-poster.png", "image/png", 3, 4),
-    (5, "unmeasured.png", "image/png", None, None),
+    (4, "tall-poster.png", "image/png", 3, 4),
+    (4, "unmeasured.png", "image/png", None, None),
     (11, "clip.webm", "video/webm", 320, 180),
     (11, "panorama.png", "image/png", 21, 9),
 ]
