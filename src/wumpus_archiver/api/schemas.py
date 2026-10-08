@@ -147,7 +147,7 @@ class SearchResponse(BaseModel):
 
     results: list[SearchResultSchema]
     total: int
-    query: str
+    query: str | None
 
 
 class StatsSchema(BaseModel):

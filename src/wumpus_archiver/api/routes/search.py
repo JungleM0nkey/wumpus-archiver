@@ -1,6 +1,6 @@
 """Search API route handlers."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from wumpus_archiver.api.deps import AttachmentsDir, Db
 from wumpus_archiver.api.routes._helpers import rewrite_attachment_url
@@ -20,13 +20,21 @@ router = APIRouter()
 async def search_messages(
     db: Db,
     attachments_dir: AttachmentsDir,
-    q: str = Query(..., min_length=1, description="Search query"),
+    q: str | None = Query(
+        None, min_length=1, description="Search query; may be left out when author_id is given"
+    ),
     guild_id: int | None = Query(None, description="Filter by guild"),
     channel_id: int | None = Query(None, description="Filter by channel"),
     author_id: int | None = Query(None, description="Filter by author"),
     limit: int = Query(50, ge=1, le=100, description="Max results"),
 ) -> SearchResponse:
-    """Search messages by content."""
+    """Messages in scope whose content contains ``q``, newest first.
+
+    Without ``q`` the read is the author's messages, newest first, so ``author_id`` is
+    then required (an id of 0 is no author, as for every filter here).
+    """
+    if q is None and not author_id:
+        raise HTTPException(status_code=422, detail="q is required unless author_id is given")
     async with db.session() as session:
         page = await archive_reads.messages(
             session,

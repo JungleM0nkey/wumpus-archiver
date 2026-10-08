@@ -1,5 +1,7 @@
 """Tests for search inputs on the API: case-insensitive matching and LIKE-wildcard escaping.
 
+Also covers ``/api/search`` without ``q``, which lists an author's newest messages.
+
 Covers ``/api/gifs``, ``/api/gifs/random``, ``/api/search`` and
 ``/api/guilds/{guild_id}/users`` against SQLite (the default database). The unit tests for
 the LIKE escaping live with archive reads in ``tests/test_archive_reads.py``.
@@ -315,6 +317,64 @@ class TestMessageSearch:
         )
         assert response.status_code == 200
         assert response.json() == {"results": [], "total": 0, "query": "%"}
+
+
+class TestAuthorMessages:
+    """Tests for GET /api/search?author_id= without q: an author's newest messages."""
+
+    @pytest.fixture(autouse=True)
+    async def _older_messages(self, seeded_db: Database) -> None:
+        """User 202 also posted three older messages, an hour apart."""
+        async with seeded_db.session() as session:
+            for index, hour in enumerate((1, 3, 2)):
+                session.add(
+                    Message(
+                        id=950 + index,
+                        author_id=202,
+                        channel_id=CHANNEL_ID,
+                        content=f"older {hour}",
+                        clean_content=f"older {hour}",
+                        created_at=datetime(2024, 1, 1, hour, tzinfo=UTC),
+                        scraped_at=datetime.now(UTC),
+                    )
+                )
+
+    async def test_lists_the_authors_messages_newest_first(self, client: AsyncClient) -> None:
+        """Test that without q the page is every message of the author, newest first."""
+        response = await client.get("/api/search", params={"author_id": 202})
+        assert response.status_code == 200
+        payload = response.json()
+        contents = [r["message"]["content"] for r in payload["results"]]
+        assert contents == ["hi", "older 3", "older 2", "older 1"]
+        assert {r["message"]["author"]["id"] for r in payload["results"]} == {"202"}
+        assert (payload["total"], payload["query"]) == (4, None)
+
+    async def test_limit_keeps_the_newest_and_the_whole_total(self, client: AsyncClient) -> None:
+        """Test that a limited page holds the newest messages and the total counts them all."""
+        response = await client.get("/api/search", params={"author_id": 202, "limit": 2})
+        assert response.status_code == 200
+        payload = response.json()
+        assert [r["message"]["id"] for r in payload["results"]] == ["901", "951"]
+        assert payload["total"] == 4
+
+    async def test_composes_with_guild_and_channel(self, client: AsyncClient) -> None:
+        """Test that the author's messages stay scoped by guild and channel."""
+        params = {"author_id": 202, "guild_id": GUILD_ID, "channel_id": CHANNEL_ID}
+        response = await client.get("/api/search", params=params)
+        assert response.json()["total"] == 4
+        response = await client.get("/api/search", params={"author_id": 202, "guild_id": 2})
+        assert response.status_code == 200
+        assert response.json() == {"results": [], "total": 0, "query": None}
+
+    @pytest.mark.parametrize(
+        "params", [{}, {"guild_id": GUILD_ID}, {"author_id": 0}, {"q": "", "author_id": 202}]
+    )
+    async def test_q_is_required_without_an_author(
+        self, client: AsyncClient, params: dict[str, Any]
+    ) -> None:
+        """Test that neither q nor an author, or an empty q, is still a 422."""
+        response = await client.get("/api/search", params=params)
+        assert response.status_code == 422
 
 
 class TestUserSearch:
