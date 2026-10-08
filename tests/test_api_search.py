@@ -316,7 +316,13 @@ class TestMessageSearch:
             "/api/search", params={"q": "%", "guild_id": GUILD_ID + 1, "channel_id": CHANNEL_ID}
         )
         assert response.status_code == 200
-        assert response.json() == {"results": [], "total": 0, "query": "%"}
+        assert response.json() == {
+            "results": [],
+            "total": 0,
+            "query": "%",
+            "has_more": False,
+            "facets": None,
+        }
 
 
 class TestAuthorMessages:
@@ -364,7 +370,13 @@ class TestAuthorMessages:
         assert response.json()["total"] == 4
         response = await client.get("/api/search", params={"author_id": 202, "guild_id": 2})
         assert response.status_code == 200
-        assert response.json() == {"results": [], "total": 0, "query": None}
+        assert response.json() == {
+            "results": [],
+            "total": 0,
+            "query": None,
+            "has_more": False,
+            "facets": None,
+        }
 
     @pytest.mark.parametrize(
         "params", [{}, {"guild_id": GUILD_ID}, {"author_id": 0}, {"q": "", "author_id": 202}]
@@ -372,7 +384,7 @@ class TestAuthorMessages:
     async def test_q_is_required_without_an_author(
         self, client: AsyncClient, params: dict[str, Any]
     ) -> None:
-        """Test that neither q nor an author, or an empty q, is still a 422."""
+        """Test that neither q nor another filter, or an empty q, is still a 422."""
         response = await client.get("/api/search", params=params)
         assert response.status_code == 422
 

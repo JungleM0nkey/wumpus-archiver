@@ -307,6 +307,28 @@ async def _page(
     return fetched, int(counted.scalar_one()), has_more
 
 
+def _message_where(
+    scope: Scope,
+    *,
+    text: str | None = None,
+    terms: Sequence[str] = (),
+    has: Has | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> list[ColumnElement[bool]]:
+    """The predicates for messages in scope matching the text, terms, ``has`` and dates."""
+    where = _message_scope(scope)
+    for needle in ([text] if text is not None else []) + list(terms):
+        where.append(Message.content.ilike(f"%{escape_like(needle)}%", escape="\\"))
+    if has is not None:
+        where.append(_has(has))
+    if since is not None:
+        where.append(Message.created_at >= _naive_utc(since))
+    if until is not None:
+        where.append(Message.created_at < _naive_utc(until))
+    return where
+
+
 async def messages(
     session: AsyncSession,
     scope: Scope,
@@ -316,6 +338,7 @@ async def messages(
     before: int | None = None,
     after: int | None = None,
     text: str | None = None,
+    terms: Sequence[str] = (),
     has: Has | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
@@ -334,18 +357,11 @@ async def messages(
     page more follow in ``order``.
 
     ``text`` matches the content case-insensitively with LIKE wildcards taken
-    literally. ``since`` is inclusive and ``until`` exclusive; aware datetimes are
-    converted to naive UTC.
+    literally, and so does each of ``terms``: a message must contain every one, in any
+    order. ``since`` is inclusive and ``until`` exclusive; aware datetimes are converted
+    to naive UTC.
     """
-    where = _message_scope(scope)
-    if text is not None:
-        where.append(Message.content.ilike(f"%{escape_like(text)}%", escape="\\"))
-    if has is not None:
-        where.append(_has(has))
-    if since is not None:
-        where.append(Message.created_at >= _naive_utc(since))
-    if until is not None:
-        where.append(Message.created_at < _naive_utc(until))
+    where = _message_where(scope, text=text, terms=terms, has=has, since=since, until=until)
 
     paging: list[ColumnElement[bool]] = []
     older_anchor = await _anchor(session, before)
@@ -751,6 +767,83 @@ async def activity(
         start = on - timedelta(days=on.weekday()) if period is Period.WEEK else on.replace(day=1)
         buckets[start] = buckets.get(start, 0) + int(count)
     return [ActivityBucket(start, buckets[start]) for start in sorted(buckets)]
+
+
+@dataclass(frozen=True)
+class ChannelFacet:
+    """A channel and how many of a search's messages it holds."""
+
+    channel_id: int
+    name: str
+    messages: int
+
+
+@dataclass(frozen=True)
+class AuthorFacet:
+    """An author and how many of a search's messages they posted."""
+
+    user: User
+    messages: int
+
+
+@dataclass(frozen=True)
+class SearchFacets:
+    """How a search's messages divide by channel, by author and by calendar month.
+
+    ``channels`` and ``authors`` are the busiest first, ties by id, at most the limit
+    asked for; ``months`` is every month holding a match, oldest first.
+    """
+
+    channels: list[ChannelFacet]
+    authors: list[AuthorFacet]
+    months: list[ActivityBucket]
+
+
+async def search_facets(
+    session: AsyncSession,
+    scope: Scope,
+    *,
+    limit: int,
+    text: str | None = None,
+    terms: Sequence[str] = (),
+    has: Has | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> SearchFacets:
+    """The facets of the messages ``messages`` matches with the same filters.
+
+    Three grouped statements, one per facet, whatever the number of channels or authors.
+    A message whose author has no ``users`` row counts in channels and months but not
+    in authors. Months are grouped with ``extract``, as ``activity`` does.
+    """
+    where = _message_where(scope, text=text, terms=terms, has=has, since=since, until=until)
+    messages_ = func.count()
+    channels = await session.execute(
+        select(Channel.id, Channel.name, messages_)
+        .join(Message, Message.channel_id == Channel.id)
+        .where(*where)
+        .group_by(Channel.id, Channel.name)
+        .order_by(messages_.desc(), Channel.id.asc())
+        .limit(limit)
+    )
+    authors_ = await session.execute(
+        select(User, messages_)
+        .join(Message, Message.author_id == User.id)
+        .where(*where)
+        .group_by(User.id)
+        .order_by(messages_.desc(), User.id.asc())
+        .limit(limit)
+    )
+    year = extract("year", Message.created_at)
+    month = extract("month", Message.created_at)
+    months = await session.execute(
+        select(year, month, messages_).where(*where).group_by(year, month).order_by(year, month)
+    )
+    return SearchFacets(
+        channels=[ChannelFacet(*row) for row in channels.all()],
+        authors=[AuthorFacet(user, int(count)) for user, count in authors_.all()],
+        months=[ActivityBucket(date(int(y), int(m), 1), int(n)) for y, m, n in months.all()],
+    )
 
 
 async def top_channels(session: AsyncSession, guild_id: int, *, limit: int) -> list[TopChannel]:

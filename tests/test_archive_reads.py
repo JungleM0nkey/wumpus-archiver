@@ -2,6 +2,8 @@
 
 import ast
 import itertools
+import re
+from collections import Counter
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
@@ -643,11 +645,101 @@ async def test_total_agrees_with_the_rows(reads: AsyncSession, scope: str, windo
             assert counted.total == len(expected), case
 
 
+# --- search terms and facets (#64) ----------------------------------------------------------
+
+
+@in_module_loop
+class TestTerms:
+    """``terms`` keeps messages holding every term, in any order and case."""
+
+    @pytest.mark.parametrize(
+        ("terms", "expected"),
+        [
+            (["with", "image"], [3]),
+            (["IMAGE", "with"], [3]),
+            (["with", "a"], [3, 4, 7]),
+            (["with", "nothing"], []),
+            (["100%", "sure"], [31]),
+            (["_"], [32]),
+        ],
+    )
+    async def test_every_term_must_occur(
+        self, reads: AsyncSession, terms: list[str], expected: list[int]
+    ) -> None:
+        page = await archive_reads.messages(
+            reads, Scope(guild=GUILD), order=OLDEST, limit=50, terms=terms
+        )
+        assert sorted(_ids(page)) == expected
+        assert page.total == len(expected)
+
+    async def test_terms_compose_with_text(self, reads: AsyncSession) -> None:
+        page = await archive_reads.messages(
+            reads, IN_CHANNEL, order=OLDEST, limit=50, text="with", terms=["video"]
+        )
+        assert _ids(page) == [4]
+
+
+def _by_count(counts: Counter[int]) -> list[tuple[int, int]]:
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+
+
+@in_module_loop
+# An aware window is converted as in messages(), whose test covers it.
+@pytest.mark.parametrize("window", ["any time", "naive window"])
+@pytest.mark.parametrize("scope", list(SCOPES))
+async def test_search_facets_count_what_messages_matches(
+    reads: AsyncSession, scope: str, window: str
+) -> None:
+    """Every text and ``has`` under this scope and window; the case names the failing pair."""
+    since, until = WINDOWS[window]
+    for text, has in itertools.product(TEXTS, [None, *Has]):
+        case = f"text={text!r} has={has}"
+        facets = await archive_reads.search_facets(
+            reads,
+            SCOPES[scope],
+            limit=10,
+            terms=[] if text is None else [text],
+            has=has,
+            since=since,
+            until=until,
+        )
+        expected = _expected(SCOPES[scope], text, has, WINDOWS[window])
+        rows = [row for row in SEED_MESSAGES if row[0] in expected]
+        channels = Counter(channel for _, channel, *_ in rows)
+        authors = Counter(author for _, _, author, *_ in rows)
+        months = Counter(
+            (T0 + timedelta(minutes=minutes)).date().replace(day=1) for *_, minutes, _ in rows
+        )
+        assert [(c.channel_id, c.messages) for c in facets.channels] == _by_count(channels), case
+        assert [(a.user.id, a.messages) for a in facets.authors] == _by_count(authors), case
+        assert facets.months == [ActivityBucket(m, months[m]) for m in sorted(months)], case
+
+
+@in_module_loop
+async def test_search_facets_are_three_grouped_statements_within_the_limit(
+    reads: AsyncSession, statements: list[str]
+) -> None:
+    facets = await archive_reads.search_facets(reads, Scope(), limit=1)
+    assert len(statements) == 3
+    assert all("GROUP BY" in statement for statement in statements)
+    # Alice and channel 10 hold the most messages; every month is listed whatever the limit.
+    assert [(c.channel_id, c.name, c.messages) for c in facets.channels] == [
+        (CHANNEL, "general", 9)
+    ]
+    assert [(a.user.username, a.messages) for a in facets.authors] == [("alice", 8)]
+    assert [m.start for m in facets.months] == [
+        date(2023, 12, 1),
+        date(2024, 1, 1),
+        date(2024, 2, 1),
+    ]
+
+
 def test_no_route_looks_up_channel_names_for_search_results() -> None:
     from wumpus_archiver.api.routes import search
 
     source = Path(search.__file__).read_text()
-    assert "Channel" not in source
+    # The model, that is; the facet schemas may say "Channel" in their names.
+    assert re.search(r"\bChannel\b", source) is None
     assert "select(" not in source
 
 
@@ -1051,6 +1143,9 @@ async def test_every_read_compiles_for_sqlite_and_postgresql(reads: AsyncSession
         await archive_reads.reactions(reads, scope, limit=1)
         await archive_reads.activity(reads, scope, period=Period.WEEK, since=T0)
         await archive_reads.top_channels(reads, GUILD, limit=1)
+        await archive_reads.search_facets(
+            reads, scope, limit=1, terms=["a"], has=Has.IMAGE, since=T0, until=T0
+        )
     finally:
         event.remove(reads.sync_session, "do_orm_execute", capture)
 

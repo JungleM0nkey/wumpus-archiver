@@ -137,19 +137,62 @@ class GuildDetailSchema(GuildSchema):
 
 
 class SearchResultSchema(BaseModel):
-    """Search result item."""
+    """Search result item.
+
+    ``highlight`` is HTML: the snippet of the content around its first match, escaped,
+    with every occurrence of the query's terms in ``<mark>``. Nothing else is markup.
+    """
 
     message: MessageSchema
     channel_name: str
     highlight: str = ""
 
 
+class SearchChannelFacetSchema(BaseModel):
+    """A channel and how many of the search's messages it holds."""
+
+    id: Snowflake
+    name: str
+    count: int
+
+
+class SearchAuthorFacetSchema(BaseModel):
+    """An author and how many of the search's messages they posted."""
+
+    id: Snowflake
+    username: str
+    display_name: str
+    avatar_url: str | None = None
+    count: int
+
+
+class SearchMonthFacetSchema(BaseModel):
+    """How many of the search's messages fall in the month starting on ``start``."""
+
+    start: date
+    count: int
+
+
+class SearchFacetsSchema(BaseModel):
+    """How the search's messages divide by channel, author and month (``facets=true``)."""
+
+    channels: list[SearchChannelFacetSchema]
+    authors: list[SearchAuthorFacetSchema]
+    months: list[SearchMonthFacetSchema]
+
+
 class SearchResponse(BaseModel):
-    """Search results response."""
+    """Search results response.
+
+    ``has_more`` says whether more results follow in the requested sort; pass the last
+    result's id as ``cursor`` for them. ``facets`` is only filled when asked for.
+    """
 
     results: list[SearchResultSchema]
     total: int
     query: str | None
+    has_more: bool = False
+    facets: SearchFacetsSchema | None = None
 
 
 class SinceLastScrapeSchema(BaseModel):

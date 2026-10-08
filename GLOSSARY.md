@@ -73,6 +73,14 @@ _Avoid_: monthly_activity (a field), timeline groups (page-local)
 The users who have posted at least one message in a scope, with their counts.
 _Avoid_: people (the screen), members
 
+**Search terms**:
+The words of a search query, each of which a matching message must contain, in any order and case; a double-quoted phrase is one term. Filter chips (`in:`, `from:`, `has:`, `after:`, `before:`) are not terms.
+_Avoid_: keywords, query (the whole text, chips included)
+
+**Facets**:
+How a search's matches divide by channel, by author and by month, counted for the same terms and filters.
+_Avoid_: aggregations, buckets (an activity read's)
+
 **Gallery timeline**:
 The grouped-attachments endpoint behind the Media screen.
 _Avoid_: timeline (the old chronological message page)

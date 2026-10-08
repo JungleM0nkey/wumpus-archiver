@@ -19,7 +19,11 @@ from httpx import AsyncClient
         ("/api/guilds/1/users", 200, {"users": [], "total": 0, "has_more": False, "offset": 0}),
         ("/api/users/1", 404, {"detail": "User not found"}),
         ("/api/users/1/profile", 404, {"detail": "User not found"}),
-        ("/api/search?q=hello", 200, {"results": [], "total": 0, "query": "hello"}),
+        (
+            "/api/search?q=hello",
+            200,
+            {"results": [], "total": 0, "query": "hello", "has_more": False, "facets": None},
+        ),
         (
             "/api/channels/1/messages",
             200,
