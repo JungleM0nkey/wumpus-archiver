@@ -371,6 +371,29 @@ class TestMessagesCursors:
         )
         assert _ids(page) == _ids(first)
 
+    # A message of another channel or guild is not a cursor of this scope: it reads as
+    # an unknown one, not as a point in time to page from.
+    @pytest.mark.parametrize(("scope", "elsewhere"), [(IN_CHANNEL, 31), (Scope(guild=GUILD), 41)])
+    @pytest.mark.parametrize("cursor", ["before", "after"])
+    @pytest.mark.parametrize("order", [OLDEST, NEWEST])
+    async def test_a_cursor_outside_the_scope_falls_back_to_the_first_page(
+        self, reads: AsyncSession, scope: Scope, elsewhere: int, cursor: str, order: Order
+    ) -> None:
+        first = await archive_reads.messages(reads, scope, order=order, limit=3)
+        page = await archive_reads.messages(
+            reads, scope, order=order, limit=3, **{cursor: elsewhere}
+        )
+        assert (_ids(page), page.has_more) == (_ids(first), first.has_more)
+
+    async def test_a_cursor_the_filters_leave_out_still_pages_from_it(
+        self, reads: AsyncSession
+    ) -> None:
+        """Only the scope decides: 7 is not pinned, yet the pinned page before it is 3 alone."""
+        page = await archive_reads.messages(
+            reads, IN_CHANNEL, order=OLDEST, limit=3, pinned=True, before=7
+        )
+        assert _ids(page) == [3]
+
     async def test_paging_back_from_the_newest_walks_the_whole_channel(
         self, reads: AsyncSession
     ) -> None:
@@ -441,6 +464,19 @@ class TestMessagesAround:
         first = await archive_reads.messages(reads, IN_CHANNEL, order=order, limit=3)
         page = await archive_reads.messages_around(
             reads, IN_CHANNEL, order=order, limit=3, around=999_999
+        )
+        assert _ids(page) == _ids(first)
+        newest_first = order is NEWEST
+        assert (page.has_more, page.has_newer) == (newest_first, not newest_first)
+
+    @pytest.mark.parametrize(("scope", "elsewhere"), [(IN_CHANNEL, 31), (Scope(guild=GUILD), 41)])
+    @pytest.mark.parametrize("order", [OLDEST, NEWEST])
+    async def test_an_anchor_outside_the_scope_falls_back_to_the_first_page(
+        self, reads: AsyncSession, scope: Scope, elsewhere: int, order: Order
+    ) -> None:
+        first = await archive_reads.messages(reads, scope, order=order, limit=3)
+        page = await archive_reads.messages_around(
+            reads, scope, order=order, limit=3, around=elsewhere
         )
         assert _ids(page) == _ids(first)
         newest_first = order is NEWEST

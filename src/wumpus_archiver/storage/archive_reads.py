@@ -358,9 +358,9 @@ async def messages(
     A cursor is a message id. ``before`` returns the page adjacent to it on the older
     side and ``after`` the page adjacent on the newer side, in ``order`` either way;
     with both, the page is the one next to ``before`` that is still newer than
-    ``after``. An unknown cursor is ignored. ``has_more`` points away from the cursor:
-    older messages remain after ``before``, newer ones after ``after``, and on a first
-    page more follow in ``order``.
+    ``after``. An unknown cursor is ignored, and so is a message outside the scope.
+    ``has_more`` points away from the cursor: older messages remain after ``before``,
+    newer ones after ``after``, and on a first page more follow in ``order``.
 
     ``text`` matches the content case-insensitively with LIKE wildcards taken
     literally, and so does each of ``terms``: a message must contain every one, in any
@@ -373,8 +373,8 @@ async def messages(
         where.append(Message.pinned.is_(pinned))
 
     paging: list[ColumnElement[bool]] = []
-    older_anchor = await _anchor(session, before)
-    newer_anchor = await _anchor(session, after)
+    older_anchor = await _anchor(session, scope, before)
+    newer_anchor = await _anchor(session, scope, after)
     if older_anchor is not None:
         at, at_id = older_anchor
         paging.append(
@@ -441,10 +441,10 @@ async def messages_around(
     The page holds the anchor, up to ``limit // 2`` newer messages and older ones for
     the rest; near either end of the scope the other side fills the page. A reader
     opened on a message pages away from it both ways with ``before`` and ``after``. An
-    unknown anchor falls back to the first page in ``order``, as an unknown cursor does
-    in ``messages``.
+    unknown anchor, or a message outside the scope, falls back to the first page in
+    ``order``, as an unknown cursor does in ``messages``.
     """
-    anchor = await _anchor(session, around)
+    anchor = await _anchor(session, scope, around)
     if anchor is None:
         first = await messages(session, scope, order=order, limit=limit)
         newest_first = order is Order.NEWEST_FIRST
@@ -511,12 +511,18 @@ async def referenced_messages(session: AsyncSession, page: Sequence[Message]) ->
     return {message.id: message for message in result.scalars().all()}
 
 
-async def _anchor(session: AsyncSession, cursor: int | None) -> tuple[datetime, int] | None:
-    """The ``(created_at, id)`` of a cursor message, or ``None`` if there is none."""
+async def _anchor(
+    session: AsyncSession, scope: Scope, cursor: int | None
+) -> tuple[datetime, int] | None:
+    """The ``(created_at, id)`` of a cursor message in ``scope``, or ``None`` if there is none.
+
+    Only the scope confines the cursor, not a read's filters: a page of matches may page
+    from any message of its channel, but a message of another channel is no cursor of it.
+    """
     if cursor is None:
         return None
     result = await session.execute(
-        select(Message.created_at, Message.id).where(Message.id == cursor)
+        select(Message.created_at, Message.id).where(Message.id == cursor, *_message_scope(scope))
     )
     row = result.first()
     return (row[0], row[1]) if row else None
