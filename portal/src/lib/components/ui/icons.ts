@@ -9,8 +9,10 @@ import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 import Ban from '@lucide/svelte/icons/ban';
 import ChartColumn from '@lucide/svelte/icons/chart-column';
+import Check from '@lucide/svelte/icons/check';
 import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 import ChevronRight from '@lucide/svelte/icons/chevron-right';
+import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
 import Circle from '@lucide/svelte/icons/circle';
 import CircleCheck from '@lucide/svelte/icons/circle-check';
 import CircleDashed from '@lucide/svelte/icons/circle-dashed';
@@ -32,6 +34,8 @@ import LayoutGrid from '@lucide/svelte/icons/layout-grid';
 import MessageSquare from '@lucide/svelte/icons/message-square';
 import MessagesSquare from '@lucide/svelte/icons/messages-square';
 import OctagonAlert from '@lucide/svelte/icons/octagon-alert';
+import PanelLeftClose from '@lucide/svelte/icons/panel-left-close';
+import PanelLeftOpen from '@lucide/svelte/icons/panel-left-open';
 import Paperclip from '@lucide/svelte/icons/paperclip';
 import Pin from '@lucide/svelte/icons/pin';
 import Play from '@lucide/svelte/icons/play';
@@ -53,8 +57,10 @@ export const icons = {
 	'arrow-up-right': ArrowUpRight,
 	ban: Ban,
 	chart: ChartColumn,
+	check: Check,
 	'chevron-left': ChevronLeft,
 	'chevron-right': ChevronRight,
+	'chevrons-up-down': ChevronsUpDown,
 	circle: Circle,
 	'circle-check': CircleCheck,
 	'circle-dashed': CircleDashed,
@@ -76,6 +82,8 @@ export const icons = {
 	message: MessageSquare,
 	forum: MessagesSquare,
 	'octagon-alert': OctagonAlert,
+	'panel-left-close': PanelLeftClose,
+	'panel-left-open': PanelLeftOpen,
 	paperclip: Paperclip,
 	pin: Pin,
 	play: Play,

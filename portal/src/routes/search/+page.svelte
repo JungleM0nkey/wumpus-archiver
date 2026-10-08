@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { searchMessages, getGuilds, getGuild } from '#lib/api.ts';
-	import type { SearchResult, Channel, Guild } from '#lib/types.ts';
+	import { searchMessages, getGuild } from '#lib/api.ts';
+	import { shell } from '#lib/shell.svelte.ts';
+	import type { SearchResult, Channel } from '#lib/types.ts';
 	import MessageCard from '#lib/components/MessageCard.svelte';
 	import MessageSkeleton from '#lib/components/MessageSkeleton.svelte';
 	import SearchBar from '#lib/components/SearchBar.svelte';
@@ -20,41 +21,42 @@
 	let error = $state('');
 
 	// Filters
-	let guilds: Guild[] = $state([]);
+	const guild = shell.guild;
 	let channels: Channel[] = $state([]);
-	let selectedGuild: string | null = $state(null);
 	let selectedChannel: string | null = $state(null);
 
-	// Load initial data
+	/** The query last searched for, which the URL's `q` carries. */
+	let searchedFor: string | null = null;
+
 	onMount(async () => {
 		try {
-			guilds = await getGuilds();
-			if (guilds.length > 0) {
-				selectedGuild = guilds[0].id;
-				const detail = await getGuild(guilds[0].id);
-				channels = detail.channels;
-			}
+			if (guild) channels = (await getGuild(guild.id)).channels;
 		} catch (e) {
-			console.error('Failed to load guilds:', e);
+			console.error('Failed to load channels:', e);
 		}
+	});
 
-		// Check URL for initial query
+	// The URL's `q` is the query: on arrival, and when the sidebar's search field sets it.
+	$effect(() => {
 		const urlQuery = page.url.searchParams.get('q');
-		if (urlQuery) {
-			query = urlQuery;
-			await doSearch();
+		if (urlQuery && urlQuery !== searchedFor) {
+			untrack(() => {
+				query = urlQuery;
+				void doSearch();
+			});
 		}
 	});
 
 	async function doSearch() {
 		if (!query.trim()) return;
+		searchedFor = query.trim();
 		loading = true;
 		searched = true;
 		error = '';
 
 		try {
 			const res = await searchMessages(query.trim(), {
-				guild_id: selectedGuild ?? undefined,
+				guild_id: guild?.id,
 				channel_id: selectedChannel ?? undefined,
 				limit: 50,
 			});
@@ -88,7 +90,7 @@
 		<div class="search-header-content">
 			<h1 class="search-title">Search</h1>
 			<p class="search-sub">
-				Find messages across the entire archive.
+				Find messages in {guild?.name ?? 'the archive'}.
 				<span class="search-note">AI semantic search coming soon.</span>
 			</p>
 
@@ -164,18 +166,10 @@
 </div>
 
 <style>
-	.search-page {
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
 	.search-header {
 		background: var(--bg-surface);
 		border-bottom: 1px solid var(--border-subtle);
 		padding: var(--space-8) var(--space-6) var(--space-5);
-		flex-shrink: 0;
 	}
 
 	.search-header-content {
@@ -248,8 +242,6 @@
 	}
 
 	.search-results {
-		flex: 1;
-		overflow-y: auto;
 		padding: var(--space-6);
 	}
 

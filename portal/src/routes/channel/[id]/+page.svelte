@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { PageProps } from './$types';
-	import { getGuilds, getGuild } from '#lib/api.ts';
+	import { guildHolding, shell, stickyHeader } from '#lib/shell.svelte.ts';
 	import { keepingPosition, newestPage, olderPage, scrollToBottom } from '#lib/reader.ts';
 	import type { Message, Channel } from '#lib/types.ts';
 	import LoadMore from '#lib/components/LoadMore.svelte';
@@ -21,24 +21,22 @@
 	let loadingMore = $state(false);
 	let error = $state('');
 	let hasMore = $state(false);
-	let scroller: HTMLElement | undefined = $state();
 	const limit = 50;
 
 	onMount(async () => {
-		await loadChannel();
-		await loadMessages();
+		if (await loadChannel()) await loadMessages();
 	});
 
-	async function loadChannel() {
+	/** Read the channel from its guild; false when the shell moves to the guild that holds it. */
+	async function loadChannel(): Promise<boolean> {
 		try {
-			const guilds = await getGuilds();
-			if (guilds.length > 0) {
-				const detail = await getGuild(guilds[0].id);
-				channel = detail.channels.find(c => c.id === channelId) ?? null;
-			}
+			const detail = await guildHolding(channelId);
+			if (!detail && shell.guild) return false;
+			channel = detail?.channels.find((c) => c.id === channelId) ?? null;
 		} catch (e) {
 			console.error('Failed to load channel info:', e);
 		}
+		return true;
 	}
 
 	async function loadMessages() {
@@ -49,7 +47,7 @@
 		} finally {
 			loading = false;
 		}
-		await scrollToBottom(scroller);
+		await scrollToBottom(shell.scroller);
 	}
 
 	async function loadOlder() {
@@ -57,7 +55,7 @@
 		loadingMore = true;
 		try {
 			const older = await olderPage(channelId, messages[0], limit);
-			await keepingPosition(scroller, () => {
+			await keepingPosition(shell.scroller, () => {
 				messages = [...older.messages, ...messages];
 				hasMore = older.hasMore;
 			});
@@ -70,7 +68,7 @@
 </script>
 
 <div class="channel-detail">
-	<header class="channel-header">
+	<header class="channel-header" use:stickyHeader>
 		<a href="/channels" class="back-link"><Icon name="arrow-left" size={14} /> Channels</a>
 		{#if channel}
 			<div class="channel-title-row">
@@ -93,7 +91,7 @@
 		{/if}
 	</header>
 
-	<div class="message-area" bind:this={scroller}>
+	<div class="message-area">
 		{#if loading}
 			<div class="feed-container"><MessageSkeleton /></div>
 		{:else if error}
@@ -115,14 +113,17 @@
 </div>
 
 <style>
+	/* At least the shell's height, so the feed can sit at its bottom. */
 	.channel-detail {
-		height: 100%;
+		min-height: 100%;
 		display: flex;
 		flex-direction: column;
-		overflow: hidden;
 	}
 
 	.channel-header {
+		position: sticky;
+		top: 0;
+		z-index: 2;
 		background: var(--bg-surface);
 		border-bottom: 1px solid var(--border-subtle);
 		padding: var(--space-4) var(--space-6);
@@ -183,7 +184,6 @@
 	/* The feed sits at the bottom while it is shorter than the area, as a chat does. */
 	.message-area {
 		flex: 1;
-		overflow-y: auto;
 		padding: var(--space-6);
 		display: flex;
 		flex-direction: column;

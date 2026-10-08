@@ -92,16 +92,16 @@ test("the page's background is the canvas colour", async ({ page }) => {
 	expect(body).toBe(canvas);
 });
 
-test('the nav and message cards draw their icons as SVG, not glyphs or emoji', async ({ page }) => {
+test('the sidebar and message cards draw their icons as SVG, not glyphs or emoji', async ({ page }) => {
 	await page.goto(`/channel/${ART_ID}`, { waitUntil: 'networkidle' });
 
-	const links = page.locator('nav .nav-link');
-	await expect(links).toHaveCount(7);
+	const links = page.locator('.sidebar .nav-item');
+	await expect(links).toHaveCount(5);
 	for (const link of await links.all()) {
 		await expect(link.locator('svg')).toHaveCount(1);
 	}
-	await expect(page.locator('nav .brand svg')).toHaveCount(1);
-	expect(await page.locator('nav').innerText()).not.toMatch(GLYPH);
+	await expect(page.locator('.sidebar .brand svg')).toHaveCount(1);
+	expect(await page.locator('.sidebar').innerText()).not.toMatch(GLYPH);
 
 	const cards = page.locator('main .message-card');
 	await expect(cards).toHaveCount(3);

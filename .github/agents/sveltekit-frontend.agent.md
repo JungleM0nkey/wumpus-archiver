@@ -59,11 +59,13 @@ portal/src/
 ├── app.d.ts                     # Global types
 ├── lib/
 │   ├── api.ts                   # API client (fetch wrapper)
+│   ├── shell.svelte.ts          # Shell API: selected guild, scroll container
+│   ├── scrape-status.svelte.ts  # Scrape status shared by the shell and Archive screen
 │   ├── types.ts                 # Shared TypeScript interfaces
 │   ├── index.ts                 # Re-exports
 │   ├── assets/                  # Static assets
 │   ├── components/              # Reusable UI components
-│   │   ├── Nav.svelte           # Global navigation bar
+│   │   ├── shell/               # Sidebar, guild switcher, archive-status card
 │   │   ├── MessageCard.svelte   # Discord message display
 │   │   ├── SearchBar.svelte     # Full-text search input
 │   │   ├── StatCard.svelte      # Statistics display card
@@ -73,8 +75,8 @@ portal/src/
 │   └── styles/
 │       └── global.css           # Design tokens + base styles
 └── routes/                      # SvelteKit file-based routing
-    ├── +layout.svelte           # Root layout (nav, shell)
-    ├── +layout.ts               # Root data loader
+    ├── +layout.svelte           # Root layout (sidebar, the one scroll container)
+    ├── +layout.ts               # Root data loader (the archived guilds)
     ├── +page.svelte             # Dashboard / home
     ├── channel/[id]/            # Single channel view
     ├── channels/                # Channel listing

@@ -144,18 +144,23 @@ All endpoints are under `/api/`:
 
 ## Portal Pages
 
-| Route | Description |
-|---|---|
-| `/` | Dashboard with guild stats |
-| `/channels` | Channel list with message counts |
-| `/channel/[id]` | Message browser for a channel |
-| `/channel/[id]/gallery` | Image gallery for a channel |
-| `/gallery` | Guild-wide image gallery |
-| `/timeline` | Timeline-grouped media feed |
-| `/search` | Full-text search with filters |
-| `/users` | User directory |
-| `/users/[id]` | User profile page |
-| `/control` | Scrape control panel |
+A left sidebar, which collapses to an icon rail with Cmd+\ (Ctrl+\ elsewhere), holds a
+guild switcher, a search field, the five destinations and an archive-status card that
+leads to the Archive screen. The selected guild is part of the URL (`?guild=<id>`, the
+first guild when absent), and every page shows that guild.
+
+| Route | Destination | Description |
+|---|---|---|
+| `/` | Overview | Guild stats |
+| `/channels` | Browse | Channel list with message counts |
+| `/channel/[id]` | Browse | Message browser for a channel |
+| `/channel/[id]/gallery` | Browse | Image gallery for a channel |
+| `/timeline` | Browse | Channel reader beside a channel list |
+| `/gallery` | Media | Guild-wide image gallery |
+| `/search` | Search | Full-text search with filters |
+| `/users` | People | Author directory |
+| `/users/[id]` | People | Author profile page |
+| `/control` | Archive screen (sidebar footer) | Scrape control |
 
 ## Environment Variables
 

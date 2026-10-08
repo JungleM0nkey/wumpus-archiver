@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { getGuilds, getStats } from '#lib/api.ts';
-	import type { Guild, Stats } from '#lib/types.ts';
+	import { getStats } from '#lib/api.ts';
+	import { shell } from '#lib/shell.svelte.ts';
+	import type { Stats } from '#lib/types.ts';
 	import StatCard from '#lib/components/StatCard.svelte';
 	import SearchBar from '#lib/components/SearchBar.svelte';
 	import Alert from '#lib/components/ui/Alert.svelte';
@@ -11,18 +12,15 @@
 	import Icon from '#lib/components/ui/Icon.svelte';
 	import Skeleton from '#lib/components/ui/Skeleton.svelte';
 
-	let guilds: Guild[] = $state([]);
+	const guild = shell.guild;
 	let stats: Stats | null = $state(null);
 	let loading = $state(true);
-	let error = $state('');
+	let error = $state(shell.guildsError);
 	let searchQuery = $state('');
 
 	onMount(async () => {
 		try {
-			guilds = await getGuilds();
-			if (guilds.length > 0) {
-				stats = await getStats(guilds[0].id);
-			}
+			if (guild) stats = await getStats(guild.id);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load data';
 		} finally {
@@ -82,7 +80,7 @@
 			<p>{error}</p>
 			<p>Make sure the API server is running: <code>wumpus-archiver serve archive.db</code></p>
 		</Alert>
-	{:else if guilds.length === 0}
+	{:else if !guild}
 		<EmptyState
 			icon="archive"
 			title="Nothing archived yet"
@@ -94,9 +92,7 @@
 				<h2 class="section-title">
 					<Icon name="dashboard" />
 					Overview
-					{#if guilds[0]}
-						<Badge tone="accent">{guilds[0].name}</Badge>
-					{/if}
+					<Badge tone="accent">{guild.name}</Badge>
 				</h2>
 				<div class="stats-grid">
 					<StatCard label="Messages" value={stats.total_messages} icon="message" index={0} />
@@ -159,32 +155,30 @@
 			</section>
 		{/if}
 
-		{#if guilds[0]}
-			<section class="section">
-				<h2 class="section-title">
-					<Icon name="archive" />
-					Archive Info
-				</h2>
-				<div class="meta-grid">
-					<div class="meta-item">
-						<span class="meta-label">First Scraped</span>
-						<span class="meta-value mono">{formatDate(guilds[0].first_scraped_at)}</span>
-					</div>
-					<div class="meta-item">
-						<span class="meta-label">Last Updated</span>
-						<span class="meta-value mono">{formatDate(guilds[0].last_scraped_at)}</span>
-					</div>
-					<div class="meta-item">
-						<span class="meta-label">Scrape Count</span>
-						<span class="meta-value mono">{guilds[0].scrape_count}</span>
-					</div>
-					<div class="meta-item">
-						<span class="meta-label">Members (at scrape)</span>
-						<span class="meta-value mono">{guilds[0].member_count?.toLocaleString() || '—'}</span>
-					</div>
+		<section class="section">
+			<h2 class="section-title">
+				<Icon name="archive" />
+				Archive Info
+			</h2>
+			<div class="meta-grid">
+				<div class="meta-item">
+					<span class="meta-label">First Scraped</span>
+					<span class="meta-value mono">{formatDate(guild.first_scraped_at)}</span>
 				</div>
-			</section>
-		{/if}
+				<div class="meta-item">
+					<span class="meta-label">Last Updated</span>
+					<span class="meta-value mono">{formatDate(guild.last_scraped_at)}</span>
+				</div>
+				<div class="meta-item">
+					<span class="meta-label">Scrape Count</span>
+					<span class="meta-value mono">{guild.scrape_count}</span>
+				</div>
+				<div class="meta-item">
+					<span class="meta-label">Members (at scrape)</span>
+					<span class="meta-value mono">{guild.member_count?.toLocaleString() || '—'}</span>
+				</div>
+			</div>
+		</section>
 	{/if}
 </div>
 

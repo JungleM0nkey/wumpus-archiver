@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { getGuilds } from '#lib/api.ts';
+	import { getGuild } from '#lib/api.ts';
+	import { guildHolding, shell, stickyHeader } from '#lib/shell.svelte.ts';
 	import { keepingPosition, newestPage, olderPage, scrollToBottom } from '#lib/reader.ts';
 	import type { GuildDetail, Channel, Message } from '#lib/types.ts';
-	import { getGuild } from '#lib/api.ts';
 	import LoadMore from '#lib/components/LoadMore.svelte';
 	import MessageSkeleton from '#lib/components/MessageSkeleton.svelte';
 	import TimelineFeed from '#lib/components/TimelineFeed.svelte';
@@ -22,7 +22,6 @@
 	let loadingMore = $state(false);
 	let error = $state('');
 	let hasMore = $state(false);
-	let scroller: HTMLElement | undefined = $state();
 	const limit = 100;
 
 	// Filters
@@ -33,9 +32,13 @@
 
 	onMount(async () => {
 		try {
-			const guilds = await getGuilds();
-			if (guilds.length > 0) {
-				guild = await getGuild(guilds[0].id);
+			// A ?channel= link names a channel without its guild: read it from the guild that holds it.
+			const detail = urlChannel
+				? await guildHolding(urlChannel)
+				: shell.guild && (await getGuild(shell.guild.id));
+			if (!detail && urlChannel && shell.guild) return;
+			if (detail) {
+				guild = detail;
 				channels = guild.channels.filter(
 					(ch) => ch.type === ChannelType.GUILD_TEXT || ch.type === ChannelType.GUILD_VOICE
 				);
@@ -67,7 +70,7 @@
 		} finally {
 			loading = false;
 		}
-		await scrollToBottom(scroller);
+		await scrollToBottom(shell.scroller);
 	}
 
 	async function loadOlderMessages() {
@@ -75,7 +78,7 @@
 		loadingMore = true;
 		try {
 			const older = await olderPage(selectedChannel, messages[0], limit);
-			await keepingPosition(scroller, () => {
+			await keepingPosition(shell.scroller, () => {
 				messages = [...older.messages, ...messages];
 				hasMore = older.hasMore;
 			});
@@ -130,7 +133,7 @@
 	<div class="timeline-main">
 		{#if selectedChannel}
 			{@const ch = channels.find((c) => c.id === selectedChannel)}
-			<header class="timeline-header">
+			<header class="timeline-header" use:stickyHeader>
 				<div class="header-info">
 					<h1 class="header-title">
 						{#if ch}
@@ -148,7 +151,7 @@
 			</header>
 		{/if}
 
-		<div class="timeline-content" bind:this={scroller}>
+		<div class="timeline-content">
 			{#if loading && messages.length === 0}
 				<div class="feed"><MessageSkeleton /></div>
 			{:else if error}
@@ -169,14 +172,18 @@
 </div>
 
 <style>
+	/* At least the shell's height, so the feed can sit at its bottom. */
 	.timeline-page {
 		display: flex;
-		height: 100%;
-		overflow: hidden;
+		align-items: flex-start;
+		min-height: 100%;
 	}
 
-	/* Sidebar */
+	/* The channel list stays in view, filling the shell's height, while the feed scrolls. */
 	.filter-sidebar {
+		position: sticky;
+		top: 0;
+		height: var(--shell-viewport-height);
 		width: var(--size-sidebar);
 		flex-shrink: 0;
 		background: var(--bg-surface);
@@ -252,13 +259,16 @@
 	/* Main */
 	.timeline-main {
 		flex: 1;
+		align-self: stretch;
 		display: flex;
 		flex-direction: column;
-		overflow: hidden;
 		min-width: 0;
 	}
 
 	.timeline-header {
+		position: sticky;
+		top: 0;
+		z-index: 2;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -290,7 +300,6 @@
 	/* The feed sits at the bottom while it is shorter than the area, as a chat does. */
 	.timeline-content {
 		flex: 1;
-		overflow-y: auto;
 		padding: var(--space-6);
 		max-width: var(--size-reader-max);
 		width: 100%;

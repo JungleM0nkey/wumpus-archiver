@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { PageProps } from './$types';
-	import { getAuthorMessages, getGuilds, getUserProfile } from '#lib/api.ts';
-	import type { Guild, UserProfile, Message } from '#lib/types.ts';
+	import { getAuthorMessages, getUserProfile } from '#lib/api.ts';
+	import { shell } from '#lib/shell.svelte.ts';
+	import type { UserProfile, Message } from '#lib/types.ts';
 	import StatCard from '#lib/components/StatCard.svelte';
 	import MessageCard from '#lib/components/MessageCard.svelte';
 	import Alert from '#lib/components/ui/Alert.svelte';
@@ -12,7 +13,7 @@
 	import Icon from '#lib/components/ui/Icon.svelte';
 	import Skeleton from '#lib/components/ui/Skeleton.svelte';
 
-	let guild: Guild | null = $state(null);
+	const guild = shell.guild;
 	let profile: UserProfile | null = $state(null);
 	let recentMessages: Message[] = $state([]);
 	let loading = $state(true);
@@ -26,10 +27,6 @@
 
 	onMount(async () => {
 		try {
-			const guilds = await getGuilds();
-			if (guilds.length > 0) {
-				guild = guilds[0];
-			}
 			profile = await getUserProfile(userId, {
 				guild_id: guild?.id,
 			});
@@ -109,7 +106,7 @@
 	{:else if profile}
 		<!-- Hero header -->
 		<header class="profile-hero enter">
-			<a href="/users" class="back-link"><Icon name="arrow-left" size={14} /> All Users</a>
+			<a href="/users" class="back-link"><Icon name="arrow-left" size={14} /> People</a>
 			<div class="hero-row">
 				{#if profile.avatar_url}
 					<img

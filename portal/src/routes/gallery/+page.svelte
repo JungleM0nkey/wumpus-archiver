@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getGuilds, getGuild, getGuildGallery, getGuildGalleryTimeline } from '#lib/api.ts';
+	import { getGuild, getGuildGallery, getGuildGalleryTimeline } from '#lib/api.ts';
+	import { shell, stickyHeader } from '#lib/shell.svelte.ts';
 	import type { GalleryAttachment, Channel, GuildDetail, TimelineGalleryGroup } from '#lib/types.ts';
 	import { ChannelType } from '#lib/types.ts';
 	import GalleryGrid from '#lib/components/GalleryGrid.svelte';
@@ -54,9 +55,8 @@
 
 	onMount(async () => {
 		try {
-			const guilds = await getGuilds();
-			if (guilds.length > 0) {
-				guild = await getGuild(guilds[0].id);
+			if (shell.guild) {
+				guild = await getGuild(shell.guild.id);
 				channels = guild.channels.filter(
 					(ch) => ch.type === ChannelType.GUILD_TEXT || ch.type === ChannelType.GUILD_ANNOUNCEMENT
 				);
@@ -236,9 +236,9 @@
 	</aside>
 
 	<div class="gallery-main">
-		<header class="gallery-header">
+		<header class="gallery-header" use:stickyHeader>
 			<div class="header-row">
-				<h1>Gallery</h1>
+				<h1>Media</h1>
 				{#if selectedChannel}
 					{@const ch = channels.find(c => c.id === selectedChannel)}
 					{#if ch}
@@ -340,13 +340,16 @@
 
 <style>
 	.gallery-page {
-		height: 100%;
+		min-height: 100%;
 		display: flex;
-		overflow: hidden;
+		align-items: flex-start;
 	}
 
-	/* ── Sidebar ── */
+	/* ── Sidebar: stays in view, filling the shell's height, while the media scrolls ── */
 	.sidebar {
+		position: sticky;
+		top: 0;
+		height: var(--shell-viewport-height);
 		width: 220px;
 		flex-shrink: 0;
 		background: var(--bg-surface);
@@ -437,13 +440,16 @@
 	/* ── Main content ── */
 	.gallery-main {
 		flex: 1;
+		align-self: stretch;
 		display: flex;
 		flex-direction: column;
-		overflow: hidden;
 		min-width: 0;
 	}
 
 	.gallery-header {
+		position: sticky;
+		top: 0;
+		z-index: 2;
 		background: var(--bg-surface);
 		border-bottom: 1px solid var(--border-subtle);
 		padding: var(--space-4) var(--space-6);
@@ -468,7 +474,6 @@
 
 	.gallery-body {
 		flex: 1;
-		overflow-y: auto;
 		padding: var(--space-5) var(--space-6);
 	}
 

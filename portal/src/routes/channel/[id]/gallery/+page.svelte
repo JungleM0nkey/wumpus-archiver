@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { PageProps } from './$types';
-	import { getGallery, getGuilds, getGuild } from '#lib/api.ts';
+	import { getGallery } from '#lib/api.ts';
+	import { guildHolding, shell, stickyHeader } from '#lib/shell.svelte.ts';
 	import type { GalleryAttachment, Channel } from '#lib/types.ts';
 	import GalleryGrid from '#lib/components/GalleryGrid.svelte';
 	import Alert from '#lib/components/ui/Alert.svelte';
@@ -22,19 +23,19 @@
 	const limit = 60;
 
 	onMount(async () => {
-		await Promise.all([loadChannel(), loadImages()]);
+		if (await loadChannel()) await loadImages();
 	});
 
-	async function loadChannel() {
+	/** Read the channel from its guild; false when the shell moves to the guild that holds it. */
+	async function loadChannel(): Promise<boolean> {
 		try {
-			const guilds = await getGuilds();
-			if (guilds.length > 0) {
-				const detail = await getGuild(guilds[0].id);
-				channel = detail.channels.find(c => c.id === channelId) ?? null;
-			}
+			const detail = await guildHolding(channelId);
+			if (!detail && shell.guild) return false;
+			channel = detail?.channels.find((c) => c.id === channelId) ?? null;
 		} catch (e) {
 			console.error('Failed to load channel info:', e);
 		}
+		return true;
 	}
 
 	async function loadImages() {
@@ -68,7 +69,7 @@
 </script>
 
 <div class="gallery-page">
-	<header class="gallery-header">
+	<header class="gallery-header" use:stickyHeader>
 		<a href="/channel/{channelId}" class="back-link">
 			<Icon name="arrow-left" size={14} /> #{channel?.name ?? 'channel'}
 		</a>
@@ -109,14 +110,10 @@
 </div>
 
 <style>
-	.gallery-page {
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
 	.gallery-header {
+		position: sticky;
+		top: 0;
+		z-index: 2;
 		background: var(--bg-surface);
 		border-bottom: 1px solid var(--border-subtle);
 		padding: var(--space-4) var(--space-6);
@@ -161,8 +158,6 @@
 	}
 
 	.gallery-body {
-		flex: 1;
-		overflow-y: auto;
 		padding: var(--space-5) var(--space-6);
 	}
 

@@ -1,4 +1,4 @@
-// The shell every route shares: its tab icon and the nav's version badge.
+// The shell every route shares: its tab icon and the sidebar's version badge.
 import { readFileSync } from 'node:fs';
 import { expect, test } from './fixtures.ts';
 
@@ -21,5 +21,5 @@ test('the tab shows the Wumpus Archiver favicon', async ({ page }) => {
 
 test("the version badge shows the portal's package version", async ({ page }) => {
 	await page.goto('/', { waitUntil: 'networkidle' });
-	await expect(page.locator('nav .version')).toHaveText(`v${portalPackage.version}`);
+	await expect(page.locator('.sidebar .version')).toHaveText(`v${portalPackage.version}`);
 });

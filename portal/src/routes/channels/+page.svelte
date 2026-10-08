@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getGuilds, getGuild, getStats } from '#lib/api.ts';
+	import { getGuild, getStats } from '#lib/api.ts';
+	import { shell } from '#lib/shell.svelte.ts';
 	import { ChannelType, type Guild, type Channel, type Stats } from '#lib/types.ts';
 	import Alert from '#lib/components/ui/Alert.svelte';
 	import Badge from '#lib/components/ui/Badge.svelte';
@@ -15,13 +16,13 @@
 	let error = $state('');
 
 	onMount(async () => {
+		const selected = shell.guild;
 		try {
-			const guilds = await getGuilds();
-			if (guilds.length > 0) {
-				const detail = await getGuild(guilds[0].id);
+			if (selected) {
+				const detail = await getGuild(selected.id);
 				guild = detail;
 				channels = detail.channels;
-				stats = await getStats(guilds[0].id);
+				stats = await getStats(selected.id);
 			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load channels';
@@ -60,7 +61,8 @@
 		<h1>Channels</h1>
 		<p class="header-sub">
 			{#if guild}
-				Browse all archived channels in <strong>{guild.name}</strong>
+				Browse all archived channels in <strong>{guild.name}</strong>, or
+				<a href="/timeline">read them as a timeline</a>.
 			{:else}
 				Loading archive index...
 			{/if}

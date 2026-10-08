@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getGuilds, getGuildUsers } from '#lib/api.ts';
-	import type { Guild, UserListItem } from '#lib/types.ts';
+	import { getGuildUsers } from '#lib/api.ts';
+	import { shell } from '#lib/shell.svelte.ts';
+	import type { UserListItem } from '#lib/types.ts';
 	import LoadMore from '#lib/components/LoadMore.svelte';
 	import SearchBar from '#lib/components/SearchBar.svelte';
 	import Alert from '#lib/components/ui/Alert.svelte';
@@ -10,7 +11,7 @@
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
 	import Skeleton from '#lib/components/ui/Skeleton.svelte';
 
-	let guild: Guild | null = $state(null);
+	const guild = shell.guild;
 	let users: UserListItem[] = $state([]);
 	let total = $state(0);
 	let loading = $state(true);
@@ -54,16 +55,8 @@
 	}
 
 	onMount(async () => {
-		try {
-			const guilds = await getGuilds();
-			if (guilds.length > 0) {
-				guild = guilds[0];
-				await loadUsers(true);
-			}
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load data';
-			loading = false;
-		}
+		if (guild) await loadUsers(true);
+		else loading = false;
 	});
 
 	function handleSearch(query: string) {
@@ -97,7 +90,7 @@
 
 <div class="users-page">
 	<header class="page-header">
-		<h1>Users</h1>
+		<h1>People</h1>
 		<p class="header-sub">
 			{#if guild}
 				<span class="mono">{total.toLocaleString()}</span> contributors in <strong>{guild.name}</strong>

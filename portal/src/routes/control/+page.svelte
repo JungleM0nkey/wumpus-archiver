@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import {
-		getGuilds,
-		getScrapeStatus,
 		startScrape,
 		cancelScrape,
 		getScrapeHistory,
@@ -18,16 +16,20 @@
 	import Icon from '#lib/components/ui/Icon.svelte';
 	import Skeleton from '#lib/components/ui/Skeleton.svelte';
 	import type { IconName } from '#lib/components/ui/icons.ts';
-	import type { Guild, ScrapeJob, ScrapeStatusResponse, ScrapeHistoryResponse, DownloadStatsResponse } from '#lib/types.ts';
+	import { scrapeStatus } from '#lib/scrape-status.svelte.ts';
+	import { shell } from '#lib/shell.svelte.ts';
+	import type { ScrapeJob, DownloadStatsResponse } from '#lib/types.ts';
 
-	let guilds: Guild[] = $state([]);
-	let status = $state<ScrapeStatusResponse | null>(null);
+	// Scrape status is the shell's (#lib/scrape-status.svelte.ts): it is read once and
+	// polled while a job runs, for this screen and the sidebar's archive card alike.
+	const guilds = shell.guilds;
+	const status = $derived(scrapeStatus.status);
 	let history: ScrapeJob[] = $state([]);
 	let dlStats: DownloadStatsResponse | null = $state(null);
 	let loading = $state(true);
 	let error = $state('');
 	let actionError = $state('');
-	let selectedGuildId = $state('');
+	let selectedGuildId = $state(shell.guild?.id ?? '');
 	let customGuildId = $state('');
 	let apiToken = $state('');
 
@@ -48,28 +50,24 @@
 		await loadAll();
 	});
 
-	// Poll the scrape job's status every 2s, only while one is running.
+	// When a running job finishes, however its end was noticed, re-read history once.
+	let wasBusy = false;
 	$effect(() => {
-		if (!isBusy) return;
-		const timer = setInterval(pollStatus, 2000);
-		return () => clearInterval(timer);
+		const busy = isBusy;
+		if (wasBusy && !busy) void reloadHistory();
+		wasBusy = busy;
 	});
 
 	async function loadAll() {
 		try {
-			const [g, s, h, dl] = await Promise.all([
-				getGuilds().catch(() => []),
-				getScrapeStatus(),
+			const [, h, dl] = await Promise.all([
+				scrapeStatus.load(),
 				getScrapeHistory(),
 				getDownloadStats().catch(() => null)
 			]);
-			guilds = g;
-			status = s;
+			if (scrapeStatus.error) throw new Error(scrapeStatus.error);
 			history = h.jobs;
 			dlStats = dl;
-			if (guilds.length > 0 && !selectedGuildId) {
-				selectedGuildId = guilds[0].id;
-			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load';
 		} finally {
@@ -77,20 +75,11 @@
 		}
 	}
 
-	/** Read the status; when the job that was running (`jobRan`) has finished, re-read history. */
-	async function refreshStatus(jobRan: boolean) {
-		status = await getScrapeStatus();
-		if (jobRan && !status.busy) {
-			const hist = await getScrapeHistory();
-			history = hist.jobs;
-		}
-	}
-
-	async function pollStatus() {
+	async function reloadHistory() {
 		try {
-			await refreshStatus(isBusy);
+			history = (await getScrapeHistory()).jobs;
 		} catch {
-			// A failed poll is retried on the next tick
+			// The next finished job reads it again
 		}
 	}
 
@@ -117,7 +106,9 @@
 		}
 		try {
 			await startScrape(gid);
-			await refreshStatus(true);
+			// A job that already finished never reads as running, so its history is read here.
+			const now = await scrapeStatus.refresh();
+			if (now && !now.busy) await reloadHistory();
 		} catch (e) {
 			actionError = describeActionError(e, 'Failed to start scrape');
 		}
@@ -127,7 +118,7 @@
 		actionError = '';
 		try {
 			await cancelScrape();
-			await refreshStatus(true);
+			await scrapeStatus.refresh();
 		} catch (e) {
 			actionError = describeActionError(e, 'Failed to cancel');
 		}
@@ -192,7 +183,7 @@
 
 <div class="control-panel">
 	<header class="panel-header">
-		<h1 class="panel-title">Control</h1>
+		<h1 class="panel-title">Archive</h1>
 		<p class="panel-sub">Run and monitor Discord server scrapes from here.</p>
 	</header>
 

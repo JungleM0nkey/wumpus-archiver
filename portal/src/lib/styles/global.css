@@ -287,6 +287,39 @@ svg.icon {
 }
 
 /*
+ * Route changes cross-fade the content (the shell's <main>, `page`) over
+ * duration/large; the rest of the shell persists, so the root does not animate.
+ */
+::view-transition-old(root),
+::view-transition-new(root),
+::view-transition-group(*) {
+	animation: none;
+}
+
+::view-transition-old(page),
+::view-transition-new(page) {
+	animation-duration: var(--duration-large);
+	animation-timing-function: var(--ease-in-out);
+}
+
+/* A tooltip (components/ui/tooltip.ts), drawn on <body> beside its element. */
+.tooltip {
+	position: fixed;
+	z-index: 300;
+	translate: 0 -50%;
+	padding: 4px 8px;
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-xs);
+	background: var(--bg-overlay);
+	box-shadow: var(--shadow-floating);
+	color: var(--text-primary);
+	font: var(--type-label-sm);
+	white-space: nowrap;
+	pointer-events: none;
+	animation: fade-in var(--duration-small) var(--ease-standard);
+}
+
+/*
  * Reduced motion: every animation collapses to a cross-fade. The moving keyframes are
  * redefined without their transforms, nothing transitions a transform or a size, and
  * the shimmer and sweep become a gentle opacity pulse.
