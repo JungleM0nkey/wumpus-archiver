@@ -15,6 +15,7 @@ import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from '@playwright/test';
 import { ROUTE_ANNOTATION, expect, test } from './fixtures.ts';
+import { narrowPages } from './reader.ts';
 
 // Ids from tests/smoke_archive.py.
 const GENERAL_ID = '900000000000000020';
@@ -70,7 +71,8 @@ test('exactly one Lightbox exists, and both the Media screen and Browse use it',
 		files.filter(([, text]) => new RegExp(`import \\w+ from '[^']*/${name}'`).test(text)).map(([f]) => f);
 	// The Lightbox draws its own dialog over the page; the only other <dialog> is the
 	// shell's Dialog primitive (#59: the palette, the keyboard map, the mobile sheet).
-	// MediaTimeline is the only screen part that renders the Lightbox.
+	// MediaTimeline (the media grids) and MessageFeed (Browse's feed, #72) are the screen
+	// parts that render the Lightbox.
 	expect(files.filter(([, text]) => /<dialog\b/.test(text)).map(([f]) => f).sort()).toEqual([
 		'lib/components/Lightbox.svelte',
 		'lib/components/ui/Dialog.svelte'
@@ -78,7 +80,10 @@ test('exactly one Lightbox exists, and both the Media screen and Browse use it',
 	expect(files.filter(([f]) => /lightbox/i.test(f.split('/').pop()!)).map(([f]) => f)).toEqual([
 		'lib/components/Lightbox.svelte'
 	]);
-	expect(importing('Lightbox.svelte')).toEqual(['lib/components/MediaTimeline.svelte']);
+	expect(importing('Lightbox.svelte').sort()).toEqual([
+		'lib/components/MediaTimeline.svelte',
+		'lib/components/MessageFeed.svelte'
+	]);
 	expect(importing('MediaTimeline.svelte').sort()).toEqual([
 		'routes/browse/[channel]/+page.svelte',
 		'routes/media/+page.svelte'
@@ -470,4 +475,143 @@ test('each tab keeps its place while another is shown', reader, async ({ page })
 	await tabs(page).getByRole('tab', { name: 'Messages' }).dispatchEvent('click');
 	await expect(page).toHaveURL(`/browse/${GENERAL_ID}`);
 	expect(await main.evaluate((m) => m.scrollTop)).toBe(bottom);
+});
+
+// ── Browse's feed (#72) ───────────────────────────────────────────────────────
+// The images and videos in Browse's message rows open the same Lightbox, stepping
+// through the media of the messages loaded in the feed, oldest first. #random's feed
+// carries five: wumpus-dance.gif, tall-poster.png and unmeasured.png on Bob's first
+// message, then clip.webm and panorama.png on his last. #art's notes.txt is a file,
+// not media, and stays a link.
+
+/** Bob's first #random message, with the GIF and two images. */
+const RANDOM_FIRST_ID = '900000000000001004';
+/** Alice's "Agreed." on #random, between Bob's two. */
+const AGREED_ID = '900000000000001005';
+/** Bob's last #random message, with clip.webm and panorama.png. */
+const RANDOM_LAST_ID = '900000000000001011';
+
+/** Attachment `name` in a Browse message row: what a click on it opens. */
+function rowMedia(page: Page, name: string): Locator {
+	return page
+		.locator('main [data-message-id] :is(a, button)')
+		.filter({ has: page.locator(`[alt="${name}"], video[src$="/${name}"]`) });
+}
+
+/** The message row that has the roving focus: the one Tab reaches. */
+function rovingRow(page: Page): Promise<string | null> {
+	return page.evaluate(
+		() => document.querySelector<HTMLElement>('main [data-message-id][tabindex="0"]')?.dataset.messageId ?? null
+	);
+}
+
+test('an image in a feed row opens the Lightbox; → steps through the feed; Esc returns to it', reader, async ({ page }) => {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto(`/browse/${RANDOM_ID}`, { waitUntil: 'networkidle' });
+	const opener = rowMedia(page, 'tall-poster.png');
+	await opener.click();
+
+	const dialog = lightbox(page);
+	await expect(dialog).toBeVisible();
+	await expect(dialog).toHaveAccessibleName('Image: tall-poster.png');
+	await expect(dialog.locator('.counter')).toHaveText('2 of 5');
+	await expect(dialog.locator('.author')).toHaveText('Bob');
+	await expect(dialog.locator('.where')).toContainText('#random');
+	await expect(dialog.getByRole('navigation', { name: 'Filmstrip' }).getByRole('button')).toHaveCount(5);
+
+	await page.keyboard.press('ArrowRight');
+	await expect(dialog.locator('.counter')).toHaveText('3 of 5');
+	expect(await shown(page)).toBe('unmeasured.png');
+	// On into the next message's attachments, in feed order.
+	await page.keyboard.press('ArrowRight');
+	await expect(dialog.locator('.counter')).toHaveText('4 of 5');
+	expect(await shown(page)).toBe('clip.webm');
+
+	await page.keyboard.press('Escape');
+	await expect(lightbox(page)).toHaveCount(0);
+	await expect(opener).toBeFocused();
+	await expect(page).toHaveURL(`/browse/${RANDOM_ID}`);
+});
+
+test('a video in a feed row opens the Lightbox too', reader, async ({ page }) => {
+	await page.goto(`/browse/${RANDOM_ID}`, { waitUntil: 'networkidle' });
+	await rowMedia(page, 'clip.webm').click();
+	await expect(lightbox(page)).toHaveAccessibleName('Video: clip.webm');
+	await expect(lightbox(page).locator('.counter')).toHaveText('4 of 5');
+});
+
+test('a file that is not media stays a link, and opens no Lightbox', reader, async ({ page }) => {
+	await page.goto(`/browse/${ART_ID}`, { waitUntil: 'networkidle' });
+	const file = page.locator('main [data-message-id]').getByRole('link', { name: /notes\.txt/ });
+	await expect(file).toHaveAttribute('href', /notes\.txt$/);
+	await expect(file).toHaveAttribute('target', '_blank');
+	const popup = page.waitForEvent('popup');
+	await file.click();
+	expect((await popup).url()).toMatch(/notes\.txt$/);
+	await expect(lightbox(page)).toHaveCount(0);
+
+	// #art's images open it, over the feed's three.
+	await rowMedia(page, 'drawing.png').click();
+	await expect(lightbox(page).locator('.counter')).toHaveText('2 of 3');
+});
+
+test('"Open in conversation" from the feed closes on the message, without leaving the reader', reader, async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 400 });
+	await page.goto(`/browse/${RANDOM_ID}`, { waitUntil: 'networkidle' });
+	await rowMedia(page, 'tall-poster.png').click();
+	const dialog = lightbox(page);
+	await expect(dialog.locator('.counter')).toHaveText('2 of 5');
+	await page.keyboard.press('ArrowRight');
+	await page.keyboard.press('ArrowRight');
+	await expect(dialog.locator('.counter')).toHaveText('4 of 5');
+
+	const requests: string[] = [];
+	page.on('request', (request) => requests.push(new URL(request.url()).pathname));
+	await dialog.getByRole('link', { name: 'Open in conversation' }).click();
+	await expect(lightbox(page)).toHaveCount(0);
+	await expect(page).toHaveURL(`/browse/${RANDOM_ID}`);
+	// The reader stays as it was, on the attachment the Lightbox was showing.
+	const clip = rowMedia(page, 'clip.webm');
+	await expect(clip).toBeFocused();
+	await expect(clip).toBeInViewport();
+	expect(await rovingRow(page)).toBe(RANDOM_LAST_ID);
+	expect(requests.filter((path) => path.startsWith('/api/'))).toEqual([]);
+});
+
+test('the reader’s J/K keys wait while the Lightbox is open, then move on from the attachment', reader, async ({ page }) => {
+	await page.goto(`/browse/${RANDOM_ID}`, { waitUntil: 'networkidle' });
+	const opener = rowMedia(page, 'tall-poster.png');
+	await opener.click();
+	const dialog = lightbox(page);
+	await expect(dialog.locator('.counter')).toHaveText('2 of 5');
+	expect(await rovingRow(page)).toBe(RANDOM_FIRST_ID);
+
+	// G then L would take the feed to its newest message, and J/K move between rows.
+	for (const key of ['g', 'l', 'j', 'k', 'j']) await page.keyboard.press(key);
+	await expect(dialog).toBeVisible();
+	await expect(dialog.locator('.counter')).toHaveText('2 of 5');
+	expect(await dialog.evaluate((d) => d.contains(document.activeElement))).toBe(true);
+	expect(await rovingRow(page)).toBe(RANDOM_FIRST_ID);
+
+	await page.keyboard.press('Escape');
+	await expect(opener).toBeFocused();
+	await page.keyboard.press('j');
+	await expect(page.locator(`main [data-message-id="${AGREED_ID}"]`)).toBeFocused();
+});
+
+test('the Lightbox takes in the attachments of older messages as they load', reader, async ({ page }) => {
+	await narrowPages(page, 2);
+	await page.goto(`/browse/${RANDOM_ID}`, { waitUntil: 'networkidle' });
+	// The newest page: "Agreed." and Bob's last message, with clip.webm and panorama.png.
+	await rowMedia(page, 'panorama.png').click();
+	await expect(lightbox(page).locator('.counter')).toHaveText('2 of 2');
+	await page.keyboard.press('Escape');
+	await expect(lightbox(page)).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'Load older messages' }).click();
+	await expect(rowMedia(page, 'wumpus-dance.gif')).toBeVisible();
+	await rowMedia(page, 'panorama.png').click();
+	await expect(lightbox(page).locator('.counter')).toHaveText('5 of 5');
+	await lightbox(page).getByRole('navigation', { name: 'Filmstrip' }).getByRole('button').first().click();
+	expect(await shown(page)).toBe('wumpus-dance.gif');
 });
