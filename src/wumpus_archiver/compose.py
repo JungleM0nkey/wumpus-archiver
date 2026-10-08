@@ -22,7 +22,6 @@ from wumpus_archiver.config import (
     parse_cors_origins,
 )
 from wumpus_archiver.storage.database import Database
-from wumpus_archiver.utils.process_manager import resolve_portal_dir
 
 logger = logging.getLogger(__name__)
 
@@ -73,13 +72,17 @@ def api_security_from_settings() -> tuple[SecretStr | None, list[str]]:
 
 
 def portal_build_dir() -> Path | None:
-    """The portal build to serve, or ``None`` when the portal is absent or not built."""
-    try:
-        portal_dir = resolve_portal_dir()
-    except FileNotFoundError:
-        return None
-    build = portal_dir / "build"
-    return build if (build / "index.html").is_file() else None
+    """The portal build to serve, or ``None`` when no built portal is found.
+
+    Looks for ``portal/build/index.html`` beside the source tree, then under the
+    working directory. Only the build output is needed: a deployment may ship
+    ``portal/build`` without the portal's sources or ``package.json``.
+    """
+    for portal in (Path(__file__).resolve().parents[2] / "portal", Path.cwd() / "portal"):
+        build = portal / "build"
+        if (build / "index.html").is_file():
+            return build
+    return None
 
 
 __all__ = ["api_security_from_settings", "portal_build_dir", "scrape_from_settings"]
