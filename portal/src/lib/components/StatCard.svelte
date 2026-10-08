@@ -1,23 +1,29 @@
 <script lang="ts">
+	import Icon from './ui/Icon.svelte';
+	import type { IconName } from './ui/icons.ts';
+
 	let {
 		label,
 		value,
-		icon = '',
+		icon,
 		sub = '',
+		index = 0
 	}: {
 		label: string;
 		value: string | number;
-		icon?: string;
+		icon?: IconName;
 		sub?: string;
+		/** The tile's place in its row, for the staggered first paint. */
+		index?: number;
 	} = $props();
 </script>
 
-<div class="stat-card">
-	{#if icon}
-		<span class="stat-icon">{icon}</span>
-	{/if}
-	<div class="stat-value">{typeof value === 'number' ? value.toLocaleString() : value}</div>
-	<div class="stat-label">{label}</div>
+<div class="stat-card enter" style:--i={index}>
+	<div class="stat-head">
+		<span class="stat-label">{label}</span>
+		{#if icon}<Icon name={icon} />{/if}
+	</div>
+	<div class="stat-value mono">{typeof value === 'number' ? value.toLocaleString() : value}</div>
 	{#if sub}
 		<div class="stat-sub mono">{sub}</div>
 	{/if}
@@ -28,41 +34,39 @@
 		background: var(--bg-surface);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-md);
-		padding: var(--space-5);
+		padding: var(--space-4) var(--space-5);
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-1);
-		transition: border-color var(--duration-small) var(--ease-out-quint);
+		gap: var(--space-2);
+		transition: border-color var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.stat-card:hover {
 		border-color: var(--border-default);
 	}
 
-	.stat-icon {
-		font-size: 20px;
-		margin-bottom: var(--space-1);
-	}
-
-	.stat-value {
-		font-family: var(--font-mono);
-		font-size: 28px;
-		font-weight: 700;
-		letter-spacing: -0.03em;
-		color: var(--text-primary);
-		line-height: 1.1;
+	.stat-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		color: var(--text-secondary);
 	}
 
 	.stat-label {
-		font-size: 13px;
-		font-weight: 500;
-		color: var(--text-secondary);
+		font: var(--type-caption);
+		letter-spacing: var(--tracking-caption);
 		text-transform: uppercase;
-		letter-spacing: 0.05em;
+		color: var(--text-secondary);
+	}
+
+	.stat-value {
+		font: var(--type-mono-num-lg);
+		color: var(--text-primary);
 	}
 
 	.stat-sub {
-		font-size: 11px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 	}
 </style>

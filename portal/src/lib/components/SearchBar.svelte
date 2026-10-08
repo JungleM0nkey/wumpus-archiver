@@ -1,11 +1,18 @@
 <script lang="ts">
+	import Icon from './ui/Icon.svelte';
+	import IconButton from './ui/IconButton.svelte';
+	import Kbd from './ui/Kbd.svelte';
+
 	let {
 		value = $bindable(''),
 		placeholder = 'Search the archive...',
+		label = 'Search',
 		onsubmit,
 	}: {
 		value?: string;
 		placeholder?: string;
+		/** The field's accessible name. */
+		label?: string;
 		onsubmit?: (query: string) => void;
 	} = $props();
 
@@ -17,19 +24,20 @@
 </script>
 
 <div class="search-bar">
-	<span class="search-icon">⌕</span>
+	<Icon name="search" size={18} />
 	<input
-		type="text"
+		type="search"
 		bind:value
 		{placeholder}
+		aria-label={label}
 		onkeydown={handleKeydown}
 		class="search-input"
 	/>
 	{#if value}
-		<button class="clear-btn" onclick={() => (value = '')}>✕</button>
+		<IconButton icon="x" label="Clear search" size="sm" onclick={() => (value = '')} />
 	{/if}
-	<div class="search-hint mono">
-		<kbd>↵</kbd> search
+	<div class="search-hint">
+		<Kbd>Enter</Kbd> to search
 	</div>
 </div>
 
@@ -38,67 +46,54 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
-		padding: var(--space-3) var(--space-4);
+		height: 44px;
+		padding: 0 var(--space-2) 0 var(--space-4);
 		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
+		border: 1px solid var(--border-default);
 		border-radius: var(--radius-md);
-		transition: border-color var(--duration-small) var(--ease-out-quint), box-shadow var(--duration-small) var(--ease-out-quint);
+		color: var(--text-tertiary);
+		transition:
+			border-color var(--duration-micro) var(--ease-out-quint),
+			box-shadow var(--duration-micro) var(--ease-out-quint);
 	}
 
+	.search-bar:hover {
+		border-color: var(--border-strong);
+	}
+
+	/* The field's focus ring sits on the whole bar. */
 	.search-bar:focus-within {
 		border-color: var(--accent-glow);
-		box-shadow: 0 0 0 3px var(--accent-muted);
-	}
-
-	.search-icon {
-		font-size: 18px;
-		color: var(--text-tertiary);
-		flex-shrink: 0;
+		box-shadow: 0 0 0 2px var(--accent-glow);
 	}
 
 	.search-input {
 		flex: 1;
-		font-size: 15px;
-		color: var(--text-primary);
 		min-width: 0;
+		height: 100%;
+		font: var(--type-body-md);
+		color: var(--text-primary);
+	}
+
+	.search-input:focus-visible {
+		outline: none;
+	}
+
+	.search-input::-webkit-search-cancel-button {
+		display: none;
 	}
 
 	.search-input::placeholder {
 		color: var(--text-tertiary);
 	}
 
-	.clear-btn {
-		padding: var(--space-1) var(--space-2);
-		color: var(--text-tertiary);
-		font-size: 13px;
-		border-radius: var(--radius-xs);
-		transition: all var(--duration-micro) var(--ease-out-quint);
-	}
-
-	.clear-btn:hover {
-		color: var(--text-primary);
-		background: var(--bg-hover);
-	}
-
 	.search-hint {
 		display: flex;
 		align-items: center;
 		gap: var(--space-1);
-		font-size: 11px;
+		padding-right: var(--space-2);
+		font: var(--type-label-xs);
 		color: var(--text-tertiary);
 		white-space: nowrap;
-	}
-
-	.search-hint kbd {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 20px;
-		padding: 1px 5px;
-		background: var(--bg-raised);
-		border: 1px solid var(--border-subtle);
-		border-radius: 3px;
-		font-family: var(--font-mono);
-		font-size: 10px;
 	}
 </style>

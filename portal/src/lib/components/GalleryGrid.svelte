@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { GalleryAttachment } from '#lib/types.ts';
 	import Lightbox from './Lightbox.svelte';
+	import LoadMore from './LoadMore.svelte';
+	import EmptyState from './ui/EmptyState.svelte';
 
 	let {
 		attachments = [],
@@ -62,10 +64,7 @@
 </script>
 
 {#if attachments.length === 0 && !loading}
-	<div class="empty-gallery">
-		<div class="empty-icon">🖼</div>
-		<span>No images in this channel.</span>
-	</div>
+	<EmptyState icon="image-off" title="No images in this channel." />
 {:else}
 	<div class="gallery-grid">
 		{#each attachments as att, i (att.id)}
@@ -88,16 +87,8 @@
 		{/each}
 	</div>
 
-	{#if hasMore}
-		<div class="load-more">
-			<button class="load-more-btn" onclick={onloadmore} disabled={loading}>
-				{#if loading}
-					<span class="spinner"></span> Loading...
-				{:else}
-					Load more images
-				{/if}
-			</button>
-		</div>
+	{#if hasMore && onloadmore}
+		<LoadMore {loading} onclick={onloadmore}>Load more images</LoadMore>
 	{/if}
 {/if}
 
@@ -123,16 +114,18 @@
 		position: relative;
 		aspect-ratio: 1;
 		overflow: hidden;
-		border-radius: var(--radius-xs);
+		border-radius: var(--radius-sm);
 		border: 1px solid var(--border-subtle);
 		background: var(--bg-raised);
 		cursor: pointer;
 		padding: 0;
-		transition: all var(--duration-micro) var(--ease-out-quint);
+		transition:
+			border-color var(--duration-micro) var(--ease-out-quint),
+			transform var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.gallery-thumb:hover {
-		border-color: var(--accent);
+		border-color: var(--border-strong);
 		transform: scale(1.02);
 		z-index: 2;
 	}
@@ -165,7 +158,7 @@
 		flex-direction: column;
 		gap: 2px;
 		opacity: 0;
-		transition: opacity var(--duration-micro);
+		transition: opacity var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.gallery-thumb:hover .thumb-overlay {
@@ -173,7 +166,7 @@
 	}
 
 	.thumb-filename {
-		font-size: 11px;
+		font: var(--type-label-xs);
 		color: rgba(255, 255, 255, 0.9);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -181,65 +174,9 @@
 	}
 
 	.thumb-meta {
-		font-size: 10px;
+		font: var(--type-mono-sm);
 		color: rgba(255, 255, 255, 0.6);
 	}
-
-	.empty-gallery {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-16) 0;
-		color: var(--text-secondary);
-	}
-
-	.empty-icon {
-		font-size: 48px;
-		opacity: 0.5;
-	}
-
-	.load-more {
-		display: flex;
-		justify-content: center;
-		padding: var(--space-6) 0;
-	}
-
-	.load-more-btn {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		font-family: var(--font-mono);
-		font-size: 13px;
-		color: var(--text-secondary);
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
-		padding: var(--space-2) var(--space-5);
-		cursor: pointer;
-		transition: all var(--duration-micro) var(--ease-out-quint);
-	}
-
-	.load-more-btn:hover:not(:disabled) {
-		border-color: var(--accent);
-		color: var(--accent);
-	}
-
-	.load-more-btn:disabled {
-		opacity: 0.6;
-		cursor: default;
-	}
-
-	.spinner {
-		width: 14px; height: 14px;
-		border: 2px solid var(--border-subtle);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-		display: inline-block;
-	}
-
-	@keyframes spin { to { transform: rotate(360deg); } }
 
 	@media (max-width: 600px) {
 		.gallery-grid {

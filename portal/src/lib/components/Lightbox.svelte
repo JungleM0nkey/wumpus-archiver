@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { GalleryAttachment } from '#lib/types.ts';
+	import Icon from './ui/Icon.svelte';
+	import IconButton from './ui/IconButton.svelte';
 
 	let {
 		attachment,
@@ -43,22 +45,33 @@
 <div class="lightbox-overlay" onclick={onclose}>
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 	<div class="lightbox-content" onclick={(e) => e.stopPropagation()}>
-		<!-- Navigation arrows -->
 		{#if hasPrev}
-			<button class="nav-arrow prev" onclick={(e) => { e.stopPropagation(); onprev?.(); }} aria-label="Previous">
-				‹
-			</button>
+			<span class="nav-arrow prev">
+				<IconButton
+					icon="chevron-left"
+					label="Previous"
+					variant="overlay"
+					size="lg"
+					onclick={(e) => { e.stopPropagation(); onprev?.(); }}
+				/>
+			</span>
 		{/if}
 		{#if hasNext}
-			<button class="nav-arrow next" onclick={(e) => { e.stopPropagation(); onnext?.(); }} aria-label="Next">
-				›
-			</button>
+			<span class="nav-arrow next">
+				<IconButton
+					icon="chevron-right"
+					label="Next"
+					variant="overlay"
+					size="lg"
+					onclick={(e) => { e.stopPropagation(); onnext?.(); }}
+				/>
+			</span>
 		{/if}
 
-		<!-- Close button -->
-		<button class="close-btn" onclick={onclose} aria-label="Close">✕</button>
+		<span class="close-btn">
+			<IconButton icon="x" label="Close" variant="overlay" onclick={onclose} />
+		</span>
 
-		<!-- Image -->
 		<div class="image-frame">
 			<img
 				src={attachment.proxy_url || attachment.url}
@@ -67,7 +80,6 @@
 			/>
 		</div>
 
-		<!-- Info bar -->
 		<div class="info-bar">
 			<div class="info-left">
 				{#if attachment.author_name}
@@ -90,7 +102,7 @@
 					rel="noopener noreferrer"
 					class="open-link"
 					onclick={(e) => e.stopPropagation()}
-				>↗ Open</a>
+				><Icon name="arrow-up-right" size={14} /> Open</a>
 			</div>
 		</div>
 	</div>
@@ -101,7 +113,7 @@
 		position: fixed;
 		inset: 0;
 		z-index: 1000;
-		background: rgba(0, 0, 0, 0.92);
+		background: rgba(5, 5, 6, 0.96);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -114,6 +126,7 @@
 		flex-direction: column;
 		max-width: 95vw;
 		max-height: 95vh;
+		animation: scale-in var(--duration-medium) var(--ease-out-quint);
 	}
 
 	.image-frame {
@@ -128,54 +141,26 @@
 		max-width: 90vw;
 		max-height: 82vh;
 		object-fit: contain;
-		border-radius: var(--radius-xs);
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+		border-radius: var(--radius-sm);
+		box-shadow: var(--shadow-floating);
 	}
 
 	.close-btn {
 		position: absolute;
-		top: -40px;
+		top: -44px;
 		right: 0;
-		font-size: 20px;
-		color: var(--text-tertiary);
-		background: none;
-		border: none;
-		cursor: pointer;
-		padding: 4px 8px;
-		border-radius: var(--radius-xs);
-		transition: all var(--duration-micro);
 		z-index: 10;
-	}
-
-	.close-btn:hover {
-		color: var(--text-primary);
-		background: rgba(255, 255, 255, 0.1);
 	}
 
 	.nav-arrow {
 		position: absolute;
 		top: 50%;
-		transform: translateY(-50%);
-		font-size: 48px;
-		font-weight: 300;
-		color: rgba(255, 255, 255, 0.5);
-		background: none;
-		border: none;
-		cursor: pointer;
-		padding: 16px 12px;
-		border-radius: var(--radius-sm);
-		transition: all var(--duration-micro);
+		translate: 0 -50%;
 		z-index: 10;
-		line-height: 1;
 	}
 
-	.nav-arrow:hover {
-		color: white;
-		background: rgba(255, 255, 255, 0.08);
-	}
-
-	.nav-arrow.prev { left: -56px; }
-	.nav-arrow.next { right: -56px; }
+	.nav-arrow.prev { left: -60px; }
+	.nav-arrow.next { right: -60px; }
 
 	.info-bar {
 		display: flex;
@@ -191,13 +176,13 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		font-size: 12px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 	}
 
 	.info-author {
+		font: var(--type-label-sm);
 		color: var(--text-secondary);
-		font-weight: 500;
 	}
 
 	.info-filename {
@@ -211,18 +196,16 @@
 	.info-sep { color: var(--text-tertiary); }
 
 	.open-link {
-		color: var(--accent);
-		text-decoration: none;
-		font-size: 12px;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
 		margin-left: var(--space-2);
-		transition: opacity var(--duration-micro);
+		font: var(--type-label-sm);
+		color: var(--accent);
 	}
-
-	.open-link:hover { opacity: 0.8; }
 
 	@media (max-width: 768px) {
 		.nav-arrow.prev { left: 4px; }
 		.nav-arrow.next { right: 4px; }
-		.nav-arrow { font-size: 36px; background: rgba(0,0,0,0.5); }
 	}
 </style>

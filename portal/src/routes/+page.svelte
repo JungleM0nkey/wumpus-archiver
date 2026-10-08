@@ -81,10 +81,10 @@
 					{/if}
 				</h2>
 				<div class="stats-grid">
-					<StatCard label="Messages" value={stats.total_messages} icon="✉" />
-					<StatCard label="Channels" value={stats.total_channels} icon="≡" />
-					<StatCard label="Users" value={stats.total_users} icon="◉" />
-					<StatCard label="Attachments" value={stats.total_attachments} icon="📎" />
+					<StatCard label="Messages" value={stats.total_messages} icon="message" />
+					<StatCard label="Channels" value={stats.total_channels} icon="hash" />
+					<StatCard label="Users" value={stats.total_users} icon="users" />
+					<StatCard label="Attachments" value={stats.total_attachments} icon="paperclip" />
 				</div>
 			</section>
 		{/if}

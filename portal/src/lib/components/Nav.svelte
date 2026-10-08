@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import Icon from './ui/Icon.svelte';
+	import type { IconName } from './ui/icons.ts';
 
-	const links = [
-		{ href: '/', label: 'Dashboard', icon: '◈' },
-		{ href: '/timeline', label: 'Timeline', icon: '▤' },
-		{ href: '/search', label: 'Search', icon: '⌕' },
-		{ href: '/channels', label: 'Channels', icon: '≡' },
-		{ href: '/gallery', label: 'Gallery', icon: '⊞' },
-		{ href: '/users', label: 'Users', icon: '◉' },
-		{ href: '/control', label: 'Control', icon: '⚙' },
+	const links: { href: string; label: string; icon: IconName }[] = [
+		{ href: '/', label: 'Dashboard', icon: 'dashboard' },
+		{ href: '/timeline', label: 'Timeline', icon: 'rows' },
+		{ href: '/search', label: 'Search', icon: 'search' },
+		{ href: '/channels', label: 'Channels', icon: 'hash' },
+		{ href: '/gallery', label: 'Gallery', icon: 'images' },
+		{ href: '/users', label: 'Users', icon: 'users' },
+		{ href: '/control', label: 'Control', icon: 'server' }
 	];
 
 	function isActive(href: string): boolean {
@@ -20,18 +22,20 @@
 <nav class="nav">
 	<div class="nav-inner">
 		<a href="/" class="brand">
-			<span class="brand-icon">⟐</span>
+			<span class="brand-mark"><Icon name="archive" size={18} /></span>
 			<span class="brand-text">wumpus<span class="brand-accent">.archive</span></span>
 		</a>
 
 		<div class="nav-links">
-			{#each links as link}
+			{#each links as link (link.href)}
+				{@const active = isActive(link.href)}
 				<a
 					href={link.href}
 					class="nav-link"
-					class:active={isActive(link.href)}
+					class:active
+					aria-current={active ? 'page' : undefined}
 				>
-					<span class="nav-icon">{link.icon}</span>
+					<Icon name={link.icon} />
 					{link.label}
 				</a>
 			{/each}
@@ -66,23 +70,27 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		text-decoration: none;
 		color: var(--text-primary);
-		font-weight: 600;
-		font-size: 16px;
-		letter-spacing: -0.02em;
+		font: var(--type-heading-sm);
 	}
 
-	.brand:hover { color: var(--text-primary); text-decoration: none; }
+	.brand:hover {
+		color: var(--text-primary);
+	}
 
-	.brand-icon {
-		font-size: 20px;
+	.brand-mark {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		border-radius: var(--radius-sm);
+		background: var(--accent-muted);
 		color: var(--accent);
 	}
 
 	.brand-accent {
-		color: var(--accent);
-		font-family: var(--font-mono);
+		color: var(--text-secondary);
 		font-weight: 500;
 	}
 
@@ -90,35 +98,37 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-1);
+		min-width: 0;
+		overflow-x: auto;
 	}
 
 	.nav-link {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
+		height: 32px;
+		padding: 0 var(--space-3);
 		border-radius: var(--radius-sm);
-		font-size: 14px;
-		font-weight: 500;
+		font: var(--type-label-md);
 		color: var(--text-secondary);
-		transition: all var(--duration-micro) var(--ease-out-quint);
-		text-decoration: none;
+		white-space: nowrap;
+		transition:
+			background-color var(--duration-micro) var(--ease-out-quint),
+			color var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.nav-link:hover {
 		color: var(--text-primary);
 		background: var(--bg-hover);
-		text-decoration: none;
 	}
 
 	.nav-link.active {
-		color: var(--accent);
-		background: var(--accent-muted);
+		color: var(--text-primary);
+		background: var(--bg-active);
 	}
 
-	.nav-icon {
-		font-size: 15px;
-		opacity: 0.7;
+	.nav-link.active :global(.icon) {
+		color: var(--accent);
 	}
 
 	.nav-right {
@@ -129,9 +139,9 @@
 	}
 
 	.version {
-		font-size: 11px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
-		padding: 2px 8px;
+		padding: 3px 8px;
 		border-radius: var(--radius-xs);
 		background: var(--bg-raised);
 		border: 1px solid var(--border-subtle);

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { Message } from '#lib/types.ts';
+	import Badge from './ui/Badge.svelte';
+	import Icon from './ui/Icon.svelte';
 
 	let { message }: { message: Message } = $props();
 
@@ -53,16 +55,16 @@
 					{message.author?.display_name || message.author?.username || 'Unknown'}
 				</span>
 				{#if message.author?.bot}
-					<span class="badge accent">BOT</span>
+					<Badge tone="accent">BOT</Badge>
 				{/if}
 			</div>
 		</div>
 		<div class="card-meta">
 			{#if message.pinned}
-				<span class="pin-icon" title="Pinned">📌</span>
+				<span class="pin" title="Pinned"><Icon name="pin" size={14} label="Pinned" /></span>
 			{/if}
 			{#if message.edited_at}
-				<span class="badge">edited</span>
+				<Badge>edited</Badge>
 			{/if}
 			<time class="timestamp mono" datetime={message.created_at}>
 				{formatTime(message.created_at)}
@@ -78,7 +80,7 @@
 
 	{#if message.attachments.length > 0}
 		<div class="attachments">
-			{#each message.attachments as att}
+			{#each message.attachments as att (att.id)}
 				{#if isImageType(att.content_type)}
 					<a href={att.url} target="_blank" rel="noopener noreferrer" class="attachment-img-link">
 						<img
@@ -90,7 +92,7 @@
 					</a>
 				{:else}
 					<a href={att.url} target="_blank" rel="noopener noreferrer" class="attachment-file">
-						<span class="file-icon">📎</span>
+						<Icon name="paperclip" />
 						<span class="file-name truncate">{att.filename}</span>
 						<span class="file-size mono">{formatSize(att.size)}</span>
 					</a>
@@ -118,7 +120,11 @@
 		<div class="reactions">
 			{#each message.reactions as react}
 				<span class="reaction-badge">
-					<span class="reaction-emoji">{react.emoji_name || '❓'}</span>
+					{#if react.emoji_name}
+						<span class="reaction-emoji">{react.emoji_name}</span>
+					{:else}
+						<Icon name="circle-help" size={14} label="Unknown emoji" />
+					{/if}
 					<span class="reaction-count mono">{react.count}</span>
 				</span>
 			{/each}
@@ -128,7 +134,7 @@
 	<div class="card-footer">
 		<span class="msg-id mono">ID {message.id}</span>
 		{#if message.reference_id}
-			<span class="badge">↩ reply</span>
+			<Badge icon="reply">reply</Badge>
 		{/if}
 	</div>
 </article>
@@ -138,8 +144,8 @@
 		background: var(--bg-surface);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-md);
-		padding: var(--space-5);
-		transition: border-color var(--duration-small) var(--ease-out-quint), box-shadow var(--duration-small) var(--ease-out-quint);
+		padding: var(--space-4) var(--space-5);
+		transition: border-color var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.message-card:hover {
@@ -147,7 +153,7 @@
 	}
 
 	.message-card.pinned {
-		border-left: 3px solid var(--accent);
+		border-left: 2px solid var(--accent);
 	}
 
 	.card-header {
@@ -162,12 +168,13 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
+		min-width: 0;
 	}
 
 	.avatar {
 		width: 32px;
 		height: 32px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		object-fit: cover;
 		flex-shrink: 0;
 	}
@@ -178,8 +185,7 @@
 		justify-content: center;
 		background: var(--bg-overlay);
 		color: var(--text-secondary);
-		font-weight: 600;
-		font-size: 14px;
+		font: var(--type-label-md);
 		border: 1px solid var(--border-subtle);
 	}
 
@@ -187,11 +193,11 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+		min-width: 0;
 	}
 
 	.author-name {
-		font-weight: 600;
-		font-size: 14px;
+		font: var(--type-heading-sm);
 		color: var(--text-primary);
 	}
 
@@ -203,12 +209,13 @@
 	}
 
 	.timestamp {
-		font-size: 12px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 	}
 
-	.pin-icon {
-		font-size: 12px;
+	.pin {
+		display: inline-flex;
+		color: var(--accent);
 	}
 
 	.card-body {
@@ -216,8 +223,7 @@
 	}
 
 	.content {
-		font-size: 14px;
-		line-height: 1.65;
+		font: var(--type-body-md);
 		color: var(--text-primary);
 		white-space: pre-wrap;
 		word-break: break-word;
@@ -254,20 +260,25 @@
 		background: var(--bg-raised);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-sm);
-		font-size: 13px;
+		font: var(--type-body-sm);
 		color: var(--text-secondary);
-		text-decoration: none;
 		max-width: 300px;
 		transition: border-color var(--duration-micro) var(--ease-out-quint);
 	}
 
 	.attachment-file:hover {
 		border-color: var(--border-default);
-		text-decoration: none;
+		color: var(--text-secondary);
 	}
 
-	.file-name { color: var(--text-primary); }
-	.file-size { font-size: 11px; color: var(--text-tertiary); }
+	.file-name {
+		color: var(--text-primary);
+	}
+
+	.file-size {
+		font: var(--type-mono-sm);
+		color: var(--text-tertiary);
+	}
 
 	.embeds {
 		display: flex;
@@ -277,23 +288,21 @@
 	}
 
 	.embed-card {
-		border-left: 3px solid var(--accent-strong);
+		border-left: 2px solid var(--accent-strong);
 		padding: var(--space-2) var(--space-3);
 		background: var(--bg-raised);
 		border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
 	}
 
 	.embed-title {
-		font-weight: 600;
-		font-size: 13px;
+		font: var(--type-label-md);
 		color: var(--accent);
 		margin-bottom: var(--space-1);
 	}
 
 	.embed-desc {
-		font-size: 13px;
+		font: var(--type-body-sm);
 		color: var(--text-secondary);
-		line-height: 1.5;
 	}
 
 	.reactions {
@@ -307,16 +316,18 @@
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-1);
-		padding: 2px 8px;
+		height: 24px;
+		padding: 0 var(--space-2);
 		background: var(--bg-raised);
 		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-xs);
+		border-radius: var(--radius-full);
 		font-size: 13px;
+		color: var(--text-secondary);
 	}
 
 	.reaction-count {
-		font-size: 11px;
-		color: var(--text-tertiary);
+		font: var(--type-mono-sm);
+		color: var(--text-secondary);
 	}
 
 	.card-footer {
@@ -328,7 +339,7 @@
 	}
 
 	.msg-id {
-		font-size: 11px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 	}
 </style>

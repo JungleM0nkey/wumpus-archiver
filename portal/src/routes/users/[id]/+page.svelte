@@ -130,10 +130,10 @@
 				Overview
 			</h2>
 			<div class="stats-grid">
-				<StatCard label="Messages" value={profile.total_messages} icon="✉" />
-				<StatCard label="Attachments" value={profile.total_attachments} icon="📎" />
-				<StatCard label="Reactions Received" value={profile.total_reactions_received} icon="♥" />
-				<StatCard label="Active Channels" value={profile.active_channels} icon="≡" />
+				<StatCard label="Messages" value={profile.total_messages} icon="message" />
+				<StatCard label="Attachments" value={profile.total_attachments} icon="paperclip" />
+				<StatCard label="Reactions Received" value={profile.total_reactions_received} icon="heart" />
+				<StatCard label="Active Channels" value={profile.active_channels} icon="hash" />
 			</div>
 		</section>
 

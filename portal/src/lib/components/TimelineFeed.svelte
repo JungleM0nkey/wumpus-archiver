@@ -38,9 +38,10 @@
 	<h2 class="feed-title">{title}</h2>
 {/if}
 
+<!-- Groups do not animate in: older pages are added above what the reader is looking at. -->
 <div class="timeline-feed">
-	{#each grouped as group, gi (group.date)}
-		<div class="date-group enter" style="--i: {gi}">
+	{#each grouped as group (group.date)}
+		<div class="date-group">
 			<div class="date-divider">
 				<div class="date-line"></div>
 				<span class="date-label mono">{group.date}</span>
@@ -58,8 +59,7 @@
 
 <style>
 	.feed-title {
-		font-size: 22px;
-		font-weight: 600;
+		font: var(--type-heading-lg);
 		color: var(--text-primary);
 		margin-bottom: var(--space-6);
 	}
@@ -90,10 +90,9 @@
 	}
 
 	.date-label {
-		font-size: 12px;
+		font: var(--type-mono-sm);
 		color: var(--text-tertiary);
 		white-space: nowrap;
-		letter-spacing: 0.02em;
 	}
 
 	.messages-group {
