@@ -1,11 +1,11 @@
 """How ``serve --build-portal`` and ``dev`` prepare to start.
 
-They install the portal's dependencies only when ``node_modules`` does not match the
-portal's lockfile, and ``dev`` checks settings before starting anything. npm and the
-dev processes are faked: nothing here runs npm or uvicorn.
+They install the portal's dependencies only when ``node_modules`` is missing or older
+than the portal's lockfile, and both check settings before starting anything. npm and
+the dev processes are faked: nothing here runs npm or uvicorn.
 """
 
-import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -16,40 +16,33 @@ from click.testing import CliRunner
 from wumpus_archiver import cli as cli_module
 from wumpus_archiver.cli import _build_portal_static, _ensure_portal_dependencies, cli
 
-# A lockfile in npm's v3 shape: the root entry, two packages and an optional binary
-# for another platform, which npm never installs here.
-LOCKED: dict[str, dict[str, Any]] = {
-    "": {"name": "portal"},
-    "node_modules/vite": {"version": "8.3.3", "dev": True},
-    "node_modules/cookie": {"version": "2.0.1"},
-    "node_modules/@rolldown/binding-win32-x64-msvc": {"version": "1.0.0", "optional": True},
-}
-INSTALLED = {
-    "node_modules/vite": {"version": "8.3.3", "dev": True},
-    "node_modules/cookie": {"version": "2.0.1"},
-}
+INSTALLED_AT = 1_700_000_000  # the time npm last wrote its record of the tree
 
 
 def _portal(
     root: Path,
     *,
-    locked: dict[str, dict[str, Any]] | None = LOCKED,
-    installed: dict[str, dict[str, Any]] | None = INSTALLED,
+    lockfile_at: int | None = INSTALLED_AT - 60,
     node_modules: bool = True,
+    record: bool = True,
 ) -> Path:
-    """A portal dir with an optional lockfile and an optional installed tree."""
+    """A portal dir with an optional lockfile and an optional installed tree.
+
+    ``lockfile_at`` is the lockfile's modification time; ``None`` means no lockfile.
+    By default the lockfile predates the install, so the tree is current.
+    """
     portal = root / "portal"
     portal.mkdir()
-    if locked is not None:
-        (portal / "package-lock.json").write_text(
-            json.dumps({"lockfileVersion": 3, "packages": locked})
-        )
+    if lockfile_at is not None:
+        lockfile = portal / "package-lock.json"
+        lockfile.write_text('{"lockfileVersion": 3, "packages": {}}')
+        os.utime(lockfile, (lockfile_at, lockfile_at))
     if node_modules:
         (portal / "node_modules").mkdir()
-        if installed is not None:
-            (portal / "node_modules" / ".package-lock.json").write_text(
-                json.dumps({"lockfileVersion": 3, "packages": installed})
-            )
+        if record:
+            installed = portal / "node_modules" / ".package-lock.json"
+            installed.write_text('{"lockfileVersion": 3, "packages": {}}')
+            os.utime(installed, (INSTALLED_AT, INSTALLED_AT))
     return portal
 
 
@@ -76,56 +69,40 @@ def npm(monkeypatch: pytest.MonkeyPatch) -> FakeNpm:
 
 
 class TestEnsurePortalDependencies:
-    def test_an_install_matching_the_lockfile_is_left_alone(
+    def test_an_install_newer_than_the_lockfile_is_left_alone(
         self, tmp_path: Path, npm: FakeNpm
     ) -> None:
-        """Optional packages for other platforms are never installed and not required."""
         _ensure_portal_dependencies("npm", _portal(tmp_path))
         assert npm.commands == []
 
-    @pytest.mark.parametrize(
-        "portal_kwargs",
-        [
-            pytest.param({"node_modules": False}, id="no-node-modules"),
-            pytest.param({"installed": None}, id="no-installed-record"),
-            pytest.param(
-                {"installed": {**INSTALLED, "node_modules/vite": {"version": "7.3.5"}}},
-                id="older-version-installed",
-            ),
-            pytest.param(
-                {"installed": {"node_modules/vite": {"version": "8.3.3"}}},
-                id="locked-package-missing",
-            ),
-            pytest.param(
-                {"installed": {**INSTALLED, "node_modules/esbuild": {"version": "0.28.1"}}},
-                id="package-no-longer-locked",
-            ),
-        ],
-    )
-    def test_a_stale_install_is_redone_from_the_lockfile(
-        self, tmp_path: Path, npm: FakeNpm, portal_kwargs: dict[str, Any]
-    ) -> None:
-        _ensure_portal_dependencies("npm", _portal(tmp_path, **portal_kwargs))
-        assert npm.commands == [["ci"]]
-
-    def test_an_unreadable_installed_record_counts_as_stale(
+    def test_a_lockfile_changed_since_the_install_rebuilds_the_tree(
         self, tmp_path: Path, npm: FakeNpm
     ) -> None:
-        portal = _portal(tmp_path)
-        (portal / "node_modules" / ".package-lock.json").write_text("{not json")
-        _ensure_portal_dependencies("npm", portal)
+        """A pull, merge or branch switch that changes the lockfile makes it newer."""
+        _ensure_portal_dependencies("npm", _portal(tmp_path, lockfile_at=INSTALLED_AT + 1))
         assert npm.commands == [["ci"]]
+
+    def test_a_fresh_checkout_installs_from_the_lockfile(
+        self, tmp_path: Path, npm: FakeNpm
+    ) -> None:
+        _ensure_portal_dependencies("npm", _portal(tmp_path, node_modules=False))
+        assert npm.commands == [["ci"]]
+
+    def test_a_tree_without_an_npm_record_is_left_alone(self, tmp_path: Path, npm: FakeNpm) -> None:
+        """Another package manager's tree (or package-lock=false) is never wiped."""
+        _ensure_portal_dependencies("npm", _portal(tmp_path, record=False))
+        assert npm.commands == []
 
     def test_without_a_lockfile_an_existing_install_is_kept(
         self, tmp_path: Path, npm: FakeNpm
     ) -> None:
-        _ensure_portal_dependencies("npm", _portal(tmp_path, locked=None, installed=None))
+        _ensure_portal_dependencies("npm", _portal(tmp_path, lockfile_at=None))
         assert npm.commands == []
 
     def test_without_a_lockfile_a_fresh_checkout_installs(
         self, tmp_path: Path, npm: FakeNpm
     ) -> None:
-        _ensure_portal_dependencies("npm", _portal(tmp_path, locked=None, node_modules=False))
+        _ensure_portal_dependencies("npm", _portal(tmp_path, lockfile_at=None, node_modules=False))
         assert npm.commands == [["install"]]
 
     def test_an_install_failure_exits_with_npms_error(
@@ -142,7 +119,7 @@ class TestBuildPortal:
     def test_a_stale_install_is_redone_before_the_build(
         self, tmp_path: Path, npm: FakeNpm, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        portal = _portal(tmp_path, installed={"node_modules/vite": {"version": "7.3.5"}})
+        portal = _portal(tmp_path, lockfile_at=INSTALLED_AT + 1)
         monkeypatch.setattr("wumpus_archiver.utils.process_manager.find_npm", lambda: "npm")
         monkeypatch.setattr(
             "wumpus_archiver.utils.process_manager.resolve_portal_dir", lambda: portal
@@ -203,8 +180,33 @@ class TestDevStartup:
         assert dev_env["started"] == [["backend", "frontend"]]
 
     def test_a_stale_install_is_redone_before_dev_starts(self, dev_env: dict[str, Any]) -> None:
-        (dev_env["portal"] / "node_modules" / ".package-lock.json").unlink()
+        lockfile = dev_env["portal"] / "package-lock.json"
+        os.utime(lockfile, (INSTALLED_AT + 1, INSTALLED_AT + 1))
         result = CliRunner().invoke(cli, ["dev", str(dev_env["db"])])
         assert result.exit_code == 0, result.output
         assert dev_env["npm"].commands == [["ci"]]
         assert dev_env["started"] == [["backend", "frontend"]]
+
+
+class TestUnreadableDotEnv:
+    """A ``.env`` that cannot be decoded is a settings error, not a traceback."""
+
+    @pytest.fixture
+    def latin1_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".env").write_bytes("PORTAL_TITLE=Caf\xe9\n".encode("latin-1"))
+        db_file = tmp_path / "archive.db"
+        db_file.touch()
+        return db_file
+
+    def test_dev_reports_it(self, dev_env: dict[str, Any], latin1_env: Path) -> None:
+        result = CliRunner().invoke(cli, ["dev", str(latin1_env)])
+        assert result.exit_code == 1
+        assert "Failed to load settings" in result.output
+        assert dev_env["started"] == []
+
+    def test_serve_reports_it(self, latin1_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("uvicorn.run", lambda app, **kw: pytest.fail("uvicorn must not run"))
+        result = CliRunner().invoke(cli, ["serve", str(latin1_env)])
+        assert result.exit_code == 1
+        assert "Failed to load settings" in result.output

@@ -2,12 +2,11 @@
 
 import asyncio
 import ipaddress
-import json
 import sys
 from datetime import UTC, datetime
 from importlib.metadata import version as pkg_version
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import click
 from pydantic import ValidationError
@@ -15,6 +14,9 @@ from pydantic import ValidationError
 from wumpus_archiver.bot.scraper import ArchiverBot
 from wumpus_archiver.config import Settings
 from wumpus_archiver.storage.database import Database
+
+if TYPE_CHECKING:
+    from wumpus_archiver.compose import ServeConfig
 
 
 @click.group()
@@ -175,16 +177,12 @@ def serve(
     import uvicorn
 
     from wumpus_archiver.api.app import create_app
-    from wumpus_archiver.compose import portal_build_dir, scrape_control, serve_config
+    from wumpus_archiver.compose import portal_build_dir, scrape_control
 
     # serve is the composition root: it resolves every path, the bot token, the API
     # token and the CORS origins once, and hands the factory values it never has to
     # look for itself. Settings come first, so bad config fails before a portal build.
-    try:
-        config = serve_config()
-    except ValidationError as e:
-        click.echo(f"Error: Failed to load settings: {e}", err=True)
-        sys.exit(1)
+    config = _load_serve_config()
 
     if build_portal:
         _build_portal_static()
@@ -246,56 +244,62 @@ def _warn_if_not_loopback(host: str) -> None:
     )
 
 
-def _portal_dependencies_current(portal_dir: Path) -> bool:
-    """Whether the portal's ``node_modules`` holds exactly what its lockfile pins.
+def _load_serve_config() -> "ServeConfig":
+    """The settings ``serve`` and ``dev`` start from, or exit 1 if they cannot be loaded.
 
-    npm records the tree it installed in ``node_modules/.package-lock.json``. The install
-    is current when every installed package is at its locked version and every locked
-    package is installed, except optional ones (binaries for other platforms, which npm
-    never installs). Without a lockfile there is nothing to compare, so an existing
-    ``node_modules`` counts as current.
+    Both roots report a misconfiguration the same way: an invalid setting, or a ``.env``
+    that cannot be read or decoded, prints "Failed to load settings" and exits.
+
+    Raises:
+        SystemExit: If the settings cannot be loaded.
+    """
+    from wumpus_archiver.compose import serve_config
+
+    try:
+        return serve_config()
+    except (ValidationError, OSError, UnicodeError) as e:
+        click.echo(f"Error: Failed to load settings: {e}", err=True)
+        sys.exit(1)
+
+
+def _portal_install_command(portal_dir: Path) -> str | None:
+    """The npm command that brings the portal's ``node_modules`` up to date, or ``None``.
+
+    npm records each install in ``node_modules/.package-lock.json``, written just after
+    the lockfile, so a lockfile newer than that record changed since the last install
+    (a pull, a merge, a branch switch) and the tree is rebuilt with ``ci``. npm decides
+    what the lockfile means; this only compares times. A tree with no such record (made
+    by another package manager, or with ``package-lock=false``) is left alone rather than
+    wiped on every start. Without a lockfile, only a missing ``node_modules`` installs.
     """
     node_modules = portal_dir / "node_modules"
     lockfile = portal_dir / "package-lock.json"
+    has_lockfile = lockfile.is_file()
     if not node_modules.is_dir():
-        return False
-    if not lockfile.is_file():
-        return True
+        return "ci" if has_lockfile else "install"
+    if not has_lockfile:
+        return None
     try:
-        locked = json.loads(lockfile.read_text(encoding="utf-8"))["packages"]
-        record = node_modules / ".package-lock.json"
-        installed = json.loads(record.read_text(encoding="utf-8"))["packages"]
-        if any(
-            path not in locked or locked[path].get("version") != entry.get("version")
-            for path, entry in installed.items()
-        ):
-            return False
-        return all(
-            path in installed or entry.get("optional", False)
-            for path, entry in locked.items()
-            if path
-        )
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        # A missing or unreadable record: npm will rebuild it.
-        return False
+        installed_at = (node_modules / ".package-lock.json").stat().st_mtime_ns
+    except OSError:
+        return None
+    return "ci" if lockfile.stat().st_mtime_ns > installed_at else None
 
 
 def _ensure_portal_dependencies(npm: str, portal_dir: Path) -> None:
-    """Install the portal's dependencies unless ``node_modules`` already matches its lockfile.
-
-    With a lockfile the install is ``npm ci``, so it is exactly what the lockfile pins.
+    """Install the portal's dependencies when ``node_modules`` is missing or stale.
 
     Raises:
         SystemExit: If the install fails.
     """
     import subprocess
 
-    if _portal_dependencies_current(portal_dir):
+    command = _portal_install_command(portal_dir)
+    if command is None:
         return
-    has_lockfile = (portal_dir / "package-lock.json").is_file()
     click.echo("Installing portal dependencies...")
     result = subprocess.run(
-        [npm, "ci" if has_lockfile else "install"],
+        [npm, command],
         cwd=str(portal_dir),
         capture_output=True,
         text=True,
@@ -516,7 +520,6 @@ def dev(
     attachments_dir: Path,
 ) -> None:
     """Start development environment (backend + frontend with hot-reload)."""
-    from wumpus_archiver.compose import serve_config
     from wumpus_archiver.utils.process_manager import (
         ManagedProcess,
         find_npm,
@@ -526,11 +529,7 @@ def dev(
 
     # Like serve, bad config stops dev before anything starts. The backend loads the
     # settings again in its own process; this load only checks them.
-    try:
-        serve_config()
-    except ValidationError as e:
-        click.echo(f"Error: Failed to load settings: {e}", err=True)
-        sys.exit(1)
+    _load_serve_config()
 
     # Resolve paths
     db_path = database.resolve()
