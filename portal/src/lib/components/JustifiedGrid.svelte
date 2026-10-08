@@ -22,7 +22,8 @@
 		width: number;
 		targetHeight?: number;
 		gap?: number;
-		onopen: (attachment: GalleryAttachment) => void;
+		/** A tile was chosen; `tile` is its element, for the Lightbox to zoom from and return focus to. */
+		onopen: (attachment: GalleryAttachment, tile: HTMLElement) => void;
 	} = $props();
 
 	/** Aspect ratios measured in the browser, for attachments without a recorded size. */
@@ -53,9 +54,10 @@
 					type="button"
 					class="tile"
 					data-kind={kind}
+					data-attachment-id={attachment.id}
 					style:width="{Math.floor(aspects[row.start + i] * row.height * 100) / 100}px"
 					aria-label="{kindLabel[kind]}: {attachment.filename}"
-					onclick={() => onopen(attachment)}
+					onclick={(e) => onopen(attachment, e.currentTarget)}
 				>
 					{#if kind === 'video'}
 						<video

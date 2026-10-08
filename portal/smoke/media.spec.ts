@@ -226,17 +226,17 @@ test('videos and GIFs carry a badge; local attachments are served by the portal'
 test('a tile opens the one lightbox, which steps through every loaded month', media, async ({ page }) => {
 	await page.goto('/media', { waitUntil: 'networkidle' });
 	await page.getByRole('button', { name: 'Image: another.png' }).click();
-	const lightbox = page.locator('.lightbox-overlay');
+	const lightbox = page.getByRole('dialog');
 	await expect(lightbox).toHaveCount(1);
-	await expect(lightbox.locator('.lightbox-img')).toHaveAttribute('alt', 'another.png');
+	await expect(lightbox.locator('.stage .media')).toHaveAttribute('alt', 'another.png');
 
 	// another.png is June's last; the next is May's first.
 	await page.keyboard.press('ArrowRight');
 	await expect(lightbox).toHaveCount(1);
-	await expect(lightbox.locator('.lightbox-img')).toHaveAttribute('alt', 'drawing.png');
+	await expect(lightbox.locator('.stage .media')).toHaveAttribute('alt', 'drawing.png');
 	await page.keyboard.press('ArrowLeft');
 	await page.keyboard.press('ArrowLeft');
-	await expect(lightbox.locator('video.lightbox-img')).toHaveAttribute('src', /clip\.webm$/);
+	await expect(lightbox.locator('.stage video.media')).toHaveAttribute('src', /clip\.webm$/);
 
 	await page.keyboard.press('Escape');
 	await expect(lightbox).toHaveCount(0);

@@ -107,6 +107,10 @@ _Avoid_: control page, scrape page
 The portal page that shows attachments across a guild, fed by the gallery timeline.
 _Avoid_: gallery (the endpoint family), images page
 
+**Lightbox**:
+The dialog that shows one attachment large, over the Media screen or Browse's Media tab, with a filmstrip of the others loaded beside it.
+_Avoid_: viewer, modal, image popup
+
 **People screen**:
 The portal page that lists authors.
 _Avoid_: users page, members page
